@@ -7,7 +7,7 @@
 - **In-memory caching** with optional TTL (time-to-live).
 - **Asynchronous source functions** for fetching and caching dynamic data.
 - **Refetch functionality** to update cache values using stored source functions.
-- **Flexible API** for managing cached data: set, get, delete, check existence, and clear.
+- **Easy interface** for managing cached data: set, get, delete and check existence.
 
 ## Installation
 
