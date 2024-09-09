@@ -20,26 +20,28 @@ npm install run-cache
 ## Usage
 
 ```js
-import { RunCache } from 'run-cache'
+import { RunCache } from "run-cache";
 
 // Set a cache value with 60s ttl
-RunCache.set('sample_key_1', 'sample_value_1', 60000)
+RunCache.set("sample_key_1", "sample_value_1", 60000);
 
 // Set a cache value with function definition to fetch the value later
-RunCache.setWithSourceFn('sample_key_2', () => { return Promise.resolve('sample_value_2') })
+RunCache.setWithSourceFn("sample_key_2", () => {
+  return Promise.resolve("sample_value_2");
+});
 
 // Refetch the cache value (This will call the above function and update the cache value)
-await RunCache.refetch('sample_key_2')
+await RunCache.refetch("sample_key_2");
 
 // Get a value for a given cache key
-const value = RunCache.get('sample_key_1')
+const value = RunCache.get("sample_key_1");
 
 // Delete a specific cache key
-RunCache.delete('sample_key_1');
+RunCache.delete("sample_key_1");
 
 // Delete all cache keys
-RunCache.deleteAll()
+RunCache.deleteAll();
 
 // Returns a boolean based on existence of the given cache key
-const hasCache = RunCache.has('sample_key_1')
+const hasCache = RunCache.has("sample_key_1");
 ```
