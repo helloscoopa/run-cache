@@ -1,5 +1,4 @@
-[![npm](https://img.shields.io/npm/v/run-cache?colorA=000000&colorB=ff98a2
-)](https://www.npmjs.com/package/run-cache)
+[![npm](https://img.shields.io/npm/v/run-cache?colorA=000000&colorB=ff98a2)](https://www.npmjs.com/package/run-cache)
 
 # RunCache
 
@@ -22,29 +21,68 @@ npm install run-cache
 
 ## Usage
 
-```js
+#### Import library 
+```ts
 import { RunCache } from "run-cache";
+```
 
-// Set a cache value with 60s ttl
-RunCache.set("sample_key_1", "sample_value_1", 60000);
-
-// Set a cache value with function definition to fetch the value later
-RunCache.setWithSourceFn("sample_key_2", () => {
-  return Promise.resolve("sample_value_2");
+#### Set cache
+```ts
+// Set a cache value
+RunCache.set({
+  key: "Key", 
+  value: "Value",
 });
 
-// Refetch the cache value (This will call the above function and update the cache value)
-await RunCache.refetch("sample_key_2");
+// Set a cache value with 60s ttl
+RunCache.set({
+  key: "Key", 
+  value: "Value", 
+  ttl: 60000 // in milliseconds
+});
 
-// Get a value for a given cache key
-const value = RunCache.get("sample_key_1");
+// Set a cache value with function to fetch the value later
+RunCache.setWithSourceFn({
+  key: "Key", 
+  sourceFn: () => { return Promise.resolve("Value") }
+});
 
+/* 
+  Additionally set `autoRefetch: true` with a `ttl` value, this makes it auto-refetch the value on expiry when consumer tries to call `get` on this key
+*/
+RunCache.setWithSourceFn({
+  key: "Key", 
+  sourceFn: () => { return Promise.resolve("Value") }
+  autoRefetch: true,
+  ttl: 10000,
+});
+```
+
+#### Refetch values
+
+```ts
+// Refetch the cache value (Only works if the key is set with a sourceFn)
+await RunCache.refetch("Key");
+```
+
+#### Get cache
+
+```ts
+// Get a value for a given cache key, will refetch value automatically if `sourceFn` is provided and `autoRefetch: true`
+const value = await RunCache.get("Key");
+```
+
+#### Delete cache
+```ts
 // Delete a specific cache key
-RunCache.delete("sample_key_1");
+RunCache.delete("Key");
 
 // Delete all cache keys
 RunCache.deleteAll();
+```
 
-// Returns a boolean based on existence of the given cache key
-const hasCache = RunCache.has("sample_key_1");
+#### Check existence of cache
+```ts
+// Returns a boolean, expired cache returns `false` even if they're refetchable
+const hasCache = RunCache.has("Key");
 ```
