@@ -1,5 +1,4 @@
-[![npm](https://img.shields.io/npm/v/run-cache?colorA=000000&colorB=ff98a2
-)](https://www.npmjs.com/package/run-cache)
+[![npm](https://img.shields.io/npm/v/run-cache?colorA=000000&colorB=ff98a2)](https://www.npmjs.com/package/run-cache)
 
 # RunCache
 
