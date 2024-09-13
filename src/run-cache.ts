@@ -19,13 +19,15 @@ class RunCache {
   }
 
   /**
-   * Adds a value to the cache with an optional TTL.
+   * Sets a value in the cache with an optional time-to-live (TTL) value.
+   * This method stores the value associated with the given key and tracks the creation and update timestamps.
    *
-   * @param {string} key - The cache key.
-   * @param {string} value - The value to cache.
-   * @param {number} [ttl] - Optional time-to-live in milliseconds.
-   * @returns {boolean} - The state of the operation
-   * @throws Will throw an error if the key or value is empty
+   * @param {Object} params - Parameters for setting the cache entry.
+   * @param {string} params.key - The key under which the value will be stored in the cache.
+   * @param {string} params.value - The string value to be stored in the cache.
+   * @param {number} [params.ttl] - Optional. Time-to-live for the cached entry in milliseconds. If not specified, the entry will not automatically expire.
+   * @returns {boolean} Returns `true` if the value was successfully set in the cache.
+   * @throws {Error} Throws an error if the `key` or `value` is empty.
    */
   static set({
     key,
@@ -102,7 +104,6 @@ class RunCache {
    * Refetch the cached value using the stored source function and updates the cache with the new value.
    *
    * @param {string} key - The cache key.
-   * @param {number} [ttl] - Optional time-to-live in milliseconds for the updated value.
    * @returns {Promise<boolean>} A promise that resolves to a boolean representing the execution state of the request.
    * @throws Will throw an error if the source function fails.
    */
@@ -134,10 +135,12 @@ class RunCache {
   }
 
   /**
-   * Retrieves the cached value associated with the given key if it exists and has not expired.
+   * Retrieves a value from the cache by key. If the cached value has expired, it will be removed from the cache unless
+   * `autoRefetch` is enabled with an associated `sourceFn`, in which case the value will be refetched automatically.
    *
-   * @param {string} key - The cache key.
-   * @returns {string | undefined} The cached value, or undefined if not found or expired.
+   * @async
+   * @param {string} key - The key of the cache entry to retrieve.
+   * @returns {Promise<string | undefined>} A promise that resolves to the cached value if found and not expired, or `undefined` if the key is not found or the value has expired.
    */
   static async get(key: string): Promise<string | undefined> {
     if (!key) {
