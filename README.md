@@ -2,7 +2,7 @@
 
 # RunCache
 
-RunCache is a dependency nil, light-weight in-memory caching library for JavaScript and TypeScript that allows you to cache `string` values with optional time-to-live (TTL) settings. It also supports caching values generated from asynchronous functions and provides methods for refetching and managing cached data.
+RunCache is a dependency nil, light-weight in-memory caching library for JavaScript and TypeScript that allows you to cache `string` values with optional time-to-live (TTL) settings. It also supports caching values generated from asynchronous functions and provides methods to refetch them on demand.
 
 ## Features
 
@@ -50,9 +50,9 @@ RunCache.set({
 });
 
 /*
-  Additionally, set autoRefetch: true along with a ttl value 
-  to enable automatic refetching. This will cause the cache 
-  to refetch the value upon expiry whenever the consumer 
+  Additionally, set autoRefetch: true along with a ttl value
+  to enable automatic refetching. This will cause the cache
+  to refetch the value upon expiry whenever the consumer
   calls `get` on the specified key.
 */
 RunCache.set({

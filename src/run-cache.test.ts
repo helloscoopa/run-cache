@@ -48,7 +48,7 @@ describe("RunCache", () => {
         key: "key2",
         sourceFn,
       });
-      expect(await RunCache.get("key2")).toBe('"dynamicValue"');
+      expect(await RunCache.get("key2")).toBe(JSON.stringify("dynamicValue"));
     });
 
     it("should be able to set a value with source function, autoRefetch enabled successfully", async () => {
@@ -59,7 +59,7 @@ describe("RunCache", () => {
         ttl: 100,
         autoRefetch: true,
       });
-      expect(await RunCache.get("key2")).toBe('"dynamicValue"');
+      expect(await RunCache.get("key2")).toBe(JSON.stringify("dynamicValue"));
     });
 
     it("should return true if the cache value set successfully", async () => {
@@ -212,13 +212,13 @@ describe("RunCache", () => {
       const sourceFn = async () => dynamicValue;
 
       await RunCache.set({ key: "key1", sourceFn });
-      expect(await RunCache.get("key1")).toBe('"initialValue"');
+      expect(await RunCache.get("key1")).toBe(JSON.stringify("initialValue"));
 
       // Update what's being returned in the source function
       dynamicValue = "updatedValue";
 
       await RunCache.refetch("key1");
-      expect(await RunCache.get("key1")).toBe('"updatedValue"');
+      expect(await RunCache.get("key1")).toBe(JSON.stringify("updatedValue"));
     });
   });
 });

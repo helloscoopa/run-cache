@@ -45,11 +45,11 @@ class RunCache {
     sourceFn?: SourceFn;
     autoRefetch?: boolean;
   }): Promise<boolean> {
-    if (!key.length) {
+    if (!key || !key.length) {
       throw Error("Empty key");
     }
 
-    if (sourceFn === undefined && !value.length) {
+    if (sourceFn === undefined && (!value || !value.length)) {
       throw Error("`Value` can't be empty without a `sourceFn`");
     }
 
@@ -61,10 +61,10 @@ class RunCache {
 
     if (sourceFn) {
       try {
-        const value = await sourceFn.call(this);
+        const _value = value ? value : await sourceFn.call(this);
 
         RunCache.cache.set(key, {
-          value: JSON.stringify(value),
+          value: JSON.stringify(_value),
           ttl: ttl,
           sourceFn,
           autoRefetch,
@@ -108,6 +108,7 @@ class RunCache {
 
     try {
       const value = await cached.sourceFn.call(this);
+
       RunCache.cache.set(key, {
         value: JSON.stringify(value),
         ttl: cached.ttl,
