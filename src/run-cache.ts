@@ -78,6 +78,10 @@ class RunCache {
     ttl?: number;
     autoRefetch?: boolean;
   }): Promise<void> {
+    if (!ttl && autoRefetch) {
+      throw Error("`autoRefetch` is not allowed without `ttl`");
+    }
+
     try {
       const value = await sourceFn.call(this);
 
@@ -95,7 +99,7 @@ class RunCache {
   }
 
   /**
-   * Refetches the cached value using the stored source function and updates the cache with the new value.
+   * Refetch the cached value using the stored source function and updates the cache with the new value.
    *
    * @param {string} key - The cache key.
    * @param {number} [ttl] - Optional time-to-live in milliseconds for the updated value.
@@ -150,12 +154,7 @@ class RunCache {
       return cached.value;
     }
 
-    if (!cached.sourceFn) {
-      RunCache.cache.delete(key);
-      return undefined;
-    }
-
-    if (!cached.autoRefetch) {
+    if (cached.sourceFn === undefined || !cached.autoRefetch) {
       RunCache.cache.delete(key);
       return undefined;
     }

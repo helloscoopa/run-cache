@@ -1,5 +1,9 @@
 import { RunCache } from "./run-cache";
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 describe("RunCache", () => {
   beforeEach(() => {
     RunCache.deleteAll();
@@ -26,9 +30,9 @@ describe("RunCache", () => {
       expect(await RunCache.get("key2")).toBe("value2");
 
       // Wait for the TTL to expire
-      setTimeout(() => {
-        expect(RunCache.get("key2")).toBeUndefined();
-      }, 150);
+      await sleep(150);
+
+      expect(await RunCache.get("key2")).toBeUndefined();
     });
   });
 
@@ -41,9 +45,49 @@ describe("RunCache", () => {
       expect(await RunCache.get("key1")).toBeUndefined();
     });
 
+    it("should return the value successfully if the cache is not expired", async () => {
+      const sourceFn = () => {
+        return Promise.resolve("value1");
+      };
+
+      await RunCache.setWithSourceFn({
+        key: "key1",
+        sourceFn,
+        ttl: 100,
+      });
+
+      expect(await RunCache.get("key1")).toBe(JSON.stringify("value1"));
+    });
+
+    it("should auto refetch and return the new value successfully", async () => {
+      let dynamicValue = "initialValue";
+
+      const sourceFn = () => {
+        return Promise.resolve(dynamicValue);
+      };
+
+      await RunCache.setWithSourceFn({
+        key: "key2",
+        sourceFn,
+        autoRefetch: true,
+        ttl: 100,
+      });
+
+      expect(await RunCache.get("key2")).toBe(JSON.stringify("initialValue"));
+
+      dynamicValue = "updatedValue";
+
+      // Wait for the TTL to expire
+      await sleep(150);
+
+      console.log('await RunCache.get("key2")', await RunCache.get("key2"));
+
+      expect(await RunCache.get("key2")).toBe(JSON.stringify("updatedValue"));
+    });
+
     it("should return the value successfully", async () => {
-      RunCache.set({ key: "key1", value: "value1" });
-      expect(await RunCache.get("key1")).toBe("value1");
+      RunCache.set({ key: "key3", value: "value1" });
+      expect(await RunCache.get("key3")).toBe("value1");
     });
   });
 
@@ -79,14 +123,14 @@ describe("RunCache", () => {
       expect(RunCache.has("nonExistentKey")).toBe(false);
     });
 
-    it("should return false after ttl expiry", () => {
+    it("should return false after ttl expiry", async () => {
       RunCache.set({ key: "key2", value: "value2", ttl: 50 }); // Set TTL to 50ms
       expect(RunCache.has("key2")).toBe(true);
 
       // Wait for the TTL to expire
-      setTimeout(() => {
-        expect(RunCache.has("key2")).toBe(false);
-      }, 100);
+      await sleep(150);
+
+      expect(RunCache.has("key2")).toBe(false);
     });
   });
 
@@ -95,7 +139,7 @@ describe("RunCache", () => {
       let sourceFn = async () => {
         throw Error("Unexpected Error");
       };
-      expect(
+      await expect(
         RunCache.setWithSourceFn({
           key: "key1",
           sourceFn,
@@ -103,11 +147,33 @@ describe("RunCache", () => {
       ).rejects.toThrow("Source function failed");
     });
 
+    it("should throw an error when the autoRefetch: true while ttl is not provided", async () => {
+      const sourceFn = async () => "dynamicValue";
+      await expect(
+        RunCache.setWithSourceFn({
+          key: "key2",
+          sourceFn,
+          autoRefetch: true,
+        }),
+      ).rejects.toThrow("`autoRefetch` is not allowed without `ttl`");
+    });
+
     it("should be able to set a value with source function successfully", async () => {
       const sourceFn = async () => "dynamicValue";
       await RunCache.setWithSourceFn({
         key: "key2",
         sourceFn,
+      });
+      expect(await RunCache.get("key2")).toBe('"dynamicValue"');
+    });
+
+    it("should be able to set a value with source function, autoRefetch enabled successfully", async () => {
+      const sourceFn = async () => "dynamicValue";
+      await RunCache.setWithSourceFn({
+        key: "key2",
+        sourceFn,
+        ttl: 100,
+        autoRefetch: true,
       });
       expect(await RunCache.get("key2")).toBe('"dynamicValue"');
     });
