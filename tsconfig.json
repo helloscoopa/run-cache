@@ -1,8 +1,17 @@
 {
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": ".",
-    "esModuleInterop": true,
-    "lib": ["ES2015"]
-  }
+    "target": "ES6", // Target version of JavaScript
+    "module": "CommonJS", // Module system
+    "outDir": "./dist", // Output directory for compiled files
+    "declaration": true, // Generate .d.ts files
+    "declarationDir": "./dist", // Output directory for .d.ts files
+    "emitDeclarationOnly": false, // Emit both JS and .d.ts files
+    "sourceMap": true, // Include source maps (optional)
+    "strict": true, // Enable all strict type-checking options (optional)
+    "esModuleInterop": true, // Enables emit interoperability between CommonJS and ES Modules
+    "skipLibCheck": true, // Skip type checking of declaration files (optional)
+    "forceConsistentCasingInFileNames": true // Ensure consistency in file naming (optional)
+  },
+  "include": ["src/**/*"], // Include all TypeScript files in the src folder
+  "exclude": ["node_modules", "dist", "**/**.test.ts"] // Exclude node_modules and dist from compilation
 }

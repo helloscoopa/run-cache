@@ -31,20 +31,20 @@ import { RunCache } from "run-cache";
 
 ```ts
 // Set a cache value
-RunCache.set({
+await RunCache.set({
   key: "Key",
   value: "Value",
 });
 
 // Set a cache value with 60s ttl
-RunCache.set({
+await RunCache.set({
   key: "Key",
   value: "Value",
   ttl: 60000 // in milliseconds
 });
 
 // Set a cache value with function to fetch the value later
-RunCache.set({
+await RunCache.set({
   key: "Key",
   sourceFn: () => { return Promise.resolve("Value") }
 });
@@ -55,7 +55,7 @@ RunCache.set({
   to refetch the value upon expiry whenever the consumer
   calls `get` on the specified key.
 */
-RunCache.set({
+await RunCache.set({
   key: "Key",
   sourceFn: () => { return Promise.resolve("Value") }
   autoRefetch: true,

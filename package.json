@@ -1,17 +1,25 @@
 {
   "name": "run-cache",
   "version": "1.2.0",
-  "description": "`RunCache` is a dependency nil, light-weight in-memory caching library for JavaScript and TypeScript that allows you to cache `string` values with optional time-to-live (TTL) settings. It also supports caching values generated from asynchronous functions and provides methods to refetch them on demand.",
-  "main": "index.js",
+  "description": "RunCache is a dependency nil, light-weight in-memory caching library for JavaScript and TypeScript that allows you to cache `string` values with optional time-to-live (TTL) settings. It also supports caching values generated from asynchronous functions and provides methods to refetch them on demand.",
+  "main": "dist/run-cache.js",
+  "types": "dist/run-cache.d.ts",
   "scripts": {
+    "build": "tsc",
     "test": "jest test.ts"
   },
-  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "type": "commonjs",
   "keywords": [
+    "javascript",
+    "library",
+    "typescript",
+    "memory",
     "cache",
-    "runtime",
-    "in-memory",
-    "memory"
+    "memory-cache",
+    "runtime-cache"
   ],
   "author": "helloscoopa",
   "license": "MIT",
@@ -22,6 +30,7 @@
   "devDependencies": {
     "@types/jest": "^29.5.12",
     "jest": "^29.7.0",
-    "ts-jest": "^29.2.5"
+    "ts-jest": "^29.2.5",
+    "tsx": "^4.19.1"
   }
 }
