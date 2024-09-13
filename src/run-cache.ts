@@ -29,75 +29,60 @@ class RunCache {
    * @returns {boolean} Returns `true` if the value was successfully set in the cache.
    * @throws {Error} Throws an error if the `key` or `value` is empty.
    */
-  static set({
+  static async set({
     key,
     value,
     ttl,
+    sourceFn,
+    autoRefetch,
   }: {
     key: string;
-    value: string;
+    value?: string;
     ttl?: number;
-  }): boolean {
+    sourceFn?: SourceFn;
+    autoRefetch?: boolean;
+  }): Promise<boolean> {
     if (!key.length) {
       throw Error("Empty key");
     }
 
-    if (!value.length) {
-      throw Error("Empty value");
+    if (sourceFn === undefined && !value.length) {
+      throw Error("`Value` can't be empty without a `sourceFn`");
+    }
+
+    if (!ttl && autoRefetch) {
+      throw Error("`autoRefetch` is not allowed without a `ttl`");
+    }
+
+    const time = Date.now();
+
+    if (sourceFn) {
+      try {
+        const value = await sourceFn.call(this);
+
+        RunCache.cache.set(key, {
+          value: JSON.stringify(value),
+          ttl: ttl,
+          sourceFn,
+          autoRefetch,
+          createAt: time,
+          updateAt: time,
+        });
+
+        return true;
+      } catch (e) {
+        throw Error("Source function failed");
+      }
     }
 
     RunCache.cache.set(key, {
       value,
       ttl,
-      createAt: Date.now(),
-      updateAt: Date.now(),
+      createAt: time,
+      updateAt: time,
     });
 
     return true;
-  }
-
-  /**
-   * Sets a value in the cache using a provided source function.
-   * The value is stored with an expiry time, and the caching behavior can be customized with optional parameters.
-   *
-   * @async
-   * @param {Object} params - Parameters for setting the cache entry.
-   * @param {string} params.key - The key under which the value will be stored in the cache.
-   * @param {SourceFn} params.sourceFn - A function that generates the value to be cached. This function is called in the context of the current class instance.
-   * @param {number} [params.ttl] - Optional. Time-to-live for the cached entry in milliseconds. If not specified, the default TTL will be used.
-   * @param {boolean} [params.autoRefetch] - Optional. Determines whether the cache should automatically refetch the value after it expires.
-   * @returns {Promise<void>} Resolves when the value has been successfully set in the cache.
-   * @throws {Error} Throws an error if the source function fails to execute.
-   */
-  static async setWithSourceFn({
-    key,
-    sourceFn,
-    ttl,
-    autoRefetch,
-  }: {
-    key: string;
-    sourceFn: SourceFn;
-    ttl?: number;
-    autoRefetch?: boolean;
-  }): Promise<void> {
-    if (!ttl && autoRefetch) {
-      throw Error("`autoRefetch` is not allowed without `ttl`");
-    }
-
-    try {
-      const value = await sourceFn.call(this);
-
-      RunCache.cache.set(key, {
-        value: JSON.stringify(value),
-        ttl: ttl,
-        sourceFn,
-        autoRefetch,
-        createAt: Date.now(),
-        updateAt: Date.now(),
-      });
-    } catch (e) {
-      throw Error("Source function failed");
-    }
   }
 
   /**

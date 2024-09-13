@@ -2,7 +2,7 @@
 
 # RunCache
 
-`RunCache` is a dependency nil, light-weight in-memory caching library for JavaScript and TypeScript that allows you to cache `string` values with optional time-to-live (TTL) settings. It also supports caching values generated from asynchronous functions and provides methods for refetching and managing cached data.
+RunCache is a dependency nil, light-weight in-memory caching library for JavaScript and TypeScript that allows you to cache `string` values with optional time-to-live (TTL) settings. It also supports caching values generated from asynchronous functions and provides methods for refetching and managing cached data.
 
 ## Features
 
@@ -21,37 +21,39 @@ npm install run-cache
 
 ## Usage
 
-#### Import library 
+#### Import library
+
 ```ts
 import { RunCache } from "run-cache";
 ```
 
 #### Set cache
+
 ```ts
 // Set a cache value
 RunCache.set({
-  key: "Key", 
+  key: "Key",
   value: "Value",
 });
 
 // Set a cache value with 60s ttl
 RunCache.set({
-  key: "Key", 
-  value: "Value", 
+  key: "Key",
+  value: "Value",
   ttl: 60000 // in milliseconds
 });
 
 // Set a cache value with function to fetch the value later
 RunCache.setWithSourceFn({
-  key: "Key", 
+  key: "Key",
   sourceFn: () => { return Promise.resolve("Value") }
 });
 
-/* 
+/*
   Additionally set `autoRefetch: true` with a `ttl` value, this makes it auto-refetch the value on expiry when consumer tries to call `get` on this key
 */
 RunCache.setWithSourceFn({
-  key: "Key", 
+  key: "Key",
   sourceFn: () => { return Promise.resolve("Value") }
   autoRefetch: true,
   ttl: 10000,
@@ -73,6 +75,7 @@ const value = await RunCache.get("Key");
 ```
 
 #### Delete cache
+
 ```ts
 // Delete a specific cache key
 RunCache.delete("Key");
@@ -82,6 +85,7 @@ RunCache.deleteAll();
 ```
 
 #### Check existence of cache
+
 ```ts
 // Returns a boolean, expired cache returns `false` even if they're refetchable
 const hasCache = RunCache.has("Key");

@@ -10,21 +10,64 @@ describe("RunCache", () => {
   });
 
   describe("set()", () => {
-    it("should throw an error if the cache key or value is empty", () => {
-      expect(() => RunCache.set({ key: "", value: "value1" })).toThrow(
+    it("should throw an error if the cache key or value is empty", async () => {
+      await expect(() => RunCache.set({ key: "", value: "value1" })).rejects.toThrow(
         "Empty key",
       );
-      expect(() => RunCache.set({ key: "key1", value: "" })).toThrow(
-        "Empty value",
+      await expect(() => RunCache.set({ key: "key1", value: "" })).rejects.toThrow(
+        "`Value` can't be empty without a `sourceFn`",
       );
     });
 
-    it("should return true if the cache value set successfully", () => {
-      expect(RunCache.set({ key: "key1", value: "value1" })).toBe(true);
+    it("should throw an error when the source function throws an error", async () => {
+      let sourceFn = async () => {
+        throw Error("Unexpected Error");
+      };
+      await expect(
+        RunCache.set({
+          key: "key1",
+          sourceFn,
+        }),
+      ).rejects.toThrow("Source function failed");
+    });
+
+    it("should throw an error when the autoRefetch: true while ttl is not provided", async () => {
+      const sourceFn = async () => "dynamicValue";
+      await expect(
+        RunCache.set({
+          key: "key2",
+          sourceFn,
+          autoRefetch: true,
+        }),
+      ).rejects.toThrow("`autoRefetch` is not allowed without a `ttl`");
+    });
+
+    it("should be able to set a value with source function successfully", async () => {
+      const sourceFn = async () => "dynamicValue";
+      await RunCache.set({
+        key: "key2",
+        sourceFn,
+      });
+      expect(await RunCache.get("key2")).toBe('"dynamicValue"');
+    });
+
+    it("should be able to set a value with source function, autoRefetch enabled successfully", async () => {
+      const sourceFn = async () => "dynamicValue";
+      await RunCache.set({
+        key: "key2",
+        sourceFn,
+        ttl: 100,
+        autoRefetch: true,
+      });
+      expect(await RunCache.get("key2")).toBe('"dynamicValue"');
+    });
+
+    it("should return true if the cache value set successfully", async () => {
+      expect(await RunCache.set({ key: "key1", value: "value1" })).toBe(true);
     });
 
     it("should return true if the cache set with a ttl and ttl is functioning properly", async () => {
-      expect(RunCache.set({ key: "key2", value: "value2", ttl: 100 })).toBe(
+      expect(await RunCache.set({ key: "key2", value: "value2", ttl: 100 })).toBe(
         true,
       );
       expect(await RunCache.get("key2")).toBe("value2");
@@ -50,7 +93,7 @@ describe("RunCache", () => {
         return Promise.resolve("value1");
       };
 
-      await RunCache.setWithSourceFn({
+      await RunCache.set({
         key: "key1",
         sourceFn,
         ttl: 100,
@@ -66,7 +109,7 @@ describe("RunCache", () => {
         return Promise.resolve(dynamicValue);
       };
 
-      await RunCache.setWithSourceFn({
+      await RunCache.set({
         key: "key2",
         sourceFn,
         autoRefetch: true,
@@ -132,51 +175,6 @@ describe("RunCache", () => {
     });
   });
 
-  describe("setWithSourceFn()", () => {
-    it("should throw an error when the source function throws an error", async () => {
-      let sourceFn = async () => {
-        throw Error("Unexpected Error");
-      };
-      await expect(
-        RunCache.setWithSourceFn({
-          key: "key1",
-          sourceFn,
-        }),
-      ).rejects.toThrow("Source function failed");
-    });
-
-    it("should throw an error when the autoRefetch: true while ttl is not provided", async () => {
-      const sourceFn = async () => "dynamicValue";
-      await expect(
-        RunCache.setWithSourceFn({
-          key: "key2",
-          sourceFn,
-          autoRefetch: true,
-        }),
-      ).rejects.toThrow("`autoRefetch` is not allowed without `ttl`");
-    });
-
-    it("should be able to set a value with source function successfully", async () => {
-      const sourceFn = async () => "dynamicValue";
-      await RunCache.setWithSourceFn({
-        key: "key2",
-        sourceFn,
-      });
-      expect(await RunCache.get("key2")).toBe('"dynamicValue"');
-    });
-
-    it("should be able to set a value with source function, autoRefetch enabled successfully", async () => {
-      const sourceFn = async () => "dynamicValue";
-      await RunCache.setWithSourceFn({
-        key: "key2",
-        sourceFn,
-        ttl: 100,
-        autoRefetch: true,
-      });
-      expect(await RunCache.get("key2")).toBe('"dynamicValue"');
-    });
-  });
-
   describe("refetch()", () => {
     it("should throw an error if refetch is called on a key having no source function", async () => {
       RunCache.set({ key: "key2", value: "value2" });
@@ -195,7 +193,7 @@ describe("RunCache", () => {
           return "SomeValue";
         }
       };
-      await RunCache.setWithSourceFn({ key: "key3", sourceFn });
+      await RunCache.set({ key: "key3", sourceFn });
 
       // Make source function to fail
       breaker = true;
@@ -213,7 +211,7 @@ describe("RunCache", () => {
       let dynamicValue = "initialValue";
       const sourceFn = async () => dynamicValue;
 
-      await RunCache.setWithSourceFn({ key: "key1", sourceFn });
+      await RunCache.set({ key: "key1", sourceFn });
       expect(await RunCache.get("key1")).toBe('"initialValue"');
 
       // Update what's being returned in the source function
