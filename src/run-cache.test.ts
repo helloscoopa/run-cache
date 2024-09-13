@@ -16,7 +16,7 @@ describe("RunCache", () => {
       ).rejects.toThrow("Empty key");
       await expect(() =>
         RunCache.set({ key: "key1", value: "" }),
-      ).rejects.toThrow("`Value` can't be empty without a `sourceFn`");
+      ).rejects.toThrow("`value` can't be empty without a `sourceFn`");
     });
 
     it("should throw an error when the source function throws an error", async () => {

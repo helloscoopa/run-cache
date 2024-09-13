@@ -50,7 +50,7 @@ class RunCache {
     }
 
     if (sourceFn === undefined && (!value || !value.length)) {
-      throw Error("`Value` can't be empty without a `sourceFn`");
+      throw Error("`value` can't be empty without a `sourceFn`");
     }
 
     if (!ttl && autoRefetch) {
@@ -79,7 +79,7 @@ class RunCache {
     }
 
     RunCache.cache.set(key, {
-      value,
+      value: value!,
       ttl,
       createAt: time,
       updateAt: time,
@@ -153,7 +153,11 @@ class RunCache {
 
     await RunCache.refetch(key);
 
-    return RunCache.cache.get(key).value;
+    const cache = RunCache.cache.get(key);
+
+    if (!cache) return undefined;
+
+    return cache.value;
   }
 
   /**
