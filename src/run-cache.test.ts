@@ -80,8 +80,6 @@ describe("RunCache", () => {
       // Wait for the TTL to expire
       await sleep(150);
 
-      console.log('await RunCache.get("key2")', await RunCache.get("key2"));
-
       expect(await RunCache.get("key2")).toBe(JSON.stringify("updatedValue"));
     });
 
