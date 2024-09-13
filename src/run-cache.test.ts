@@ -11,12 +11,12 @@ describe("RunCache", () => {
 
   describe("set()", () => {
     it("should throw an error if the cache key or value is empty", async () => {
-      await expect(() => RunCache.set({ key: "", value: "value1" })).rejects.toThrow(
-        "Empty key",
-      );
-      await expect(() => RunCache.set({ key: "key1", value: "" })).rejects.toThrow(
-        "`Value` can't be empty without a `sourceFn`",
-      );
+      await expect(() =>
+        RunCache.set({ key: "", value: "value1" }),
+      ).rejects.toThrow("Empty key");
+      await expect(() =>
+        RunCache.set({ key: "key1", value: "" }),
+      ).rejects.toThrow("`Value` can't be empty without a `sourceFn`");
     });
 
     it("should throw an error when the source function throws an error", async () => {
@@ -67,9 +67,9 @@ describe("RunCache", () => {
     });
 
     it("should return true if the cache set with a ttl and ttl is functioning properly", async () => {
-      expect(await RunCache.set({ key: "key2", value: "value2", ttl: 100 })).toBe(
-        true,
-      );
+      expect(
+        await RunCache.set({ key: "key2", value: "value2", ttl: 100 }),
+      ).toBe(true);
       expect(await RunCache.get("key2")).toBe("value2");
 
       // Wait for the TTL to expire

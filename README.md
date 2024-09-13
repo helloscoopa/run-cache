@@ -27,7 +27,7 @@ npm install run-cache
 import { RunCache } from "run-cache";
 ```
 
-#### Set cache
+#### Set cache:
 
 ```ts
 // Set a cache value
@@ -44,15 +44,18 @@ RunCache.set({
 });
 
 // Set a cache value with function to fetch the value later
-RunCache.setWithSourceFn({
+RunCache.set({
   key: "Key",
   sourceFn: () => { return Promise.resolve("Value") }
 });
 
 /*
-  Additionally set `autoRefetch: true` with a `ttl` value, this makes it auto-refetch the value on expiry when consumer tries to call `get` on this key
+  Additionally, set autoRefetch: true along with a ttl value 
+  to enable automatic refetching. This will cause the cache 
+  to refetch the value upon expiry whenever the consumer 
+  calls `get` on the specified key.
 */
-RunCache.setWithSourceFn({
+RunCache.set({
   key: "Key",
   sourceFn: () => { return Promise.resolve("Value") }
   autoRefetch: true,
@@ -60,21 +63,24 @@ RunCache.setWithSourceFn({
 });
 ```
 
-#### Refetch values
+#### Refetch cache:
 
 ```ts
 // Refetch the cache value (Only works if the key is set with a sourceFn)
 await RunCache.refetch("Key");
 ```
 
-#### Get cache
+#### Get cache:
 
 ```ts
-// Get a value for a given cache key, will refetch value automatically if `sourceFn` is provided and `autoRefetch: true`
+/* 
+  Get a value for a given cache key, will refetch value automatically
+  if `sourceFn` is provided and `autoRefetch: true` 
+*/
 const value = await RunCache.get("Key");
 ```
 
-#### Delete cache
+#### Delete cache:
 
 ```ts
 // Delete a specific cache key
@@ -84,7 +90,7 @@ RunCache.delete("Key");
 RunCache.deleteAll();
 ```
 
-#### Check existence of cache
+#### Check existence of a specific cache:
 
 ```ts
 // Returns a boolean, expired cache returns `false` even if they're refetchable
