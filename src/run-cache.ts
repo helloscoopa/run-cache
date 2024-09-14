@@ -1,13 +1,26 @@
-type SourceFn = () => Promise<string>;
-
 type CacheState = {
   value: string;
-  sourceFn?: SourceFn;
   createAt: number;
   updateAt: number;
   ttl?: number;
   autoRefetch?: boolean;
+  sourceFn?: SourceFn;
+  
+  onRefetch?: EventFn;
+  onAutoRefetch?: EventFn;
+  onExpire?: EventFn;
 };
+
+export type EventParam = { 
+  key: string;
+  value: string;
+  ttl?: number;
+  createAt: number;
+  updateAt: number;
+}
+
+type SourceFn = () => Promise<string>;
+type EventFn = (params: EventParam) => Promise<void>;
 
 class RunCache {
   private static cache: Map<string, CacheState> = new Map<string, CacheState>();
@@ -38,12 +51,18 @@ class RunCache {
     ttl,
     sourceFn,
     autoRefetch,
+    onExpire,
+    onRefetch,
+    onAutoRefetch,
   }: {
     key: string;
     value?: string;
     ttl?: number;
-    sourceFn?: SourceFn;
     autoRefetch?: boolean;
+    sourceFn?: SourceFn;
+    onExpire?: EventFn,
+    onRefetch?: EventFn,
+    onAutoRefetch?: EventFn
   }): Promise<boolean> {
     if (!key || !key.length) {
       throw Error("Empty key");
@@ -61,6 +80,14 @@ class RunCache {
       throw Error("`ttl` cannot be negative");
     }
 
+    if(!autoRefetch && onAutoRefetch !== undefined) {
+      throw Error("`onAutoRefetch` cannot be provided when `autoRefetch` is not enabled");
+    }
+
+    if(!ttl && onExpire !== undefined) {
+      throw Error("`onExpire` cannot be provided when `ttl` is not set");
+    }
+
     const time = Date.now();
 
     if (sourceFn) {
@@ -72,6 +99,9 @@ class RunCache {
           ttl: ttl,
           sourceFn,
           autoRefetch,
+          onExpire,
+          onRefetch,
+          onAutoRefetch,
           createAt: time,
           updateAt: time,
         });
@@ -113,13 +143,25 @@ class RunCache {
     try {
       const value = await cached.sourceFn.call(this);
 
-      RunCache.cache.set(key, {
+      const refetchedCache = {
         value: JSON.stringify(value),
         ttl: cached.ttl,
         sourceFn: cached.sourceFn,
         createAt: cached.createAt,
         updateAt: Date.now(),
-      });
+      };
+
+      if(cached.onRefetch) {
+        await cached.onRefetch.call(this, {
+          key,
+          value: refetchedCache.value,
+          ttl: refetchedCache.ttl,
+          createAt: refetchedCache.createAt,
+          updateAt: refetchedCache.updateAt,
+        })
+      }
+
+      RunCache.cache.set(key, refetchedCache);
 
       return true;
     } catch (e) {

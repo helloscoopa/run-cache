@@ -1,4 +1,6 @@
-import { RunCache } from "./run-cache";
+import { EventParam, RunCache } from "./run-cache";
+
+import { EventEmitter } from 'events'
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -226,5 +228,23 @@ describe("RunCache", () => {
       await RunCache.refetch("key1");
       expect(await RunCache.get("key1")).toBe(JSON.stringify("updatedValue"));
     });
+
+    it('should trigger onRefetch event on refetch', async () => {
+      let dynamicValue = "initialValue";
+      const sourceFn = async () => dynamicValue;
+
+      const funcToBeExecutedOnRefetch = async (cacheState: EventParam) => {
+        expect(cacheState.key).toBe('key2')
+        expect(cacheState.value).toBe(JSON.stringify('updatedValue'))
+      }
+
+      await RunCache.set({ key: "key2", sourceFn, onRefetch: funcToBeExecutedOnRefetch });
+      expect(await RunCache.get("key2")).toBe(JSON.stringify("initialValue"));
+
+      // Update what's being returned in the source function
+      dynamicValue = "updatedValue";
+
+      await RunCache.refetch("key2");
+    })
   });
 });
