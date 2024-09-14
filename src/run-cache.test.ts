@@ -1,6 +1,6 @@
 import { EventParam, RunCache } from "./run-cache";
 
-import { EventEmitter } from 'events'
+import { EventEmitter } from "events";
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -163,23 +163,41 @@ describe("RunCache", () => {
   });
 
   describe("has()", () => {
-    it("should return true if the key exists", () => {
+    it("should return true if the key exists", async () => {
       RunCache.set({ key: "key1", value: "value1" });
-      expect(RunCache.has("key1")).toBe(true);
+      expect(await RunCache.has("key1")).toBe(true);
     });
 
-    it("should return false if the key exists", () => {
-      expect(RunCache.has("nonExistentKey")).toBe(false);
+    it("should return false if the key exists", async () => {
+      expect(await RunCache.has("nonExistentKey")).toBe(false);
     });
 
     it("should return false after ttl expiry", async () => {
       RunCache.set({ key: "key2", value: "value2", ttl: 50 }); // Set TTL to 50ms
-      expect(RunCache.has("key2")).toBe(true);
+      expect(await RunCache.has("key2")).toBe(true);
 
       // Wait for the TTL to expire
       await sleep(150);
 
-      expect(RunCache.has("key2")).toBe(false);
+      expect(await RunCache.has("key2")).toBe(false);
+    });
+
+    it("should trigger `onExpiry` after ttl expiry", async () => {
+      const funcToBeExecutedOnExpiry = async (cacheState: EventParam) => {
+        expect(cacheState.key).toBe("key2");
+        expect(cacheState.value).toBe(JSON.stringify("value2"));
+      };
+
+      RunCache.set({
+        key: "key2",
+        value: "value2",
+        ttl: 50,
+        onExpire: funcToBeExecutedOnExpiry,
+      }); // Set TTL to 50ms
+      expect(await RunCache.has("key2")).toBe(true);
+
+      // Wait for the TTL to expire
+      await sleep(150);
     });
   });
 
@@ -229,22 +247,26 @@ describe("RunCache", () => {
       expect(await RunCache.get("key1")).toBe(JSON.stringify("updatedValue"));
     });
 
-    it('should trigger onRefetch event on refetch', async () => {
+    it("should trigger onRefetch event on refetch", async () => {
       let dynamicValue = "initialValue";
       const sourceFn = async () => dynamicValue;
 
       const funcToBeExecutedOnRefetch = async (cacheState: EventParam) => {
-        expect(cacheState.key).toBe('key2')
-        expect(cacheState.value).toBe(JSON.stringify('updatedValue'))
-      }
+        expect(cacheState.key).toBe("key2");
+        expect(cacheState.value).toBe(JSON.stringify("updatedValue"));
+      };
 
-      await RunCache.set({ key: "key2", sourceFn, onRefetch: funcToBeExecutedOnRefetch });
+      await RunCache.set({
+        key: "key2",
+        sourceFn,
+        onRefetch: funcToBeExecutedOnRefetch,
+      });
       expect(await RunCache.get("key2")).toBe(JSON.stringify("initialValue"));
 
       // Update what's being returned in the source function
       dynamicValue = "updatedValue";
 
       await RunCache.refetch("key2");
-    })
+    });
   });
 });

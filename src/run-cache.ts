@@ -5,19 +5,18 @@ type CacheState = {
   ttl?: number;
   autoRefetch?: boolean;
   sourceFn?: SourceFn;
-  
+
   onRefetch?: EventFn;
-  onAutoRefetch?: EventFn;
   onExpire?: EventFn;
 };
 
-export type EventParam = { 
+export type EventParam = {
   key: string;
   value: string;
   ttl?: number;
   createAt: number;
   updateAt: number;
-}
+};
 
 type SourceFn = () => Promise<string>;
 type EventFn = (params: EventParam) => Promise<void>;
@@ -53,16 +52,14 @@ class RunCache {
     autoRefetch,
     onExpire,
     onRefetch,
-    onAutoRefetch,
   }: {
     key: string;
     value?: string;
     ttl?: number;
     autoRefetch?: boolean;
     sourceFn?: SourceFn;
-    onExpire?: EventFn,
-    onRefetch?: EventFn,
-    onAutoRefetch?: EventFn
+    onExpire?: EventFn;
+    onRefetch?: EventFn;
   }): Promise<boolean> {
     if (!key || !key.length) {
       throw Error("Empty key");
@@ -80,11 +77,7 @@ class RunCache {
       throw Error("`ttl` cannot be negative");
     }
 
-    if(!autoRefetch && onAutoRefetch !== undefined) {
-      throw Error("`onAutoRefetch` cannot be provided when `autoRefetch` is not enabled");
-    }
-
-    if(!ttl && onExpire !== undefined) {
+    if (!ttl && onExpire !== undefined) {
       throw Error("`onExpire` cannot be provided when `ttl` is not set");
     }
 
@@ -101,7 +94,6 @@ class RunCache {
           autoRefetch,
           onExpire,
           onRefetch,
-          onAutoRefetch,
           createAt: time,
           updateAt: time,
         });
@@ -141,7 +133,7 @@ class RunCache {
     }
 
     try {
-      const value = await cached.sourceFn.call(this);
+      const value = await cached.sourceFn();
 
       const refetchedCache = {
         value: JSON.stringify(value),
@@ -151,14 +143,14 @@ class RunCache {
         updateAt: Date.now(),
       };
 
-      if(cached.onRefetch) {
-        await cached.onRefetch.call(this, {
+      if (cached.onRefetch) {
+        await cached.onRefetch({
           key,
           value: refetchedCache.value,
           ttl: refetchedCache.ttl,
           createAt: refetchedCache.createAt,
           updateAt: refetchedCache.updateAt,
-        })
+        });
       }
 
       RunCache.cache.set(key, refetchedCache);
@@ -192,6 +184,16 @@ class RunCache {
       return cached.value;
     }
 
+    if (cached.onExpire) {
+      await cached.onExpire({
+        key: key,
+        value: cached.value,
+        ttl: cached.ttl,
+        createAt: cached.createAt,
+        updateAt: cached.updateAt,
+      });
+    }
+
     if (cached.sourceFn === undefined || !cached.autoRefetch) {
       RunCache.cache.delete(key);
       return undefined;
@@ -199,11 +201,11 @@ class RunCache {
 
     await RunCache.refetch(key);
 
-    const cache = RunCache.cache.get(key);
+    const refetchedCache = RunCache.cache.get(key);
 
-    if (!cache) return undefined;
+    if (!refetchedCache) return undefined;
 
-    return cache.value;
+    return refetchedCache.value;
   }
 
   /**
@@ -231,14 +233,28 @@ class RunCache {
    * @param {string} key - The cache key.
    * @returns {boolean} True if the cache contains a valid value for the key, false otherwise.
    */
-  static has(key: string): boolean {
+  static async has(key: string): Promise<boolean> {
     const cached = RunCache.cache.get(key);
 
     if (!cached) {
       return false;
     }
 
-    return !this.isExpired(cached);
+    if (this.isExpired(cached)) {
+      if (cached.onExpire) {
+        await cached.onExpire({
+          key: key,
+          value: cached.value,
+          ttl: cached.ttl,
+          createAt: cached.createAt,
+          updateAt: cached.updateAt,
+        });
+      }
+
+      return false;
+    }
+
+    return true;
   }
 }
 
