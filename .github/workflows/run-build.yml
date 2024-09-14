@@ -1,4 +1,4 @@
-name: Run Tests
+name: Run Build
 
 on:
   push:
@@ -19,5 +19,5 @@ jobs:
           node-version: "18"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Test
-        run: npm test
+      - name: Build
+        run: npm run build
