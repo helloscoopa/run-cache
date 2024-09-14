@@ -61,6 +61,30 @@ await RunCache.set({
   autoRefetch: true,
   ttl: 10000,
 });
+
+/*  
+  Use a callback function to get know when your cache expires
+  or when its being refetched. The expiry is triggered only 
+  on demand, not automatically.
+*/
+import { EventParam } from "run-cache";
+
+await RunCache.set({
+  key: "Key",
+  ttl: 10000,
+  onExpiry: async (cache: EventParam) => {
+    console.log(`Cache of key '${cache.key}' has been expired`);
+  }
+})
+
+await RunCache.set({
+  key: "Key",
+  ttl: 10000,
+  sourceFn: () => { return Promise.resolve("Value") }
+  onRefetch: async (cache: EventParam) => {
+    console.log(`Cache of key '${cache.key}' has been refetched`);
+  }
+})
 ```
 
 #### Refetch cache:
