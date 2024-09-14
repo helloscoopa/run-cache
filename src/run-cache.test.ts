@@ -32,19 +32,22 @@ describe("RunCache", () => {
     });
 
     it("should throw an error when the source function throws an error", async () => {
-      const sourceFn = async () => {
+      const sourceFn = jest.fn(async () => {
         throw Error("Unexpected Error");
-      };
+      });
       await expect(
         RunCache.set({
           key: "key1",
           sourceFn,
         }),
       ).rejects.toThrow("Source function failed for key: 'key1'");
+
+      expect(sourceFn).toHaveBeenCalledTimes(1);
     });
 
     it("should throw an error when the autoRefetch: true while ttl is not provided", async () => {
-      const sourceFn = async () => "dynamicValue";
+      const sourceFn = jest.fn(async () => "dynamicValue");
+
       await expect(
         RunCache.set({
           key: "key2",
@@ -52,19 +55,25 @@ describe("RunCache", () => {
           autoRefetch: true,
         }),
       ).rejects.toThrow("`autoRefetch` is not allowed without a `ttl`");
+
+      expect(sourceFn).toHaveBeenCalledTimes(0);
     });
 
     it("should be able to set a value with source function successfully", async () => {
-      const sourceFn = async () => "dynamicValue";
+      const sourceFn = jest.fn(async () => "dynamicValue");
+
       await RunCache.set({
         key: "key2",
         sourceFn,
       });
       expect(await RunCache.get("key2")).toBe(JSON.stringify("dynamicValue"));
+
+      expect(sourceFn).toHaveBeenCalledTimes(1);
     });
 
     it("should be able to set a value with source function, autoRefetch enabled successfully", async () => {
-      const sourceFn = async () => "dynamicValue";
+      const sourceFn = jest.fn(async () => "dynamicValue");
+
       await RunCache.set({
         key: "key2",
         sourceFn,
@@ -72,6 +81,8 @@ describe("RunCache", () => {
         autoRefetch: true,
       });
       expect(await RunCache.get("key2")).toBe(JSON.stringify("dynamicValue"));
+
+      expect(sourceFn).toHaveBeenCalledTimes(1);
     });
 
     it("should return true if the cache value set successfully", async () => {
@@ -101,7 +112,7 @@ describe("RunCache", () => {
     });
 
     it("should return the value successfully if the cache is not expired", async () => {
-      const sourceFn = async () => "value1";
+      const sourceFn = jest.fn(async () => "value1");
 
       await RunCache.set({
         key: "key1",
@@ -110,12 +121,14 @@ describe("RunCache", () => {
       });
 
       expect(await RunCache.get("key1")).toBe(JSON.stringify("value1"));
+
+      expect(sourceFn).toHaveBeenCalledTimes(1);
     });
 
     it("should auto refetch and return the new value successfully", async () => {
       let dynamicValue = "initialValue";
 
-      const sourceFn = async () => dynamicValue;
+      const sourceFn = jest.fn(async () => dynamicValue);
 
       await RunCache.set({
         key: "key2",
@@ -123,6 +136,8 @@ describe("RunCache", () => {
         autoRefetch: true,
         ttl: 100,
       });
+
+      expect(sourceFn).toHaveBeenCalledTimes(1);
 
       expect(await RunCache.get("key2")).toBe(JSON.stringify("initialValue"));
 
@@ -132,6 +147,8 @@ describe("RunCache", () => {
       await sleep(150);
 
       expect(await RunCache.get("key2")).toBe(JSON.stringify("updatedValue"));
+
+      expect(sourceFn).toHaveBeenCalledTimes(2);
     });
 
     it("should return the value successfully", async () => {
@@ -212,14 +229,16 @@ describe("RunCache", () => {
     it("should throw an error when the source function throws an error", async () => {
       let shouldThrowError = false;
 
-      const sourceFn = async () => {
+      const sourceFn = jest.fn(async () => {
         if (shouldThrowError) {
           throw Error("Unexpected Error");
         } else {
           return "SomeValue";
         }
-      };
+      });
       await RunCache.set({ key: "key3", sourceFn });
+
+      expect(sourceFn).toHaveBeenCalledTimes(1);
 
       // Make source function to fail
       shouldThrowError = true;
@@ -227,46 +246,83 @@ describe("RunCache", () => {
       expect(RunCache.refetch("key3")).rejects.toThrow(
         "Source function failed for key: 'key3'",
       );
+
+      expect(sourceFn).toHaveBeenCalledTimes(2);
     });
 
     it("should not refetch if the key does not exist", async () => {
       await expect(RunCache.refetch("nonExistentKey")).resolves.toBeFalsy();
     });
 
+    it("should not call sourceFn more than once at a time", async () => {
+      const sourceFn = jest.fn(async () => {
+        await sleep(1000);
+        return "value";
+      });
+
+      await RunCache.set({ key: "key1", value: "value1", sourceFn });
+
+      const [firstRefetch, secondRefetch, thirdRefetch] = await Promise.all([
+        RunCache.refetch("key1"),
+        RunCache.refetch("key1"),
+        RunCache.refetch("key1"),
+      ]);
+
+      expect(firstRefetch).toBeTruthy();
+      expect(secondRefetch).toBeFalsy();
+      expect(thirdRefetch).toBeFalsy();
+
+      expect(sourceFn).toHaveBeenCalledTimes(1);
+    });
+
     it("should refetch and update the value from the source function", async () => {
       let dynamicValue = "initialValue";
-      const sourceFn = async () => dynamicValue;
+      const sourceFn = jest.fn(async () => dynamicValue);
 
       await RunCache.set({ key: "key1", sourceFn });
       expect(await RunCache.get("key1")).toBe(JSON.stringify("initialValue"));
+
+      expect(sourceFn).toHaveBeenCalledTimes(1);
 
       // Update what's being returned in the source function
       dynamicValue = "updatedValue";
 
       await RunCache.refetch("key1");
+
+      expect(sourceFn).toHaveBeenCalledTimes(2);
+
       expect(await RunCache.get("key1")).toBe(JSON.stringify("updatedValue"));
     });
 
     it("should trigger onRefetch event on refetch", async () => {
       let dynamicValue = "initialValue";
-      const sourceFn = async () => dynamicValue;
+      const sourceFn = jest.fn(async () => dynamicValue);
 
-      const funcToBeExecutedOnRefetch = async (cacheState: EventParam) => {
-        expect(cacheState.key).toBe("key2");
-        expect(cacheState.value).toBe(JSON.stringify("updatedValue"));
-      };
+      const funcToBeExecutedOnRefetch = jest.fn(
+        async (cacheState: EventParam) => {
+          expect(cacheState.key).toBe("key2");
+          expect(cacheState.value).toBe(JSON.stringify("updatedValue"));
+        },
+      );
 
       await RunCache.set({
         key: "key2",
         sourceFn,
         onRefetch: funcToBeExecutedOnRefetch,
       });
+
+      expect(sourceFn).toHaveBeenCalledTimes(1);
+      expect(funcToBeExecutedOnRefetch).toHaveBeenCalledTimes(0);
+
       expect(await RunCache.get("key2")).toBe(JSON.stringify("initialValue"));
 
       // Update what's being returned in the source function
       dynamicValue = "updatedValue";
 
       await RunCache.refetch("key2");
+
+      expect(sourceFn).toHaveBeenCalledTimes(2);
+      expect(funcToBeExecutedOnRefetch).toHaveBeenCalledTimes(1);
     });
   });
 });

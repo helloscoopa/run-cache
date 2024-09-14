@@ -4,6 +4,7 @@ type CacheState = {
   updateAt: number;
   ttl?: number;
   autoRefetch?: boolean;
+  fetching?: boolean;
   sourceFn?: SourceFn;
 
   onRefetch?: EventFn;
@@ -146,7 +147,13 @@ class RunCache {
       throw Error(`No source function found for key: '${key}'`);
     }
 
+    if (cached.fetching) {
+      return false;
+    }
+
     try {
+      RunCache.cache.set(key, { fetching: true, ...cached });
+
       const value = await cached.sourceFn();
 
       const refetchedCache = {
@@ -167,10 +174,18 @@ class RunCache {
         });
       }
 
-      RunCache.cache.set(key, refetchedCache);
+      RunCache.cache.set(key, {
+        fetching: undefined,
+        ...refetchedCache,
+      });
 
       return true;
     } catch (e) {
+      RunCache.cache.set(key, {
+        fetching: undefined,
+        ...cached,
+      });
+
       throw Error(`Source function failed for key: '${key}'`);
     }
   }
