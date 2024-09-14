@@ -1,4 +1,7 @@
-[![npm](https://img.shields.io/npm/v/run-cache?colorA=000000&colorB=ff98a2)](https://www.npmjs.com/package/run-cache)
+![npm-version](https://img.shields.io/npm/v/run-cache?style=plastic)
+![license](https://img.shields.io/github/license/helloscoopa/run-cache?style=plastic)
+![ci-build](https://img.shields.io/github/actions/workflow/status/helloscoopa/run-cache/run-build.yml?style=plastic)
+![ci-tests](https://img.shields.io/github/actions/workflow/status/helloscoopa/run-cache/run-tests.yml?label=tests&style=plastic)
 
 # Run~time~Cache
 
@@ -9,6 +12,7 @@ RunCache is a dependency nil, light-weight in-memory caching library for JavaScr
 - **In-memory caching** with optional TTL (time-to-live).
 - **Asynchronous source functions** for fetching and caching dynamic data.
 - **Refetch functionality** to update cache values using stored source functions.
+- **Events** to get know when cache expires or being refetched.
 - **Easy interface** for managing cached data: set, get, delete and check existence.
 
 ## Installation
