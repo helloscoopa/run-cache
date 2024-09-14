@@ -57,11 +57,15 @@ class RunCache {
       throw Error("`autoRefetch` is not allowed without a `ttl`");
     }
 
+    if (ttl && ttl < 0) {
+      throw Error("`ttl` cannot be negative");
+    }
+
     const time = Date.now();
 
     if (sourceFn) {
       try {
-        const _value = value ? value : await sourceFn.call(this);
+        const _value = value ?? (await sourceFn.call(this));
 
         RunCache.cache.set(key, {
           value: JSON.stringify(_value),
@@ -74,7 +78,7 @@ class RunCache {
 
         return true;
       } catch (e) {
-        throw Error("Source function failed");
+        throw Error(`Source function failed for key: '${key}'`);
       }
     }
 
@@ -103,7 +107,7 @@ class RunCache {
     }
 
     if (!cached.sourceFn) {
-      throw Error("No source function found");
+      throw Error(`No source function found for key: '${key}'`);
     }
 
     try {
@@ -119,7 +123,7 @@ class RunCache {
 
       return true;
     } catch (e) {
-      throw Error("Source function failed");
+      throw Error(`Source function failed for key: '${key}'`);
     }
   }
 
