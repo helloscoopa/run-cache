@@ -21,6 +21,13 @@ export type EventParam = {
 type SourceFn = () => Promise<string>;
 type EventFn = (params: EventParam) => Promise<void>;
 
+class NegativeTTLError extends Error {
+  constructor() {
+    super("`ttl` cannot be negative");
+    this.name = "NegativeTTLError";
+  }
+}
+
 class RunCache {
   private static cache: Map<string, CacheState> = new Map<string, CacheState>();
 
@@ -32,7 +39,7 @@ class RunCache {
 
   /**
    * Sets a value in the cache with optional time-to-live (TTL) and auto-refetch options.
-   * 
+   *
    * @param {Object} params - The parameters for setting the cache entry.
    * @param {string} params.key - The unique key to identify the cache entry. Must not be empty.
    * @param {string} [params.value] - The value to store in the cache. Required if `sourceFn` is not provided.
@@ -41,14 +48,14 @@ class RunCache {
    * @param {SourceFn} [params.sourceFn] - A function to fetch the value when `value` is not provided or for refetching when TTL expires.
    * @param {EventFn} [params.onExpire] - A callback function triggered when the cache entry expires. Only allowed if `ttl` is set.
    * @param {EventFn} [params.onRefetch] - A callback function triggered when the cache entry is refetched via `sourceFn`.
-   * 
+   *
    * @throws {Error} If the `key` is empty.
    * @throws {Error} If neither `value` nor `sourceFn` is provided.
    * @throws {Error} If `autoRefetch` is enabled without setting a `ttl`.
    * @throws {Error} If `ttl` is negative.
    * @throws {Error} If `onExpire` is provided without a `ttl`.
    * @throws {Error} If the `sourceFn` throws an error while fetching the value.
-   * 
+   *
    * @returns {Promise<boolean>} - Returns `true` when the value is successfully set in the cache.
    */
   static async set({
@@ -72,7 +79,7 @@ class RunCache {
       throw Error("Empty key");
     }
 
-    if (sourceFn === undefined && (!value || !value.length)) {
+    if (typeof sourceFn !== "function" && (!value || !value.length)) {
       throw Error("`value` can't be empty without a `sourceFn`");
     }
 
@@ -81,16 +88,16 @@ class RunCache {
     }
 
     if (ttl && ttl < 0) {
-      throw Error("`ttl` cannot be negative");
+      throw new NegativeTTLError();
     }
 
-    if (!ttl && onExpire !== undefined) {
+    if (!ttl && typeof onExpire === "function") {
       throw Error("`onExpire` cannot be provided when `ttl` is not set");
     }
 
     const time = Date.now();
 
-    if (sourceFn) {
+    if (typeof sourceFn === "function") {
       try {
         const _value = value ?? (await sourceFn.call(this));
 
@@ -135,7 +142,7 @@ class RunCache {
       return false;
     }
 
-    if (!cached.sourceFn) {
+    if (typeof cached.sourceFn === "undefined") {
       throw Error(`No source function found for key: '${key}'`);
     }
 
@@ -150,7 +157,7 @@ class RunCache {
         updateAt: Date.now(),
       };
 
-      if (cached.onRefetch) {
+      if (typeof cached.onRefetch === "function") {
         await cached.onRefetch({
           key,
           value: refetchedCache.value,
@@ -191,7 +198,7 @@ class RunCache {
       return cached.value;
     }
 
-    if (cached.onExpire) {
+    if (typeof cached.onExpire === "function") {
       await cached.onExpire({
         key: key,
         value: cached.value,
@@ -201,18 +208,14 @@ class RunCache {
       });
     }
 
-    if (cached.sourceFn === undefined || !cached.autoRefetch) {
+    if (typeof cached.sourceFn === "undefined" || !cached.autoRefetch) {
       RunCache.cache.delete(key);
       return undefined;
     }
 
     await RunCache.refetch(key);
 
-    const refetchedCache = RunCache.cache.get(key);
-
-    if (!refetchedCache) return undefined;
-
-    return refetchedCache.value;
+    return RunCache.cache.get(key)?.value ?? undefined;
   }
 
   /**
@@ -248,7 +251,7 @@ class RunCache {
     }
 
     if (this.isExpired(cached)) {
-      if (cached.onExpire) {
+      if (typeof cached.onExpire === "function") {
         await cached.onExpire({
           key: key,
           value: cached.value,

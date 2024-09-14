@@ -210,10 +210,10 @@ describe("RunCache", () => {
     });
 
     it("should throw an error when the source function throws an error", async () => {
-      let breaker = false;
+      let shouldThrowError = false;
 
       const sourceFn = async () => {
-        if (breaker) {
+        if (shouldThrowError) {
           throw Error("Unexpected Error");
         } else {
           return "SomeValue";
@@ -222,7 +222,7 @@ describe("RunCache", () => {
       await RunCache.set({ key: "key3", sourceFn });
 
       // Make source function to fail
-      breaker = true;
+      shouldThrowError = true;
 
       expect(RunCache.refetch("key3")).rejects.toThrow(
         "Source function failed for key: 'key3'",

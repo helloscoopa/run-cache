@@ -62,9 +62,9 @@ await RunCache.set({
   ttl: 10000,
 });
 
-/*  
+/*
   Use a callback function to get know when your cache expires
-  or when its being refetched. The expiry is triggered only 
+  or when its being refetched. The expiry is triggered only
   on demand, not automatically.
 */
 import { EventParam } from "run-cache";
