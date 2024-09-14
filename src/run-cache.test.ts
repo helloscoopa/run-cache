@@ -1,4 +1,6 @@
-import { RunCache } from "./run-cache";
+import { EventParam, RunCache } from "./run-cache";
+
+import { EventEmitter } from "events";
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -19,8 +21,18 @@ describe("RunCache", () => {
       ).rejects.toThrow("`value` can't be empty without a `sourceFn`");
     });
 
+    it("should throw an error when a negative ttl is provided", async () => {
+      await expect(
+        RunCache.set({
+          key: "key1",
+          value: "value1",
+          ttl: -1,
+        }),
+      ).rejects.toThrow("`ttl` cannot be negative");
+    });
+
     it("should throw an error when the source function throws an error", async () => {
-      let sourceFn = async () => {
+      const sourceFn = async () => {
         throw Error("Unexpected Error");
       };
       await expect(
@@ -28,7 +40,7 @@ describe("RunCache", () => {
           key: "key1",
           sourceFn,
         }),
-      ).rejects.toThrow("Source function failed");
+      ).rejects.toThrow("Source function failed for key: 'key1'");
     });
 
     it("should throw an error when the autoRefetch: true while ttl is not provided", async () => {
@@ -89,9 +101,7 @@ describe("RunCache", () => {
     });
 
     it("should return the value successfully if the cache is not expired", async () => {
-      const sourceFn = () => {
-        return Promise.resolve("value1");
-      };
+      const sourceFn = async () => "value1";
 
       await RunCache.set({
         key: "key1",
@@ -105,9 +115,7 @@ describe("RunCache", () => {
     it("should auto refetch and return the new value successfully", async () => {
       let dynamicValue = "initialValue";
 
-      const sourceFn = () => {
-        return Promise.resolve(dynamicValue);
-      };
+      const sourceFn = async () => dynamicValue;
 
       await RunCache.set({
         key: "key2",
@@ -155,23 +163,41 @@ describe("RunCache", () => {
   });
 
   describe("has()", () => {
-    it("should return true if the key exists", () => {
+    it("should return true if the key exists", async () => {
       RunCache.set({ key: "key1", value: "value1" });
-      expect(RunCache.has("key1")).toBe(true);
+      expect(await RunCache.has("key1")).toBe(true);
     });
 
-    it("should return false if the key exists", () => {
-      expect(RunCache.has("nonExistentKey")).toBe(false);
+    it("should return false if the key exists", async () => {
+      expect(await RunCache.has("nonExistentKey")).toBe(false);
     });
 
     it("should return false after ttl expiry", async () => {
       RunCache.set({ key: "key2", value: "value2", ttl: 50 }); // Set TTL to 50ms
-      expect(RunCache.has("key2")).toBe(true);
+      expect(await RunCache.has("key2")).toBe(true);
 
       // Wait for the TTL to expire
       await sleep(150);
 
-      expect(RunCache.has("key2")).toBe(false);
+      expect(await RunCache.has("key2")).toBe(false);
+    });
+
+    it("should trigger `onExpiry` after ttl expiry", async () => {
+      const funcToBeExecutedOnExpiry = async (cacheState: EventParam) => {
+        expect(cacheState.key).toBe("key2");
+        expect(cacheState.value).toBe(JSON.stringify("value2"));
+      };
+
+      RunCache.set({
+        key: "key2",
+        value: "value2",
+        ttl: 50,
+        onExpire: funcToBeExecutedOnExpiry,
+      }); // Set TTL to 50ms
+      expect(await RunCache.has("key2")).toBe(true);
+
+      // Wait for the TTL to expire
+      await sleep(150);
     });
   });
 
@@ -179,15 +205,15 @@ describe("RunCache", () => {
     it("should throw an error if refetch is called on a key having no source function", async () => {
       RunCache.set({ key: "key2", value: "value2" });
       await expect(RunCache.refetch("key2")).rejects.toThrow(
-        "No source function found",
+        `No source function found for key: 'key2'`,
       );
     });
 
     it("should throw an error when the source function throws an error", async () => {
-      let breaker = false;
+      let shouldThrowError = false;
 
-      let sourceFn = async () => {
-        if (breaker) {
+      const sourceFn = async () => {
+        if (shouldThrowError) {
           throw Error("Unexpected Error");
         } else {
           return "SomeValue";
@@ -196,10 +222,10 @@ describe("RunCache", () => {
       await RunCache.set({ key: "key3", sourceFn });
 
       // Make source function to fail
-      breaker = true;
+      shouldThrowError = true;
 
       expect(RunCache.refetch("key3")).rejects.toThrow(
-        "Source function failed",
+        "Source function failed for key: 'key3'",
       );
     });
 
@@ -219,6 +245,28 @@ describe("RunCache", () => {
 
       await RunCache.refetch("key1");
       expect(await RunCache.get("key1")).toBe(JSON.stringify("updatedValue"));
+    });
+
+    it("should trigger onRefetch event on refetch", async () => {
+      let dynamicValue = "initialValue";
+      const sourceFn = async () => dynamicValue;
+
+      const funcToBeExecutedOnRefetch = async (cacheState: EventParam) => {
+        expect(cacheState.key).toBe("key2");
+        expect(cacheState.value).toBe(JSON.stringify("updatedValue"));
+      };
+
+      await RunCache.set({
+        key: "key2",
+        sourceFn,
+        onRefetch: funcToBeExecutedOnRefetch,
+      });
+      expect(await RunCache.get("key2")).toBe(JSON.stringify("initialValue"));
+
+      // Update what's being returned in the source function
+      dynamicValue = "updatedValue";
+
+      await RunCache.refetch("key2");
     });
   });
 });
