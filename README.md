@@ -1,7 +1,8 @@
-![npm-version](https://img.shields.io/npm/v/run-cache?style=plastic)
-![license](https://img.shields.io/github/license/helloscoopa/run-cache?style=plastic)
-![ci-build](https://img.shields.io/github/actions/workflow/status/helloscoopa/run-cache/run-build.yml?style=plastic)
-![ci-tests](https://img.shields.io/github/actions/workflow/status/helloscoopa/run-cache/run-tests.yml?label=tests&style=plastic)
+![npm-version](https://img.shields.io/npm/v/run-cache)
+![commits-since](https://img.shields.io/github/commits-since/helloscoopa/run-cache/latest/main)
+![license](https://img.shields.io/github/license/helloscoopa/run-cache)
+![ci-build](https://img.shields.io/github/actions/workflow/status/helloscoopa/run-cache/run-build.yml?label=build)
+![ci-tests](https://img.shields.io/github/actions/workflow/status/helloscoopa/run-cache/run-tests.yml?label=tests)
 
 # Run~time~Cache
 
