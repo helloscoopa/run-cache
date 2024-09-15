@@ -2,7 +2,7 @@
 [![license](https://img.shields.io/github/license/helloscoopa/run-cache)](https://github.com/helloscoopa/run-cache?tab=MIT-1-ov-file)
 [![ci-build](https://img.shields.io/github/actions/workflow/status/helloscoopa/run-cache/run-build.yml?label=build)](https://github.com/helloscoopa/run-cache/actions/workflows/build.yml)
 [![ci-tests](https://img.shields.io/github/actions/workflow/status/helloscoopa/run-cache/run-tests.yml?label=tests)](https://github.com/helloscoopa/run-cache/actions/workflows/tests.yml)
-[![commits-since](https://img.shields.io/github/commits-since/helloscoopa/run-cache/latest/main)](https://github.com/helloscoopa/run-cache/releases/latest)
+[![commits-since](https://img.shields.io/github/commits-since/helloscoopa/run-cache/latest/main?color=yellow)](https://github.com/helloscoopa/run-cache/releases/latest)
 
 # Run~time~Cache
 
