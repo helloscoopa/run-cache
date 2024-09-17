@@ -77,7 +77,7 @@ import { EventParam } from "run-cache";
 await RunCache.set({
   key: "Key",
   ttl: 10000,
-  onExpiry: async (cache: EventParam) => {
+  onExpiry: (cache: EventParam) => {
     console.log(`Cache of key '${cache.key}' has been expired`);
   }
 })
@@ -85,8 +85,8 @@ await RunCache.set({
 await RunCache.set({
   key: "Key",
   ttl: 10000,
-  sourceFn: () => { return Promise.resolve("Value") }
-  onRefetch: async (cache: EventParam) => {
+  sourceFn: () => { return Promise.resolve("Value") },
+  onRefetch: (cache: EventParam) => {
     console.log(`Cache of key '${cache.key}' has been refetched`);
   }
 })

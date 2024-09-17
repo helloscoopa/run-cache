@@ -6,9 +6,9 @@ type CacheState = {
   autoRefetch?: boolean;
   fetching?: boolean;
   sourceFn?: SourceFn;
-
   onRefetch?: EventFn;
   onExpire?: EventFn;
+  timeout?: NodeJS.Timeout;
 };
 
 export type EventParam = {
@@ -100,6 +100,23 @@ class RunCache {
 
     if (typeof sourceFn === "function") {
       try {
+        const timeout = setTimeout(async () => {
+          const _cached = RunCache.cache.get(key);
+          if (!_cached || _cached.onExpire === undefined) return;
+
+          if (_cached.autoRefetch) {
+            await this.refetch(key);
+          }
+
+          await _cached.onExpire({
+            key: key,
+            value: _cached.value,
+            ttl: _cached.ttl,
+            createAt: _cached.createAt,
+            updateAt: _cached.updateAt,
+          });
+        }, ttl);
+
         const _value = value ?? (await sourceFn.call(this));
 
         RunCache.cache.set(key, {
@@ -109,6 +126,7 @@ class RunCache {
           autoRefetch,
           onExpire,
           onRefetch,
+          timeout,
           createAt: time,
           updateAt: time,
         });
@@ -240,6 +258,13 @@ class RunCache {
    * @returns {boolean} True if the key was deleted, false otherwise.
    */
   static delete(key: string): boolean {
+    const cache = RunCache.cache.get(key);
+    if (!cache) return false;
+
+    if (cache.timeout) {
+      clearTimeout(cache.timeout);
+    }
+
     return RunCache.cache.delete(key);
   }
 
@@ -249,6 +274,14 @@ class RunCache {
    * @returns {void}
    */
   static deleteAll(): void {
+    const values = Array.from(RunCache.cache.values());
+
+    values.forEach(({ timeout }) => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    });
+
     RunCache.cache.clear();
   }
 
