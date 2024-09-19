@@ -95,7 +95,7 @@ class RunCache {
       timeout = setTimeout(async () => {
         RunCache.emitEvent(EVENT.EXPIRE, {
           key,
-          value: value ?? "",
+          value: JSON.stringify(value ?? ""),
           ttl,
           createAt: time,
           updateAt: time,

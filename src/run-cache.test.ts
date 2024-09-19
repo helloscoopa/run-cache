@@ -244,7 +244,7 @@ describe("RunCache", () => {
   });
 
   describe("refetch()", () => {
-    it("should throw an error if refetch is called on a key having no source function", async () => {
+    it("should resolve to false if refetch is called on a key having no source function", async () => {
       const key = uuid();
 
       RunCache.set({ key, value: uuid() });
@@ -339,7 +339,7 @@ describe("RunCache", () => {
       const funcToBeExecutedOnExpiry = jest.fn(
         async (cacheState: EventParam) => {
           expect(cacheState.key).toStrictEqual(key);
-          expect(cacheState.value).toStrictEqual(value);
+          expect(cacheState.value).toStrictEqual(JSON.stringify(value));
           expect(cacheState.ttl).toStrictEqual(100);
         },
       );
