@@ -1,4 +1,4 @@
-import { EventEmitter } from "events";
+import { EventEmitter } from "node:events";
 
 type CacheState = {
   value: string;
@@ -88,7 +88,7 @@ class RunCache {
 
       timeout = setTimeout(async () => {
         if (typeof sourceFn === "function" && autoRefetch) {
-          await this.refetch(key);
+          await RunCache.refetch(key);
         }
 
         RunCache.emitEvent("expire", {
@@ -203,7 +203,7 @@ class RunCache {
       return undefined;
     }
 
-    if (!this.isExpired(cached)) {
+    if (!RunCache.isExpired(cached)) {
       return cached.value;
     }
 
@@ -272,7 +272,7 @@ class RunCache {
       return false;
     }
 
-    if (this.isExpired(cached)) {
+    if (RunCache.isExpired(cached)) {
       RunCache.emitEvent("expire", {
         key: key,
         value: cached.value,
