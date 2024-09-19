@@ -1,10 +1,6 @@
 import { EVENT, EventParam, RunCache } from "./run-cache";
 import { v4 as uuid } from "uuid";
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 describe("RunCache", () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -297,12 +293,9 @@ describe("RunCache", () => {
     });
 
     it("should not call sourceFn more than once at a time", async () => {
-      jest.useRealTimers();
-
       const key = uuid();
 
       const sourceFn = jest.fn(async () => {
-        await sleep(10);
         return uuid();
       });
 
