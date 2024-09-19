@@ -369,10 +369,7 @@ describe("RunCache", () => {
 
   describe("onRefetch() and onKeyRefetch()", () => {
     it("should trigger on refetch", async () => {
-      jest.useFakeTimers();
-
       const key = uuid();
-
       let dynamicValue = uuid();
 
       const funcToBeExecutedOnRefetch = jest.fn((cacheState: EventParam) => {
@@ -406,8 +403,6 @@ describe("RunCache", () => {
 
   describe("onRefetchFailure() and onKeyRefetchFailure()", () => {
     it("should trigger if the sourceFn fails", async () => {
-      jest.useFakeTimers();
-
       const key = uuid();
       const value = uuid();
 
@@ -423,7 +418,7 @@ describe("RunCache", () => {
 
       const sourceFn = jest.fn(() => {
         if (breaker) {
-          throw Error();
+          throw Error("Simulated source function failure");
         } else {
           return uuid();
         }
@@ -490,7 +485,7 @@ describe("RunCache", () => {
       const funcToBeExecutedOnRefetch = jest.fn();
       const funcToBeExecutedOnExpiry = jest.fn();
 
-      const sourceFn = jest.fn(() => "value");
+      const sourceFn = jest.fn(() => uuid());
 
       RunCache.onRefetch(funcToBeExecutedOnRefetch);
       RunCache.onKeyRefetch(key, funcToBeExecutedOnRefetch);

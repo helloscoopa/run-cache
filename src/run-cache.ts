@@ -8,7 +8,7 @@ type CacheState = {
   autoRefetch?: boolean;
   fetching?: boolean;
   sourceFn?: SourceFn;
-  timeout?: NodeJS.Timeout;
+  timeout?: ReturnType<typeof setTimeout>;
 };
 
 export type EventParam = {
@@ -86,12 +86,12 @@ class RunCache {
     }
 
     const time = Date.now();
-    let timeout: NodeJS.Timeout | null = null;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
 
     if (ttl !== undefined) {
       if (ttl < 0) throw new Error("Value `ttl` cannot be negative");
 
-      timeout = setTimeout(async () => {
+      timeout = setTimeout(() => {
         RunCache.emitEvent(EVENT.EXPIRE, {
           key,
           value: JSON.stringify(value ?? ""),
@@ -101,11 +101,9 @@ class RunCache {
         });
 
         if (typeof sourceFn === "function" && autoRefetch) {
-          try {
-            await RunCache.refetch(key);
-          } catch (e) {
+          RunCache.refetch(key).catch((e) => {
             /* Ignore as the event is already emitted inside the function */
-          }
+          });
         }
       }, ttl);
     }
@@ -399,8 +397,8 @@ class RunCache {
    * @throws {Error} If `key` is provided without an `event`.
    */
   static clearEventListeners(params?: {
-    event?: EventName | undefined;
-    key?: string | undefined;
+    event?: EventName;
+    key?: string;
   }): boolean {
     if (!params) {
       RunCache.emitter.removeAllListeners();
