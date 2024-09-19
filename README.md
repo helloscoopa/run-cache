@@ -5,15 +5,15 @@
 
 # Run~time~Cache
 
-RunCache is a dependency-free, lightweight runtime caching library for JavaScript and TypeScript that allows you to cache `string` values with optional time-to-live (TTL) settings. It also supports caching values generated from asynchronous functions and provides methods to refetch them on demand.
+RunCache is a dependency-free, lightweight runtime caching library for JavaScript and TypeScript that allows you to cache `string` values with optional time-to-live (TTL) settings. It also supports caching values generated from sync/async functions and provide methods to refetch them on expiry or on demand; with set of events to keep track of the state of the cache.
 
 ## Features
 
-- **In-memory caching** with optional TTL (time-to-live).
-- **Asynchronous source functions** for fetching and caching dynamic data.
-- **Refetch functionality** to update cache values using stored source functions.
-- **Events** to get know when cache expires or being refetched.
-- **Easy interface** for managing cached data: set, get, delete and check existence.
+- **Dependency-free:** Does not consume any external dependencies.
+- **In-memory caching:** A runtime cache that gives you quick access.
+- **Sync/async source functions:** Fetch dynamic data from user-defined functions.
+- **Events:** Get to know when cache expires, refetched or refetch fails.
+- **Intuitive SDK:** Clean interface to access data.
 
 ## Installation
 
@@ -67,7 +67,7 @@ await RunCache.set({
 });
 
 /*
-  Use a callback function to get know when your cache expires
+  Use a callback function to get to know when your cache expires
   or when its being refetched. The expiry is triggered only
   on demand, not automatically.
 */
