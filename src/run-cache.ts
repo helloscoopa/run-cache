@@ -77,7 +77,7 @@ class RunCache {
       throw new Error("Empty key");
     }
 
-    if (!sourceFn && !value) {
+    if (sourceFn === undefined && (value === undefined || !value.length)) {
       throw new Error("`value` can't be empty without a `sourceFn`");
     }
 
@@ -86,6 +86,13 @@ class RunCache {
     }
 
     const time = Date.now();
+
+    // Clear existing timeout if the key already exists
+    const existingCache = RunCache.cache.get(key);
+    if (existingCache && existingCache.timeout) {
+      clearTimeout(existingCache.timeout);
+    }
+
     let timeout: ReturnType<typeof setTimeout> | null = null;
 
     if (ttl !== undefined) {
