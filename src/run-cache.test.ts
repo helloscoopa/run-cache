@@ -1,4 +1,4 @@
-import { EventParam, RunCache } from "./run-cache";
+import { EVENT, EventParam, RunCache } from "./run-cache";
 import { v4 as uuid } from "uuid";
 
 async function sleep(ms: number): Promise<void> {
@@ -335,8 +335,6 @@ describe("RunCache", () => {
 
   describe("onExpire() and onKeyExpiry()", () => {
     it("should trigger after ttl expiry", async () => {
-      jest.useFakeTimers();
-
       const key = uuid();
       const value = uuid();
 
@@ -455,7 +453,9 @@ describe("RunCache", () => {
         autoRefetch: true,
       });
 
-      const eventsCleared = RunCache.clearEventListeners({ event: "expire" });
+      const eventsCleared = RunCache.clearEventListeners({
+        event: EVENT.EXPIRE,
+      });
       expect(eventsCleared).toBeTruthy();
 
       jest.advanceTimersByTime(101);
@@ -472,7 +472,7 @@ describe("RunCache", () => {
       const funcToBeExecutedOnRefetch = jest.fn();
       const funcToBeExecutedOnExpiry = jest.fn();
 
-      const sourceFn = jest.fn(() => "value");
+      const sourceFn = jest.fn(() => uuid());
 
       RunCache.onRefetch(funcToBeExecutedOnRefetch);
       RunCache.onKeyRefetch(key, funcToBeExecutedOnRefetch);
@@ -481,7 +481,7 @@ describe("RunCache", () => {
       RunCache.onKeyExpiry(key, funcToBeExecutedOnExpiry);
 
       const eventsCleared = RunCache.clearEventListeners({
-        event: "expire",
+        event: EVENT.EXPIRE,
         key,
       });
       expect(eventsCleared).toBeTruthy();

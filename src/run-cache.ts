@@ -23,6 +23,14 @@ type EmitParam = Pick<CacheState, "value" | "ttl" | "createAt" | "updateAt"> & {
   key: string;
 };
 
+export const EVENT = Object.freeze({
+  EXPIRE: "expire",
+  REFETCH: "refetch",
+  REFETCH_FAILURE: "refetch-failure",
+});
+
+type EventName = (typeof EVENT)[keyof typeof EVENT];
+
 type SourceFn = () => Promise<string> | string;
 type EventFn = (params: EventParam) => Promise<void> | void;
 
@@ -85,7 +93,7 @@ class RunCache {
       if (ttl < 0) throw new Error("Value `ttl` cannot be negative");
 
       timeout = setTimeout(async () => {
-        RunCache.emitEvent("expire", {
+        RunCache.emitEvent(EVENT.EXPIRE, {
           key,
           value: value ?? "",
           ttl,
@@ -99,18 +107,18 @@ class RunCache {
       }, ttl);
     }
 
-    let cachedValue = value;
+    let cacheValue = value;
 
-    if (!value && typeof sourceFn === "function") {
+    if (value === undefined && typeof sourceFn === "function") {
       try {
-        cachedValue = await sourceFn();
+        cacheValue = await sourceFn();
       } catch (e) {
         throw new Error(`Source function failed for key: '${key}'`);
       }
     }
 
     RunCache.cache.set(key, {
-      value: JSON.stringify(cachedValue),
+      value: JSON.stringify(cacheValue),
       ttl,
       sourceFn,
       autoRefetch,
@@ -157,17 +165,17 @@ class RunCache {
         updateAt: Date.now(),
       };
 
-      RunCache.cache.set(key, {
-        fetching: undefined,
-        ...refetchedCache,
-      });
-
-      RunCache.emitEvent("refetch", {
+      RunCache.emitEvent(EVENT.REFETCH, {
         key,
         value: refetchedCache.value,
         ttl: refetchedCache.ttl,
         createAt: refetchedCache.createAt,
         updateAt: refetchedCache.updateAt,
+      });
+
+      RunCache.cache.set(key, {
+        fetching: undefined,
+        ...refetchedCache,
       });
 
       return true;
@@ -204,7 +212,7 @@ class RunCache {
       return cached.value;
     }
 
-    RunCache.emitEvent("expire", {
+    RunCache.emitEvent(EVENT.EXPIRE, {
       key: key,
       value: cached.value,
       ttl: cached.ttl,
@@ -275,7 +283,7 @@ class RunCache {
     }
 
     if (RunCache.isExpired(cached)) {
-      RunCache.emitEvent("expire", {
+      RunCache.emitEvent(EVENT.EXPIRE, {
         key: key,
         value: cached.value,
         ttl: cached.ttl,
@@ -289,7 +297,7 @@ class RunCache {
     return true;
   }
 
-  private static emitEvent(event: "expire" | "refetch", cache: EmitParam) {
+  private static emitEvent(event: EventName, cache: EmitParam) {
     [event, `${event}-${cache.key}`].forEach((eventId) => {
       RunCache.emitter.emit(eventId, {
         key: cache.key,
@@ -325,8 +333,8 @@ class RunCache {
   static onKeyExpiry(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
 
-    RunCache.emitter.on(`expire-${key}`, callback);
-    RunCache.eventIds.push(`expire-${key}`);
+    RunCache.emitter.on(`${EVENT.EXPIRE}-${key}`, callback);
+    RunCache.eventIds.push(`${EVENT.EXPIRE}-${key}`);
   }
 
   /**
@@ -337,7 +345,7 @@ class RunCache {
    * @returns {void}
    */
   static onRefetch(callback: EventFn): void {
-    RunCache.emitter.on(`refetch`, callback);
+    RunCache.emitter.on(EVENT.REFETCH, callback);
   }
 
   /**
@@ -353,8 +361,20 @@ class RunCache {
   static onKeyRefetch(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
 
-    RunCache.emitter.on(`refetch-${key}`, callback);
-    RunCache.eventIds.push(`refetch-${key}`);
+    RunCache.emitter.on(`${EVENT.REFETCH}-${key}`, callback);
+    RunCache.eventIds.push(`${EVENT.REFETCH}-${key}`);
+  }
+
+  static OnRefetchFailure(callback: EventFn): void {
+    RunCache.emitter.on(`${EVENT.REFETCH_FAILURE}`, callback);
+    RunCache.eventIds.push(`${EVENT.REFETCH_FAILURE}`);
+  }
+
+  static OnKeyRefetchFailure(key: string, callback: EventFn): void {
+    if (!key) throw Error("Empty key");
+
+    RunCache.emitter.on(`${EVENT.REFETCH_FAILURE}-${key}`, callback);
+    RunCache.eventIds.push(`${EVENT.REFETCH_FAILURE}-${key}`);
   }
 
   /**
@@ -365,7 +385,7 @@ class RunCache {
    * - If both `event` and `key` are provided, listeners for that specific event-key combination will be removed.
    *
    * @param {Object} [params] - Optional parameters to specify which listeners to clear.
-   * @param {"expire" | "refetch"} [params.event] - The event type for which listeners should be removed.
+   * @param {EventName} [params.event] - The event type for which listeners should be removed.
    * @param {string} [params.key] - The key associated with the event for which listeners should be removed. Must be provided if `event` is provided.
    *
    * @returns {boolean} - Returns `true` if listeners were removed successfully or `false` if no action was taken.
@@ -373,7 +393,7 @@ class RunCache {
    * @throws {Error} If `key` is provided without an `event`.
    */
   static clearEventListeners(params?: {
-    event?: "expire" | "refetch" | undefined;
+    event?: EventName | undefined;
     key?: string | undefined;
   }): boolean {
     if (!params) {
