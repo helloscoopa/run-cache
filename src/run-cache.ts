@@ -37,7 +37,6 @@ type EventFn = (params: EventParam) => Promise<void> | void;
 class RunCache {
   private static cache: Map<string, CacheState> = new Map<string, CacheState>();
   private static emitter: EventEmitter = new EventEmitter();
-  private static eventIds: string[] = [];
 
   private static isExpired(cache: CacheState): boolean {
     if (!cache.ttl) return false;
@@ -345,7 +344,6 @@ class RunCache {
     if (!key) throw Error("Empty key");
 
     RunCache.emitter.on(`${EVENT.EXPIRE}-${key}`, callback);
-    RunCache.eventIds.push(`${EVENT.EXPIRE}-${key}`);
   }
 
   /**
@@ -373,7 +371,6 @@ class RunCache {
     if (!key) throw Error("Empty key");
 
     RunCache.emitter.on(`${EVENT.REFETCH}-${key}`, callback);
-    RunCache.eventIds.push(`${EVENT.REFETCH}-${key}`);
   }
 
   static onRefetchFailure(callback: EventFn): void {
@@ -384,7 +381,6 @@ class RunCache {
     if (!key) throw Error("Empty key");
 
     RunCache.emitter.on(`${EVENT.REFETCH_FAILURE}-${key}`, callback);
-    RunCache.eventIds.push(`${EVENT.REFETCH_FAILURE}-${key}`);
   }
 
   /**
@@ -423,15 +419,11 @@ class RunCache {
     if (params.event) {
       RunCache.emitter.removeAllListeners(params.event);
 
-      RunCache.eventIds.forEach((eventId) => {
-        if (params.event && eventId.startsWith(params.event)) {
-          RunCache.emitter.removeAllListeners(eventId);
+      RunCache.emitter.eventNames().forEach((eventName) => {
+        if (params.event && typeof eventName === 'string' && eventName.startsWith(params.event)) {
+          RunCache.emitter.removeAllListeners(eventName);
         }
       });
-
-      RunCache.eventIds = RunCache.eventIds.filter(
-        (eventId) => params.event && !eventId.startsWith(params.event),
-      );
 
       return true;
     }
