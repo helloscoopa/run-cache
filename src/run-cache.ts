@@ -139,7 +139,6 @@ class RunCache {
    *
    * @param {string} key - The cache key.
    * @returns {Promise<boolean>} A promise that resolves to a boolean representing the execution state of the request.
-   * @throws Will throw an error if the source function fails.
    */
   static async refetch(key: string): Promise<boolean> {
     const cached = RunCache.cache.get(key);
@@ -149,7 +148,7 @@ class RunCache {
     }
 
     if (typeof cached.sourceFn === "undefined") {
-      throw Error(`No source function found for key: '${key}'`);
+      return false;
     }
 
     if (cached.fetching) {

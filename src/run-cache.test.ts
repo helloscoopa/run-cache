@@ -226,7 +226,7 @@ describe("RunCache", () => {
       expect(await RunCache.has(key)).toStrictEqual(true);
     });
 
-    it("should return false if the key exists", async () => {
+    it("should return false if the key does not exist", async () => {
       expect(await RunCache.has("NonExistentKey")).toStrictEqual(false);
     });
 
@@ -248,9 +248,7 @@ describe("RunCache", () => {
       const key = uuid();
 
       RunCache.set({ key, value: uuid() });
-      await expect(RunCache.refetch(key)).rejects.toThrow(
-        `No source function found for key: '${key}'`,
-      );
+      await expect(RunCache.refetch(key)).resolves.toStrictEqual(false);
     });
 
     it("should throw an error when the source function throws an error", async () => {
@@ -341,7 +339,7 @@ describe("RunCache", () => {
       const funcToBeExecutedOnExpiry = jest.fn(
         async (cacheState: EventParam) => {
           expect(cacheState.key).toStrictEqual(key);
-          expect(cacheState.value).toStrictEqual(JSON.stringify(value));
+          expect(cacheState.value).toStrictEqual(value);
           expect(cacheState.ttl).toStrictEqual(100);
         },
       );
@@ -351,7 +349,7 @@ describe("RunCache", () => {
 
       RunCache.set({
         key,
-        value: JSON.stringify(value),
+        value: value,
         ttl: 100,
       });
 
