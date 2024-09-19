@@ -9,7 +9,7 @@ describe("RunCache", () => {
   beforeEach(() => {
     jest.useFakeTimers();
 
-    RunCache.deleteAll();
+    RunCache.flush();
   });
 
   afterEach(() => {
@@ -202,7 +202,7 @@ describe("RunCache", () => {
     });
   });
 
-  describe("deleteAll()", () => {
+  describe("flush()", () => {
     it("should clear all values", async () => {
       const key1 = uuid();
       const key2 = uuid();
@@ -211,7 +211,7 @@ describe("RunCache", () => {
 
       RunCache.set({ key: key1, value: value1 });
       RunCache.set({ key: key2, value: value2 });
-      RunCache.deleteAll();
+      RunCache.flush();
       expect(await RunCache.get(key1)).toBeUndefined();
       expect(await RunCache.get(key2)).toBeUndefined();
     });

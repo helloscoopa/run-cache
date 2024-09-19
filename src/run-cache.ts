@@ -265,7 +265,7 @@ class RunCache {
    *
    * @returns {void}
    */
-  static deleteAll(): void {
+  static flush(): void {
     const values = Array.from(RunCache.cache.values());
 
     values.forEach(({ timeout }) => {

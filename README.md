@@ -129,7 +129,7 @@ const value = await RunCache.get("Key");
 RunCache.delete("Key");
 
 // Delete all cache keys
-RunCache.deleteAll();
+RunCache.flush();
 ```
 
 #### Check the existence of a specific cache
@@ -142,14 +142,6 @@ const hasCache = RunCache.has("Key");
 #### Clear event listeners
 
 ```ts
-await RunCache.set({
-  key: "Key",
-  ttl: 10000,
-  sourceFn: () => {
-    return Promise.resolve("Value");
-  },
-});
-
 // Clear all listeners
 RunCache.clearEventListeners();
 
