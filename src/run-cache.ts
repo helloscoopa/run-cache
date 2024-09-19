@@ -38,23 +38,20 @@ class RunCache {
   }
 
   /**
-   * Sets a value in the cache with optional time-to-live (TTL) and auto-refetch options.
+   * Sets a cache entry with the specified key, value, and optional parameters like TTL (time to live) and auto-refetch behavior.
    *
-   * @param {Object} params - The parameters for setting the cache entry.
-   * @param {string} params.key - The unique key to identify the cache entry. Must not be empty.
-   * @param {string} [params.value] - The value to store in the cache. Required if `sourceFn` is not provided.
-   * @param {number} [params.ttl] - The time-to-live (TTL) in milliseconds for the cache entry. The entry expires after this period.
-   * @param {boolean} [params.autoRefetch] - If true, automatically refetches the value from `sourceFn` when TTL expires.
-   * @param {SourceFn} [params.sourceFn] - A function to fetch the value when `value` is not provided or for refetching when TTL expires.
+   * @param {Object} params - The parameters to set in the cache.
+   * @param {string} params.key - The key for the cache entry. Must be a non-empty string.
+   * @param {string} [params.value] - The value to store in the cache. If not provided, the `sourceFn` must be defined to generate the value.
+   * @param {number} [params.ttl] - The time-to-live for the cache entry in milliseconds. After this time, the cache entry will expire.
+   * @param {boolean} [params.autoRefetch] - Whether to automatically refetch the value after the TTL expires. Requires a TTL to be set.
+   * @param {SourceFn} [params.sourceFn] - A function that returns the value for the cache. This is used when the value is not provided directly.
    *
-   * @throws {Error} If the `key` is empty.
-   * @throws {Error} If neither `value` nor `sourceFn` is provided.
-   * @throws {Error} If `autoRefetch` is enabled without setting a `ttl`.
+   * @returns {Promise<boolean>} - Returns `true` when the cache entry is successfully set.
+   *
+   * @throws {Error} If the key is empty, if both `value` and `sourceFn` are missing, or if `autoRefetch` is set without a TTL.
    * @throws {Error} If `ttl` is negative.
-   * @throws {Error} If `onExpire` is provided without a `ttl`.
-   * @throws {Error} If the `sourceFn` throws an error while fetching the value.
-   *
-   * @returns {Promise<boolean>} - Returns `true` when the value is successfully set in the cache.
+   * @throws {Error} If the `sourceFn` fails to generate a value.
    */
   static async set({
     key,
@@ -226,10 +223,11 @@ class RunCache {
   }
 
   /**
-   * Deletes the cached value associated with the given key.
+   * Deletes a cache entry by its key. If the entry has an active timeout (for TTL), it clears the timeout.
    *
-   * @param {string} key - The cache key.
-   * @returns {boolean} True if the key was deleted, false otherwise.
+   * @param {string} key - The key of the cache entry to delete. Must be a non-empty string.
+   *
+   * @returns {boolean} - Returns `true` if the cache entry was successfully deleted, `false` if no entry exists for the given key.
    */
   static delete(key: string): boolean {
     const cache = RunCache.cache.get(key);
@@ -243,7 +241,8 @@ class RunCache {
   }
 
   /**
-   * Clears all cached values.
+   * Deletes all cache entries and clears any active timeouts for TTL.
+   * This method iterates over all cache entries, clears any associated timeouts, and then clears the entire cache.
    *
    * @returns {void}
    */
@@ -260,10 +259,13 @@ class RunCache {
   }
 
   /**
-   * Checks if the cache contains a valid (non-expired) value for the given key.
+   * Checks if a cache entry exists for the given key and whether it has expired.
    *
-   * @param {string} key - The cache key.
-   * @returns {boolean} True if the cache contains a valid value for the key, false otherwise.
+   * @param {string} key - The key of the cache entry to check.
+   * @returns {Promise<boolean>} - A promise that resolves to `true` if the cache entry exists and is not expired, otherwise `false`.
+   *
+   * This method retrieves the cache entry by key and checks if it is still valid.
+   * If the cache entry has expired, an "expire" event is emitted and the method returns `false`.
    */
   static async has(key: string): Promise<boolean> {
     const cached = RunCache.cache.get(key);
@@ -304,12 +306,9 @@ class RunCache {
    *
    * @param {EventFn} callback - The function to be executed when the event is triggered.
    *
-   * @example
-   * RunCache.onExpiry((cacheState) => {
-   *   console.log("Cache expired:", cacheState);
-   * });
+   * @returns {void}
    */
-  static onExpiry(callback: EventFn) {
+  static onExpiry(callback: EventFn): void {
     RunCache.emitter.on(`expire`, callback);
   }
 
@@ -319,14 +318,11 @@ class RunCache {
    * @param {string} key - The key for which the expiration event is being tracked.
    * @param {EventFn} callback - The function to be executed when the event is triggered.
    *
-   * @throws {Error} If the `key` is empty.
+   * @returns {void}
    *
-   * @example
-   * RunCache.onKeyExpiry("myKey", (cacheState) => {
-   *   console.log(`Cache expired for key myKey:`, cacheState);
-   * });
+   * @throws {Error} If the `key` is empty.
    */
-  static onKeyExpiry(key: string, callback: EventFn) {
+  static onKeyExpiry(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
 
     RunCache.emitter.on(`expire-${key}`, callback);
@@ -338,12 +334,9 @@ class RunCache {
    *
    * @param {EventFn} callback - The function to be executed when the event is triggered.
    *
-   * @example
-   * RunCache.onRefetch((cacheState) => {
-   *   console.log("Cache refetched:", cacheState);
-   * });
+   * @returns {void}
    */
-  static onRefetch(callback: EventFn) {
+  static onRefetch(callback: EventFn): void {
     RunCache.emitter.on(`refetch`, callback);
   }
 
@@ -353,14 +346,11 @@ class RunCache {
    * @param {string} key - The key for which the refetch event is being tracked.
    * @param {EventFn} callback - The function to be executed when the event is triggered.
    *
-   * @throws {Error} If the `key` is empty.
+   * @returns {void}
    *
-   * @example
-   * RunCache.onKeyRefetch("myKey", (cacheState) => {
-   *   console.log(`Cache refetched for key myKey:`, cacheState);
-   * });
+   * @throws {Error} If the `key` is empty.
    */
-  static onKeyRefetch(key: string, callback: EventFn) {
+  static onKeyRefetch(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
 
     RunCache.emitter.on(`refetch-${key}`, callback);
@@ -378,21 +368,9 @@ class RunCache {
    * @param {"expire" | "refetch"} [params.event] - The event type for which listeners should be removed.
    * @param {string} [params.key] - The key associated with the event for which listeners should be removed. Must be provided if `event` is provided.
    *
-   * @throws {Error} If `key` is provided without an `event`.
-   *
    * @returns {boolean} - Returns `true` if listeners were removed successfully or `false` if no action was taken.
    *
-   * @example
-   * // Remove all listeners
-   * RunCache.clearEventListeners();
-   *
-   * @example
-   * // Remove all listeners for the 'expire' event
-   * RunCache.clearEventListeners({ event: "expire" });
-   *
-   * @example
-   * // Remove all listeners for the 'expire' event with a specific key
-   * RunCache.clearEventListeners({ event: "expire", key: "myKey" });
+   * @throws {Error} If `key` is provided without an `event`.
    */
   static clearEventListeners(params?: {
     event?: "expire" | "refetch" | undefined;
