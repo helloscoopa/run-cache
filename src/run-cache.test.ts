@@ -399,6 +399,53 @@ describe("RunCache", () => {
     });
   });
 
+  describe("onRefetchFailure() and onKeyRefetchFailure()", () => {
+    it("should trigger if the sourceFn fails", async () => {
+      jest.useFakeTimers();
+
+      const key = uuid();
+      const value = uuid();
+
+      let breaker = false;
+
+      const funcToBeExecutedOnRefetchFailure = jest.fn(
+        (cacheState: EventParam) => {
+          expect(cacheState.key).toStrictEqual(key);
+          expect(cacheState.value).toStrictEqual(JSON.stringify(value));
+          expect(cacheState.ttl).toStrictEqual(100);
+        },
+      );
+
+      const sourceFn = jest.fn(() => {
+        if (breaker) {
+          throw Error();
+        } else {
+          return uuid();
+        }
+      });
+
+      RunCache.onRefetchFailure(funcToBeExecutedOnRefetchFailure);
+      RunCache.onKeyRefetchFailure(key, funcToBeExecutedOnRefetchFailure);
+
+      await RunCache.set({
+        key,
+        value,
+        sourceFn,
+        ttl: 100,
+        autoRefetch: true,
+      });
+
+      breaker = true;
+
+      jest.advanceTimersByTime(101);
+
+      await Promise.resolve(); // Flush microtasks
+
+      expect(sourceFn).toHaveBeenCalledTimes(1);
+      expect(funcToBeExecutedOnRefetchFailure).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe("clearEventListeners()", () => {
     it("should cancel existing all listeners", async () => {
       const key = uuid();

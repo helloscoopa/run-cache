@@ -102,7 +102,11 @@ class RunCache {
         });
 
         if (typeof sourceFn === "function" && autoRefetch) {
-          await RunCache.refetch(key);
+          try {
+            await RunCache.refetch(key);
+          } catch (e) {
+            /* Ignore as the event is already emitted inside the function */
+          }
         }
       }, ttl);
     }
@@ -183,6 +187,14 @@ class RunCache {
       RunCache.cache.set(key, {
         fetching: undefined,
         ...cached,
+      });
+
+      RunCache.emitEvent(EVENT.REFETCH_FAILURE, {
+        key,
+        value: cached.value,
+        ttl: cached.ttl,
+        createAt: cached.createAt,
+        updateAt: cached.updateAt,
       });
 
       throw Error(`Source function failed for key: '${key}'`);
@@ -365,12 +377,11 @@ class RunCache {
     RunCache.eventIds.push(`${EVENT.REFETCH}-${key}`);
   }
 
-  static OnRefetchFailure(callback: EventFn): void {
+  static onRefetchFailure(callback: EventFn): void {
     RunCache.emitter.on(`${EVENT.REFETCH_FAILURE}`, callback);
-    RunCache.eventIds.push(`${EVENT.REFETCH_FAILURE}`);
   }
 
-  static OnKeyRefetchFailure(key: string, callback: EventFn): void {
+  static onKeyRefetchFailure(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
 
     RunCache.emitter.on(`${EVENT.REFETCH_FAILURE}-${key}`, callback);
