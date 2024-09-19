@@ -93,7 +93,7 @@ class RunCache {
 
         RunCache.emitEvent("expire", {
           key,
-          value: value!,
+          value: value ?? "",
           ttl,
           createAt: time,
           updateAt: time,
@@ -116,7 +116,7 @@ class RunCache {
       ttl,
       sourceFn,
       autoRefetch,
-      timeout: ttl ? timeout! : undefined,
+      timeout: timeout ?? undefined,
       createAt: time,
       updateAt: time,
     });
@@ -318,11 +318,31 @@ class RunCache {
     RunCache.emitter.on(`refetch-${key}`, callback);
   }
 
-  static clearEventListeners(
-    event: "expire" | "refetch" | undefined = undefined,
-    key: string | undefined = undefined,
-  ) {
-    RunCache.emitter.removeAllListeners();
+  // TODO: Add tests
+  static clearEventListeners(params?: {
+    event?: "expire" | "refetch" | undefined;
+    key?: string | undefined;
+  }): boolean {
+    if (!params) {
+      RunCache.emitter.removeAllListeners();
+      return true;
+    }
+
+    if (params.key && !params.event) {
+      throw Error("`key` cannot be provided without `event`");
+    }
+
+    if (params.event && params.key) {
+      RunCache.emitter.removeAllListeners(`${params.event}-${params.key}`);
+      return true;
+    }
+
+    if (params.event) {
+      RunCache.emitter.removeAllListeners(params.event);
+      return true;
+    }
+
+    return false;
   }
 }
 

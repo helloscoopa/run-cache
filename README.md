@@ -32,7 +32,7 @@ npm install run-cache
 import { RunCache } from "run-cache";
 ```
 
-#### Set cache:
+#### Set cache
 
 ```ts
 // Set a cache value
@@ -74,32 +74,46 @@ await RunCache.set({
 */
 import { EventParam } from "run-cache";
 
+// Event of all expiries
+RunCache.onExpiry((cache: EventParam) => {
+  console.log(`Cache of key '${cache.key}' has been expired`);
+})
+
+// Event of a specific key expiry
+RunCache.onExpiry('Key', (cache: EventParam) => {
+  console.log(`Cache of key '${cache.key}' has been expired`);
+})
+
 await RunCache.set({
   key: "Key",
-  ttl: 10000,
-  onExpiry: (cache: EventParam) => {
-    console.log(`Cache of key '${cache.key}' has been expired`);
-  }
+  ttl: 10000
+})
+
+// Event of all refetches
+RunCache.onRefetch((cache: EventParam) => {
+  console.log(`Cache of key '${cache.key}' has been refetched`);
+})
+
+// Event of a specific key refetch
+RunCache.onKeyRefetch('Key', (cache: EventParam) => {
+  console.log(`Cache of key '${cache.key}' has been refetched`);
 })
 
 await RunCache.set({
   key: "Key",
   ttl: 10000,
-  sourceFn: () => { return Promise.resolve("Value") },
-  onRefetch: (cache: EventParam) => {
-    console.log(`Cache of key '${cache.key}' has been refetched`);
-  }
+  sourceFn: () => { return Promise.resolve("Value") }
 })
 ```
 
-#### Refetch cache:
+#### Refetch cache
 
 ```ts
 // Refetch the cache value (Only works if the key is set with a sourceFn)
 await RunCache.refetch("Key");
 ```
 
-#### Get cache:
+#### Get cache
 
 ```ts
 /* 
@@ -109,7 +123,7 @@ await RunCache.refetch("Key");
 const value = await RunCache.get("Key");
 ```
 
-#### Delete cache:
+#### Delete cache
 
 ```ts
 // Delete a specific cache key
@@ -119,9 +133,35 @@ RunCache.delete("Key");
 RunCache.deleteAll();
 ```
 
-#### Check existence of a specific cache:
+#### Check existence of a specific cache
 
 ```ts
 // Returns a boolean, expired cache returns `false` even if they're refetchable
 const hasCache = RunCache.has("Key");
+```
+
+#### Clear event listeners
+
+```ts
+await RunCache.set({
+  key: "Key",
+  ttl: 10000,
+  sourceFn: () => {
+    return Promise.resolve("Value");
+  },
+});
+
+// Clear all listeners
+RunCache.clearEventListeners();
+
+// Clear specific event listeners
+RunCache.clearEventListeners({
+  event: "expiry",
+});
+
+// Clear specific event key listeners
+RunCache.clearEventListeners({
+  event: "expiry",
+  key: "Key",
+});
 ```
