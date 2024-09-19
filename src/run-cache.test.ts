@@ -81,7 +81,9 @@ describe("RunCache", () => {
         key,
         sourceFn,
       });
-      expect(await RunCache.get(key)).toStrictEqual(JSON.stringify(value));
+      await expect(RunCache.get(key)).resolves.toStrictEqual(
+        JSON.stringify(value),
+      );
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
     });
@@ -98,37 +100,43 @@ describe("RunCache", () => {
         ttl: 100,
         autoRefetch: true,
       });
-      expect(await RunCache.get(key)).toStrictEqual(JSON.stringify(value));
+      await expect(RunCache.get(key)).resolves.toStrictEqual(
+        JSON.stringify(value),
+      );
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
     });
 
     it("should return true if the cache value set successfully", async () => {
-      expect(await RunCache.set({ key: uuid(), value: uuid() })).toStrictEqual(
-        true,
-      );
+      await expect(
+        RunCache.set({ key: uuid(), value: uuid() }),
+      ).resolves.toStrictEqual(true);
     });
 
     it("should return true if the cache set with a ttl and ttl is functioning properly", async () => {
       const key = uuid();
       const value = uuid();
 
-      expect(await RunCache.set({ key, value, ttl: 100 })).toStrictEqual(true);
-      expect(await RunCache.get(key)).toStrictEqual(JSON.stringify(value));
+      await expect(
+        RunCache.set({ key, value, ttl: 100 }),
+      ).resolves.toStrictEqual(true);
+      await expect(RunCache.get(key)).resolves.toStrictEqual(
+        JSON.stringify(value),
+      );
 
       jest.advanceTimersByTime(101);
 
-      expect(await RunCache.get(key)).toBeUndefined();
+      await expect(RunCache.get(key)).resolves.toBeUndefined();
     });
   });
 
   describe("get()", () => {
     it("should return undefined if the key is empty", async () => {
-      expect(await RunCache.get("")).toBeUndefined();
+      await expect(RunCache.get("")).resolves.toBeUndefined();
     });
 
     it("should return undefined if the key is not found", async () => {
-      expect(await RunCache.get(uuid())).toBeUndefined();
+      await expect(RunCache.get(uuid())).resolves.toBeUndefined();
     });
 
     it("should return the value successfully if the cache is not expired", async () => {
@@ -143,7 +151,9 @@ describe("RunCache", () => {
         ttl: 100,
       });
 
-      expect(await RunCache.get(key)).toStrictEqual(JSON.stringify(value));
+      await expect(RunCache.get(key)).resolves.toStrictEqual(
+        JSON.stringify(value),
+      );
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
     });
@@ -163,7 +173,7 @@ describe("RunCache", () => {
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
 
-      expect(await RunCache.get(key)).toStrictEqual(
+      await expect(RunCache.get(key)).resolves.toStrictEqual(
         JSON.stringify(dynamicValue),
       );
 
@@ -171,7 +181,7 @@ describe("RunCache", () => {
 
       jest.advanceTimersByTime(101);
 
-      expect(await RunCache.get(key)).toStrictEqual(
+      await expect(RunCache.get(key)).resolves.toStrictEqual(
         JSON.stringify(dynamicValue),
       );
 
@@ -182,8 +192,10 @@ describe("RunCache", () => {
       const key = uuid();
       const value = uuid();
 
-      RunCache.set({ key, value });
-      expect(await RunCache.get(key)).toStrictEqual(JSON.stringify(value));
+      await RunCache.set({ key, value });
+      await expect(RunCache.get(key)).resolves.toStrictEqual(
+        JSON.stringify(value),
+      );
     });
   });
 
@@ -196,9 +208,9 @@ describe("RunCache", () => {
       const key = uuid();
       const value = uuid();
 
-      RunCache.set({ key, value });
+      await RunCache.set({ key, value });
       expect(RunCache.delete(key)).toStrictEqual(true);
-      expect(await RunCache.get(key)).toBeUndefined();
+      await expect(RunCache.get(key)).resolves.toBeUndefined();
     });
   });
 
@@ -209,11 +221,11 @@ describe("RunCache", () => {
       const value1 = uuid();
       const value2 = uuid();
 
-      RunCache.set({ key: key1, value: value1 });
-      RunCache.set({ key: key2, value: value2 });
+      await RunCache.set({ key: key1, value: value1 });
+      await RunCache.set({ key: key2, value: value2 });
       RunCache.flush();
-      expect(await RunCache.get(key1)).toBeUndefined();
-      expect(await RunCache.get(key2)).toBeUndefined();
+      await expect(RunCache.get(key1)).resolves.toBeUndefined();
+      await expect(RunCache.get(key2)).resolves.toBeUndefined();
     });
   });
 
@@ -222,24 +234,26 @@ describe("RunCache", () => {
       const key = uuid();
       const value = uuid();
 
-      RunCache.set({ key, value });
-      expect(await RunCache.has(key)).toStrictEqual(true);
+      await RunCache.set({ key, value });
+      await expect(RunCache.has(key)).resolves.toStrictEqual(true);
     });
 
     it("should return false if the key does not exist", async () => {
-      expect(await RunCache.has("NonExistentKey")).toStrictEqual(false);
+      await expect(RunCache.has("NonExistentKey")).resolves.toStrictEqual(
+        false,
+      );
     });
 
     it("should return false after ttl expiry", async () => {
       const key = uuid();
       const value = uuid();
 
-      RunCache.set({ key, value, ttl: 100 });
-      expect(await RunCache.has(key)).toStrictEqual(true);
+      await RunCache.set({ key, value, ttl: 100 });
+      await expect(RunCache.has(key)).resolves.toStrictEqual(true);
 
       jest.advanceTimersByTime(101);
 
-      expect(await RunCache.has(key)).toStrictEqual(false);
+      await expect(RunCache.has(key)).resolves.toStrictEqual(false);
     });
   });
 
@@ -247,7 +261,7 @@ describe("RunCache", () => {
     it("should resolve to false if refetch is called on a key having no source function", async () => {
       const key = uuid();
 
-      RunCache.set({ key, value: uuid() });
+      await RunCache.set({ key, value: uuid() });
       await expect(RunCache.refetch(key)).resolves.toStrictEqual(false);
     });
 
@@ -313,7 +327,7 @@ describe("RunCache", () => {
       const sourceFn = jest.fn(() => dynamicValue);
 
       await RunCache.set({ key, sourceFn });
-      expect(await RunCache.get(key)).toStrictEqual(
+      await expect(RunCache.get(key)).resolves.toStrictEqual(
         JSON.stringify(dynamicValue),
       );
 
@@ -325,7 +339,7 @@ describe("RunCache", () => {
 
       expect(sourceFn).toHaveBeenCalledTimes(2);
 
-      expect(await RunCache.get(key)).toStrictEqual(
+      await expect(RunCache.get(key)).resolves.toStrictEqual(
         JSON.stringify(dynamicValue),
       );
     });

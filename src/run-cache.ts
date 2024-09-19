@@ -420,7 +420,11 @@ class RunCache {
       RunCache.emitter.removeAllListeners(params.event);
 
       RunCache.emitter.eventNames().forEach((eventName) => {
-        if (params.event && typeof eventName === 'string' && eventName.startsWith(params.event)) {
+        if (
+          params.event &&
+          typeof eventName === "string" &&
+          eventName.startsWith(params.event)
+        ) {
           RunCache.emitter.removeAllListeners(eventName);
         }
       });
