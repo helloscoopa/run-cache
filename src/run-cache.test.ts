@@ -77,9 +77,7 @@ describe("RunCache", () => {
         key,
         sourceFn,
       });
-      await expect(RunCache.get(key)).resolves.toStrictEqual(
-        JSON.stringify(value),
-      );
+      await expect(RunCache.get(key)).resolves.toStrictEqual(value);
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
     });
@@ -96,9 +94,7 @@ describe("RunCache", () => {
         ttl: 100,
         autoRefetch: true,
       });
-      await expect(RunCache.get(key)).resolves.toStrictEqual(
-        JSON.stringify(value),
-      );
+      await expect(RunCache.get(key)).resolves.toStrictEqual(value);
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
     });
@@ -116,9 +112,7 @@ describe("RunCache", () => {
       await expect(
         RunCache.set({ key, value, ttl: 100 }),
       ).resolves.toStrictEqual(true);
-      await expect(RunCache.get(key)).resolves.toStrictEqual(
-        JSON.stringify(value),
-      );
+      await expect(RunCache.get(key)).resolves.toStrictEqual(value);
 
       jest.advanceTimersByTime(101);
 
@@ -147,9 +141,7 @@ describe("RunCache", () => {
         ttl: 100,
       });
 
-      await expect(RunCache.get(key)).resolves.toStrictEqual(
-        JSON.stringify(value),
-      );
+      await expect(RunCache.get(key)).resolves.toStrictEqual(value);
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
     });
@@ -169,17 +161,13 @@ describe("RunCache", () => {
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
 
-      await expect(RunCache.get(key)).resolves.toStrictEqual(
-        JSON.stringify(dynamicValue),
-      );
+      await expect(RunCache.get(key)).resolves.toStrictEqual(dynamicValue);
 
       dynamicValue = uuid();
 
       jest.advanceTimersByTime(101);
 
-      await expect(RunCache.get(key)).resolves.toStrictEqual(
-        JSON.stringify(dynamicValue),
-      );
+      await expect(RunCache.get(key)).resolves.toStrictEqual(dynamicValue);
 
       expect(sourceFn).toHaveBeenCalledTimes(2);
     });
@@ -189,9 +177,7 @@ describe("RunCache", () => {
       const value = uuid();
 
       await RunCache.set({ key, value });
-      await expect(RunCache.get(key)).resolves.toStrictEqual(
-        JSON.stringify(value),
-      );
+      await expect(RunCache.get(key)).resolves.toStrictEqual(value);
     });
   });
 
@@ -320,9 +306,7 @@ describe("RunCache", () => {
       const sourceFn = jest.fn(() => dynamicValue);
 
       await RunCache.set({ key, sourceFn });
-      await expect(RunCache.get(key)).resolves.toStrictEqual(
-        JSON.stringify(dynamicValue),
-      );
+      await expect(RunCache.get(key)).resolves.toStrictEqual(dynamicValue);
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
 
@@ -332,9 +316,7 @@ describe("RunCache", () => {
 
       expect(sourceFn).toHaveBeenCalledTimes(2);
 
-      await expect(RunCache.get(key)).resolves.toStrictEqual(
-        JSON.stringify(dynamicValue),
-      );
+      await expect(RunCache.get(key)).resolves.toStrictEqual(dynamicValue);
     });
   });
 
@@ -346,7 +328,7 @@ describe("RunCache", () => {
       const funcToBeExecutedOnExpiry = jest.fn(
         async (cacheState: EventParam) => {
           expect(cacheState.key).toStrictEqual(key);
-          expect(cacheState.value).toStrictEqual(JSON.stringify(value));
+          expect(cacheState.value).toStrictEqual(value);
           expect(cacheState.ttl).toStrictEqual(100);
         },
       );
@@ -374,7 +356,7 @@ describe("RunCache", () => {
 
       const funcToBeExecutedOnRefetch = jest.fn((cacheState: EventParam) => {
         expect(cacheState.key).toStrictEqual(key);
-        expect(cacheState.value).toStrictEqual(JSON.stringify(dynamicValue));
+        expect(cacheState.value).toStrictEqual(dynamicValue);
         expect(cacheState.ttl).toStrictEqual(100);
       });
 
@@ -411,7 +393,7 @@ describe("RunCache", () => {
       const funcToBeExecutedOnRefetchFailure = jest.fn(
         (cacheState: EventParam) => {
           expect(cacheState.key).toStrictEqual(key);
-          expect(cacheState.value).toStrictEqual(JSON.stringify(value));
+          expect(cacheState.value).toStrictEqual(value);
           expect(cacheState.ttl).toStrictEqual(100);
         },
       );

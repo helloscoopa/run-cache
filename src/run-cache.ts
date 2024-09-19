@@ -89,7 +89,7 @@ class RunCache {
 
     // Clear existing timeout if the key already exists
     const existingCache = RunCache.cache.get(key);
-    if (existingCache && existingCache.timeout) {
+    if (existingCache?.timeout) {
       clearTimeout(existingCache.timeout);
     }
 
@@ -101,7 +101,7 @@ class RunCache {
       timeout = setTimeout(() => {
         RunCache.emitEvent(EVENT.EXPIRE, {
           key,
-          value: JSON.stringify(value ?? ""),
+          value: value ?? "undefined",
           ttl,
           createAt: time,
           updateAt: time,
@@ -126,7 +126,7 @@ class RunCache {
     }
 
     RunCache.cache.set(key, {
-      value: JSON.stringify(cacheValue),
+      value: cacheValue ?? 'undefined',
       ttl,
       sourceFn,
       autoRefetch,
@@ -165,7 +165,7 @@ class RunCache {
       const value = await cached.sourceFn();
 
       const refetchedCache = {
-        value: JSON.stringify(value),
+        value: value,
         ttl: cached.ttl,
         sourceFn: cached.sourceFn,
         createAt: cached.createAt,
@@ -181,15 +181,15 @@ class RunCache {
       });
 
       RunCache.cache.set(key, {
-        fetching: undefined,
         ...refetchedCache,
+        fetching: undefined,
       });
 
       return true;
     } catch (e) {
       RunCache.cache.set(key, {
-        fetching: undefined,
         ...cached,
+        fetching: undefined,
       });
 
       RunCache.emitEvent(EVENT.REFETCH_FAILURE, {
