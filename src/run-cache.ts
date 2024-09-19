@@ -164,7 +164,6 @@ class RunCache {
         ...refetchedCache,
       });
 
-      console.log("refetch emitted", Date.now());
       RunCache.emitEvent("refetch", {
         key,
         value: refetchedCache.value,
