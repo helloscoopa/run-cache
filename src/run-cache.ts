@@ -172,17 +172,17 @@ class RunCache {
         updateAt: Date.now(),
       };
 
+      RunCache.cache.set(key, {
+        ...refetchedCache,
+        fetching: undefined,
+      });
+
       RunCache.emitEvent(EVENT.REFETCH, {
         key,
         value: refetchedCache.value,
         ttl: refetchedCache.ttl,
         createAt: refetchedCache.createAt,
         updateAt: refetchedCache.updateAt,
-      });
-
-      RunCache.cache.set(key, {
-        ...refetchedCache,
-        fetching: undefined,
       });
 
       return true;
@@ -200,7 +200,7 @@ class RunCache {
         updateAt: cached.updateAt,
       });
 
-      throw Error(`Source function failed for key: '${key}'`);
+      throw new Error(`Source function failed for key: '${key}'`);
     }
   }
 
