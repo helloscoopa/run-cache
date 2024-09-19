@@ -394,13 +394,13 @@ class RunCache {
       RunCache.emitter.removeAllListeners(params.event);
 
       RunCache.eventIds.forEach((eventId) => {
-        if (eventId.startsWith(params.event!)) {
+        if (params.event && eventId.startsWith(params.event)) {
           RunCache.emitter.removeAllListeners(eventId);
         }
       });
 
       RunCache.eventIds = RunCache.eventIds.filter(
-        (eventId) => !eventId.startsWith(params.event!),
+        (eventId) => params.event && !eventId.startsWith(params.event),
       );
 
       return true;

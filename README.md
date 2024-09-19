@@ -132,7 +132,7 @@ RunCache.delete("Key");
 RunCache.deleteAll();
 ```
 
-#### Check existence of a specific cache
+#### Check the existence of a specific cache
 
 ```ts
 // Returns a boolean, expired cache returns `false` even if they're refetchable
