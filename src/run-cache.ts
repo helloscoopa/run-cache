@@ -29,6 +29,7 @@ type EventFn = (params: EventParam) => Promise<void> | void;
 class RunCache {
   private static cache: Map<string, CacheState> = new Map<string, CacheState>();
   private static emitter: EventEmitter = new EventEmitter();
+  private static eventIds: string[] = [];
 
   private static isExpired(cache: CacheState): boolean {
     if (!cache.ttl) return false;
@@ -87,10 +88,6 @@ class RunCache {
       if (ttl < 0) throw new Error("Value `ttl` cannot be negative");
 
       timeout = setTimeout(async () => {
-        if (typeof sourceFn === "function" && autoRefetch) {
-          await RunCache.refetch(key);
-        }
-
         RunCache.emitEvent("expire", {
           key,
           value: value ?? "",
@@ -98,6 +95,10 @@ class RunCache {
           createAt: time,
           updateAt: time,
         });
+
+        if (typeof sourceFn === "function" && autoRefetch) {
+          await RunCache.refetch(key);
+        }
       }, ttl);
     }
 
@@ -287,8 +288,8 @@ class RunCache {
   }
 
   private static emitEvent(event: "expire" | "refetch", cache: EmitParam) {
-    [event, `${event}-${cache.key}`].forEach((eventName) => {
-      RunCache.emitter.emit(eventName, {
+    [event, `${event}-${cache.key}`].forEach((eventId) => {
+      RunCache.emitter.emit(eventId, {
         key: cache.key,
         value: cache.value,
         ttl: cache.ttl,
@@ -298,27 +299,101 @@ class RunCache {
     });
   }
 
+  /**
+   * Registers a callback function to be executed when the global `expire` event is triggered.
+   *
+   * @param {EventFn} callback - The function to be executed when the event is triggered.
+   *
+   * @example
+   * RunCache.onExpiry((cacheState) => {
+   *   console.log("Cache expired:", cacheState);
+   * });
+   */
   static onExpiry(callback: EventFn) {
     RunCache.emitter.on(`expire`, callback);
   }
 
+  /**
+   * Registers a callback function to be executed when the `expire` event for a specific key is triggered.
+   *
+   * @param {string} key - The key for which the expiration event is being tracked.
+   * @param {EventFn} callback - The function to be executed when the event is triggered.
+   *
+   * @throws {Error} If the `key` is empty.
+   *
+   * @example
+   * RunCache.onKeyExpiry("myKey", (cacheState) => {
+   *   console.log(`Cache expired for key myKey:`, cacheState);
+   * });
+   */
   static onKeyExpiry(key: string, callback: EventFn) {
     if (!key) throw Error("Empty key");
 
     RunCache.emitter.on(`expire-${key}`, callback);
+    RunCache.eventIds.push(`expire-${key}`);
   }
 
+  /**
+   * Registers a callback function to be executed when the global `refetch` event is triggered.
+   *
+   * @param {EventFn} callback - The function to be executed when the event is triggered.
+   *
+   * @example
+   * RunCache.onRefetch((cacheState) => {
+   *   console.log("Cache refetched:", cacheState);
+   * });
+   */
   static onRefetch(callback: EventFn) {
     RunCache.emitter.on(`refetch`, callback);
   }
 
+  /**
+   * Registers a callback function to be executed when the `refetch` event for a specific key is triggered.
+   *
+   * @param {string} key - The key for which the refetch event is being tracked.
+   * @param {EventFn} callback - The function to be executed when the event is triggered.
+   *
+   * @throws {Error} If the `key` is empty.
+   *
+   * @example
+   * RunCache.onKeyRefetch("myKey", (cacheState) => {
+   *   console.log(`Cache refetched for key myKey:`, cacheState);
+   * });
+   */
   static onKeyRefetch(key: string, callback: EventFn) {
     if (!key) throw Error("Empty key");
 
     RunCache.emitter.on(`refetch-${key}`, callback);
+    RunCache.eventIds.push(`refetch-${key}`);
   }
 
-  // TODO: Add tests
+  /**
+   * Clears event listeners from the RunCache emitter based on the specified event and key.
+   *
+   * - If no parameters are provided, all event listeners will be removed.
+   * - If only an `event` is provided, all listeners for that event will be removed.
+   * - If both `event` and `key` are provided, listeners for that specific event-key combination will be removed.
+   *
+   * @param {Object} [params] - Optional parameters to specify which listeners to clear.
+   * @param {"expire" | "refetch"} [params.event] - The event type for which listeners should be removed.
+   * @param {string} [params.key] - The key associated with the event for which listeners should be removed. Must be provided if `event` is provided.
+   *
+   * @throws {Error} If `key` is provided without an `event`.
+   *
+   * @returns {boolean} - Returns `true` if listeners were removed successfully or `false` if no action was taken.
+   *
+   * @example
+   * // Remove all listeners
+   * RunCache.clearEventListeners();
+   *
+   * @example
+   * // Remove all listeners for the 'expire' event
+   * RunCache.clearEventListeners({ event: "expire" });
+   *
+   * @example
+   * // Remove all listeners for the 'expire' event with a specific key
+   * RunCache.clearEventListeners({ event: "expire", key: "myKey" });
+   */
   static clearEventListeners(params?: {
     event?: "expire" | "refetch" | undefined;
     key?: string | undefined;
@@ -339,6 +414,17 @@ class RunCache {
 
     if (params.event) {
       RunCache.emitter.removeAllListeners(params.event);
+
+      RunCache.eventIds.forEach((eventId) => {
+        if (eventId.startsWith(params.event!)) {
+          RunCache.emitter.removeAllListeners(eventId);
+        }
+      });
+
+      RunCache.eventIds = RunCache.eventIds.filter(
+        (eventId) => !eventId.startsWith(params.event!),
+      );
+
       return true;
     }
 
