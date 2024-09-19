@@ -1,3 +1,5 @@
+import { EventEmitter } from "events";
+
 type CacheState = {
   value: string;
   createAt: number;
@@ -6,8 +8,6 @@ type CacheState = {
   autoRefetch?: boolean;
   fetching?: boolean;
   sourceFn?: SourceFn;
-  onRefetch?: EventFn;
-  onExpire?: EventFn;
   timeout?: NodeJS.Timeout;
 };
 
@@ -19,18 +19,16 @@ export type EventParam = {
   updateAt: number;
 };
 
-type SourceFn = () => Promise<string>;
-type EventFn = (params: EventParam) => Promise<void>;
+type EmitParam = Pick<CacheState, "value" | "ttl" | "createAt" | "updateAt"> & {
+  key: string;
+};
 
-class NegativeTTLError extends Error {
-  constructor() {
-    super("`ttl` cannot be negative");
-    this.name = "NegativeTTLError";
-  }
-}
+type SourceFn = () => Promise<string> | string;
+type EventFn = (params: EventParam) => Promise<void> | void;
 
 class RunCache {
   private static cache: Map<string, CacheState> = new Map<string, CacheState>();
+  private static emitter: EventEmitter = new EventEmitter();
 
   private static isExpired(cache: CacheState): boolean {
     if (!cache.ttl) return false;
@@ -47,8 +45,6 @@ class RunCache {
    * @param {number} [params.ttl] - The time-to-live (TTL) in milliseconds for the cache entry. The entry expires after this period.
    * @param {boolean} [params.autoRefetch] - If true, automatically refetches the value from `sourceFn` when TTL expires.
    * @param {SourceFn} [params.sourceFn] - A function to fetch the value when `value` is not provided or for refetching when TTL expires.
-   * @param {EventFn} [params.onExpire] - A callback function triggered when the cache entry expires. Only allowed if `ttl` is set.
-   * @param {EventFn} [params.onRefetch] - A callback function triggered when the cache entry is refetched via `sourceFn`.
    *
    * @throws {Error} If the `key` is empty.
    * @throws {Error} If neither `value` nor `sourceFn` is provided.
@@ -65,81 +61,62 @@ class RunCache {
     ttl,
     sourceFn,
     autoRefetch,
-    onExpire,
-    onRefetch,
   }: {
     key: string;
     value?: string;
     ttl?: number;
     autoRefetch?: boolean;
     sourceFn?: SourceFn;
-    onExpire?: EventFn;
-    onRefetch?: EventFn;
   }): Promise<boolean> {
-    if (!key || !key.length) {
-      throw Error("Empty key");
+    if (!key?.length) {
+      throw new Error("Empty key");
     }
 
-    if (typeof sourceFn !== "function" && (!value || !value.length)) {
-      throw Error("`value` can't be empty without a `sourceFn`");
+    if (!sourceFn && !value) {
+      throw new Error("`value` can't be empty without a `sourceFn`");
     }
 
-    if (!ttl && autoRefetch) {
-      throw Error("`autoRefetch` is not allowed without a `ttl`");
-    }
-
-    if (ttl && ttl < 0) {
-      throw new NegativeTTLError();
-    }
-
-    if (!ttl && typeof onExpire === "function") {
-      throw Error("`onExpire` cannot be provided when `ttl` is not set");
+    if (autoRefetch && !ttl) {
+      throw new Error("`autoRefetch` is not allowed without a `ttl`");
     }
 
     const time = Date.now();
+    let timeout: NodeJS.Timeout | null = null;
 
-    if (typeof sourceFn === "function") {
-      try {
-        const timeout = setTimeout(async () => {
-          const _cached = RunCache.cache.get(key);
-          if (!_cached || _cached.onExpire === undefined) return;
+    if (ttl !== undefined) {
+      if (ttl < 0) throw new Error("Value `ttl` cannot be negative");
 
-          if (_cached.autoRefetch) {
-            await this.refetch(key);
-          }
+      timeout = setTimeout(async () => {
+        if (typeof sourceFn === "function" && autoRefetch) {
+          await this.refetch(key);
+        }
 
-          await _cached.onExpire({
-            key: key,
-            value: _cached.value,
-            ttl: _cached.ttl,
-            createAt: _cached.createAt,
-            updateAt: _cached.updateAt,
-          });
-        }, ttl);
-
-        const _value = value ?? (await sourceFn.call(this));
-
-        RunCache.cache.set(key, {
-          value: JSON.stringify(_value),
-          ttl: ttl,
-          sourceFn,
-          autoRefetch,
-          onExpire,
-          onRefetch,
-          timeout,
+        RunCache.emitEvent("expire", {
+          key,
+          value: value!,
+          ttl,
           createAt: time,
           updateAt: time,
         });
+      }, ttl);
+    }
 
-        return true;
+    let cachedValue = value;
+
+    if (!value && typeof sourceFn === "function") {
+      try {
+        cachedValue = await sourceFn();
       } catch (e) {
-        throw Error(`Source function failed for key: '${key}'`);
+        throw new Error(`Source function failed for key: '${key}'`);
       }
     }
 
     RunCache.cache.set(key, {
-      value: value!,
+      value: JSON.stringify(cachedValue),
       ttl,
+      sourceFn,
+      autoRefetch,
+      timeout: ttl ? timeout! : undefined,
       createAt: time,
       updateAt: time,
     });
@@ -182,19 +159,18 @@ class RunCache {
         updateAt: Date.now(),
       };
 
-      if (typeof cached.onRefetch === "function") {
-        await cached.onRefetch({
-          key,
-          value: refetchedCache.value,
-          ttl: refetchedCache.ttl,
-          createAt: refetchedCache.createAt,
-          updateAt: refetchedCache.updateAt,
-        });
-      }
-
       RunCache.cache.set(key, {
         fetching: undefined,
         ...refetchedCache,
+      });
+
+      console.log("refetch emitted", Date.now());
+      RunCache.emitEvent("refetch", {
+        key,
+        value: refetchedCache.value,
+        ttl: refetchedCache.ttl,
+        createAt: refetchedCache.createAt,
+        updateAt: refetchedCache.updateAt,
       });
 
       return true;
@@ -231,15 +207,13 @@ class RunCache {
       return cached.value;
     }
 
-    if (typeof cached.onExpire === "function") {
-      await cached.onExpire({
-        key: key,
-        value: cached.value,
-        ttl: cached.ttl,
-        createAt: cached.createAt,
-        updateAt: cached.updateAt,
-      });
-    }
+    RunCache.emitEvent("expire", {
+      key: key,
+      value: cached.value,
+      ttl: cached.ttl,
+      createAt: cached.createAt,
+      updateAt: cached.updateAt,
+    });
 
     if (typeof cached.sourceFn === "undefined" || !cached.autoRefetch) {
       RunCache.cache.delete(key);
@@ -299,20 +273,57 @@ class RunCache {
     }
 
     if (this.isExpired(cached)) {
-      if (typeof cached.onExpire === "function") {
-        await cached.onExpire({
-          key: key,
-          value: cached.value,
-          ttl: cached.ttl,
-          createAt: cached.createAt,
-          updateAt: cached.updateAt,
-        });
-      }
+      RunCache.emitEvent("expire", {
+        key: key,
+        value: cached.value,
+        ttl: cached.ttl,
+        createAt: cached.createAt,
+        updateAt: cached.updateAt,
+      });
 
       return false;
     }
 
     return true;
+  }
+
+  private static emitEvent(event: "expire" | "refetch", cache: EmitParam) {
+    [event, `${event}-${cache.key}`].forEach((eventName) => {
+      RunCache.emitter.emit(eventName, {
+        key: cache.key,
+        value: cache.value,
+        ttl: cache.ttl,
+        createAt: cache.createAt,
+        updateAt: cache.updateAt,
+      });
+    });
+  }
+
+  static onExpiry(callback: EventFn) {
+    RunCache.emitter.on(`expire`, callback);
+  }
+
+  static onKeyExpiry(key: string, callback: EventFn) {
+    if (!key) throw Error("Empty key");
+
+    RunCache.emitter.on(`expire-${key}`, callback);
+  }
+
+  static onRefetch(callback: EventFn) {
+    RunCache.emitter.on(`refetch`, callback);
+  }
+
+  static onKeyRefetch(key: string, callback: EventFn) {
+    if (!key) throw Error("Empty key");
+
+    RunCache.emitter.on(`refetch-${key}`, callback);
+  }
+
+  static clearEventListeners(
+    event: "expire" | "refetch" | undefined = undefined,
+    key: string | undefined = undefined,
+  ) {
+    RunCache.emitter.removeAllListeners();
   }
 }
 

@@ -1,6 +1,5 @@
 import { EventParam, RunCache } from "./run-cache";
-
-import { EventEmitter } from "events";
+import { v4 as uuid } from "uuid";
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -8,7 +7,16 @@ async function sleep(ms: number): Promise<void> {
 
 describe("RunCache", () => {
   beforeEach(() => {
+    jest.useFakeTimers();
+
     RunCache.deleteAll();
+  });
+
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+
+    RunCache.clearEventListeners();
   });
 
   describe("set()", () => {
@@ -93,10 +101,9 @@ describe("RunCache", () => {
       expect(
         await RunCache.set({ key: "key2", value: "value2", ttl: 100 }),
       ).toBe(true);
-      expect(await RunCache.get("key2")).toBe("value2");
+      expect(await RunCache.get("key2")).toBe(JSON.stringify("value2"));
 
-      // Wait for the TTL to expire
-      await sleep(150);
+      jest.advanceTimersByTime(101);
 
       expect(await RunCache.get("key2")).toBeUndefined();
     });
@@ -112,7 +119,7 @@ describe("RunCache", () => {
     });
 
     it("should return the value successfully if the cache is not expired", async () => {
-      const sourceFn = jest.fn(async () => "value1");
+      const sourceFn = jest.fn(() => "value1");
 
       await RunCache.set({
         key: "key1",
@@ -120,7 +127,9 @@ describe("RunCache", () => {
         ttl: 100,
       });
 
-      expect(await RunCache.get("key1")).toBe(JSON.stringify("value1"));
+      expect(await RunCache.get("key1")).toStrictEqual(
+        JSON.stringify("value1"),
+      );
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
     });
@@ -143,8 +152,7 @@ describe("RunCache", () => {
 
       dynamicValue = "updatedValue";
 
-      // Wait for the TTL to expire
-      await sleep(150);
+      jest.advanceTimersByTime(101);
 
       expect(await RunCache.get("key2")).toBe(JSON.stringify("updatedValue"));
 
@@ -153,7 +161,7 @@ describe("RunCache", () => {
 
     it("should return the value successfully", async () => {
       RunCache.set({ key: "key3", value: "value1" });
-      expect(await RunCache.get("key3")).toBe("value1");
+      expect(await RunCache.get("key3")).toBe(JSON.stringify("value1"));
     });
   });
 
@@ -190,31 +198,12 @@ describe("RunCache", () => {
     });
 
     it("should return false after ttl expiry", async () => {
-      RunCache.set({ key: "key2", value: "value2", ttl: 50 }); // Set TTL to 50ms
+      RunCache.set({ key: "key2", value: "value2", ttl: 100 });
       expect(await RunCache.has("key2")).toBe(true);
 
-      // Wait for the TTL to expire
-      await sleep(150);
+      jest.advanceTimersByTime(101);
 
       expect(await RunCache.has("key2")).toBe(false);
-    });
-
-    it("should trigger `onExpiry` after ttl expiry", async () => {
-      const funcToBeExecutedOnExpiry = async (cacheState: EventParam) => {
-        expect(cacheState.key).toBe("key2");
-        expect(cacheState.value).toBe(JSON.stringify("value2"));
-      };
-
-      RunCache.set({
-        key: "key2",
-        value: "value2",
-        ttl: 50,
-        onExpire: funcToBeExecutedOnExpiry,
-      }); // Set TTL to 50ms
-      expect(await RunCache.has("key2")).toBe(true);
-
-      // Wait for the TTL to expire
-      await sleep(150);
     });
   });
 
@@ -255,8 +244,10 @@ describe("RunCache", () => {
     });
 
     it("should not call sourceFn more than once at a time", async () => {
+      jest.useRealTimers();
+
       const sourceFn = jest.fn(async () => {
-        await sleep(1000);
+        await sleep(10);
         return "value";
       });
 
@@ -277,14 +268,13 @@ describe("RunCache", () => {
 
     it("should refetch and update the value from the source function", async () => {
       let dynamicValue = "initialValue";
-      const sourceFn = jest.fn(async () => dynamicValue);
+      const sourceFn = jest.fn(() => dynamicValue);
 
       await RunCache.set({ key: "key1", sourceFn });
       expect(await RunCache.get("key1")).toBe(JSON.stringify("initialValue"));
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
 
-      // Update what's being returned in the source function
       dynamicValue = "updatedValue";
 
       await RunCache.refetch("key1");
@@ -293,36 +283,73 @@ describe("RunCache", () => {
 
       expect(await RunCache.get("key1")).toBe(JSON.stringify("updatedValue"));
     });
+  });
 
-    it("should trigger onRefetch event on refetch", async () => {
-      let dynamicValue = "initialValue";
-      const sourceFn = jest.fn(async () => dynamicValue);
+  describe("onExpire() and onKeyExpiry()", () => {
+    it("should trigger after ttl expiry", async () => {
+      jest.useFakeTimers();
 
-      const funcToBeExecutedOnRefetch = jest.fn(
+      const key = uuid();
+      const value = uuid();
+
+      const funcToBeExecutedOnExpiry = jest.fn(
         async (cacheState: EventParam) => {
-          expect(cacheState.key).toBe("key2");
-          expect(cacheState.value).toBe(JSON.stringify("updatedValue"));
+          expect(cacheState.key).toBe(key);
+          expect(cacheState.value).toBe(JSON.stringify(value));
+          expect(cacheState.ttl).toBe(100);
         },
       );
 
-      await RunCache.set({
-        key: "key2",
-        sourceFn,
-        onRefetch: funcToBeExecutedOnRefetch,
+      RunCache.onExpiry(funcToBeExecutedOnExpiry);
+      RunCache.onKeyExpiry(key, funcToBeExecutedOnExpiry);
+
+      RunCache.set({
+        key: key,
+        value: JSON.stringify(value),
+        ttl: 100,
       });
 
-      expect(sourceFn).toHaveBeenCalledTimes(1);
-      expect(funcToBeExecutedOnRefetch).toHaveBeenCalledTimes(0);
+      jest.advanceTimersByTime(101);
+      await Promise.resolve(); // Flush microtasks
 
-      expect(await RunCache.get("key2")).toBe(JSON.stringify("initialValue"));
+      expect(funcToBeExecutedOnExpiry).toHaveBeenCalledTimes(2);
+    });
+  });
 
-      // Update what's being returned in the source function
-      dynamicValue = "updatedValue";
+  describe("onRefetch() and onKeyRefetch()", () => {
+    it("should trigger on refetch", async () => {
+      jest.useFakeTimers();
 
-      await RunCache.refetch("key2");
+      const key = uuid();
+
+      let dynamicValue = "FirstValue";
+
+      const funcToBeExecutedOnRefetch = jest.fn((cacheState: EventParam) => {
+        expect(cacheState.key).toBe(key);
+        expect(cacheState.value).toBe(JSON.stringify("SecondValue"));
+        expect(cacheState.ttl).toBe(100);
+      });
+
+      const sourceFn = jest.fn(() => dynamicValue);
+
+      RunCache.onRefetch(funcToBeExecutedOnRefetch);
+      RunCache.onKeyRefetch(key, funcToBeExecutedOnRefetch);
+
+      await RunCache.set({
+        key: key,
+        sourceFn,
+        ttl: 100,
+        autoRefetch: true,
+      });
+
+      dynamicValue = "SecondValue";
+
+      jest.advanceTimersByTime(101);
+
+      await Promise.resolve(); // Flush microtasks
 
       expect(sourceFn).toHaveBeenCalledTimes(2);
-      expect(funcToBeExecutedOnRefetch).toHaveBeenCalledTimes(1);
+      expect(funcToBeExecutedOnRefetch).toHaveBeenCalledTimes(2);
     });
   });
 });
