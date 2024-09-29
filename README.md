@@ -88,14 +88,24 @@ await RunCache.set({
   ttl: 10000
 })
 
-// Event of all refetches
+// Event of any key refetches
 RunCache.onRefetch((cache: EventParam) => {
   console.log(`Cache of key '${cache.key}' has been refetched`);
 })
 
 // Event of a specific key refetch
 RunCache.onKeyRefetch('Key', (cache: EventParam) => {
+  console.log(`Specific key has been refetched`);
+})
+
+// Event of a key refetch failure
+RunCache.onRefetchFailure((cache: EventParam) => {
   console.log(`Cache of key '${cache.key}' has been refetched`);
+})
+
+// Event of a specific key refetch failure
+RunCache.onKeyRefetchFailure('Key', (cache: EventParam) => {
+  console.log(`Specific key has been failed to refetch`);
 })
 
 await RunCache.set({
