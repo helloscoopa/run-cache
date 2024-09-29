@@ -1,6 +1,6 @@
 {
   "name": "run-cache",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "RunCache is a dependency-free, light-weight in-memory caching library for JavaScript and TypeScript that allows you to cache `string` values with optional time-to-live (TTL) settings. It also supports caching values generated from asynchronous functions and provides methods to refetch them on demand.",
   "main": "dist/run-cache.js",
   "types": "dist/run-cache.d.ts",

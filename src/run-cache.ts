@@ -8,7 +8,7 @@ type CacheState = {
   autoRefetch?: boolean;
   fetching?: boolean;
   sourceFn?: SourceFn;
-  timeout?: ReturnType<typeof setTimeout>;
+  interval?: ReturnType<typeof setInterval>;
 };
 
 export type EventParam = {
@@ -87,18 +87,18 @@ class RunCache {
 
     const time = Date.now();
 
-    // Clear existing timeout if the key already exists
+    // Clear existing interval if the key already exists
     const existingCache = RunCache.cache.get(key);
-    if (existingCache?.timeout) {
-      clearTimeout(existingCache.timeout);
+    if (existingCache?.interval) {
+      clearInterval(existingCache.interval);
     }
 
-    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let interval: ReturnType<typeof setInterval> | null = null;
 
     if (ttl !== undefined) {
       if (ttl < 0) throw new Error("Value `ttl` cannot be negative");
 
-      timeout = setTimeout(() => {
+      interval = setInterval(() => {
         RunCache.emitEvent(EVENT.EXPIRE, {
           key,
           value: value ?? "undefined",
@@ -126,11 +126,11 @@ class RunCache {
     }
 
     RunCache.cache.set(key, {
-      value: cacheValue ?? 'undefined',
+      value: cacheValue ?? "undefined",
       ttl,
       sourceFn,
       autoRefetch,
-      timeout: timeout ?? undefined,
+      interval: interval || undefined,
       createAt: time,
       updateAt: time,
     });
@@ -246,7 +246,7 @@ class RunCache {
   }
 
   /**
-   * Deletes a cache entry by its key. If the entry has an active timeout (for TTL), it clears the timeout.
+   * Deletes a cache entry by its key. If the entry has an active interval (for TTL), it clears the interval.
    *
    * @param {string} key - The key of the cache entry to delete. Must be a non-empty string.
    *
@@ -256,25 +256,25 @@ class RunCache {
     const cache = RunCache.cache.get(key);
     if (!cache) return false;
 
-    if (cache.timeout) {
-      clearTimeout(cache.timeout);
+    if (cache.interval) {
+      clearInterval(cache.interval);
     }
 
     return RunCache.cache.delete(key);
   }
 
   /**
-   * Deletes all cache entries and clears any active timeouts for TTL.
-   * This method iterates over all cache entries, clears any associated timeouts, and then clears the entire cache.
+   * Deletes all cache entries and clears any active intervals for TTL.
+   * This method iterates over all cache entries, clears any associated intervals, and then clears the entire cache.
    *
    * @returns {void}
    */
   static flush(): void {
     const values = Array.from(RunCache.cache.values());
 
-    values.forEach(({ timeout }) => {
-      if (timeout) {
-        clearTimeout(timeout);
+    values.forEach(({ interval }) => {
+      if (interval) {
+        clearInterval(interval);
       }
     });
 
@@ -332,7 +332,7 @@ class RunCache {
    * @returns {void}
    */
   static onExpiry(callback: EventFn): void {
-    RunCache.emitter.on(`expire`, callback);
+    RunCache.emitter.on(EVENT.EXPIRE, callback);
   }
 
   /**
@@ -378,10 +378,23 @@ class RunCache {
     RunCache.emitter.on(`${EVENT.REFETCH}-${key}`, callback);
   }
 
+  /**
+   * Registers a callback to be called when a refetch failure occurs for any key.
+   *
+   * @param {EventFn} callback - The function to be executed when a refetch failure event occurs.
+   */
   static onRefetchFailure(callback: EventFn): void {
     RunCache.emitter.on(`${EVENT.REFETCH_FAILURE}`, callback);
   }
 
+  /**
+   * Registers a callback to be called when a refetch failure occurs for a specific key.
+   *
+   * @param {string} key - The key for which to listen for refetch failures.
+   * @param {EventFn} callback - The function to be executed when a refetch failure event occurs for the specified key.
+   *
+   * @throws {Error} Throws an error if the key is empty.
+   */
   static onKeyRefetchFailure(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
 

@@ -96,7 +96,15 @@ describe("RunCache", () => {
       });
       await expect(RunCache.get(key)).resolves.toStrictEqual(value);
 
-      expect(sourceFn).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(100);
+      await Promise.resolve();
+
+      expect(sourceFn).toHaveBeenCalledTimes(2);
+
+      jest.advanceTimersByTime(100);
+      await Promise.resolve();
+
+      expect(sourceFn).toHaveBeenCalledTimes(3);
     });
 
     it("should return true if the cache value set successfully", async () => {
