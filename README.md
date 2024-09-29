@@ -80,7 +80,7 @@ RunCache.onExpiry((cache: EventParam) => {
 
 // Event of a specific key expiry
 RunCache.onKeyExpiry('Key', (cache: EventParam) => {
-  console.log(`Cache of key '${cache.key}' has been expired`);
+  console.log(`Specific key has been expired`);
 })
 
 await RunCache.set({
