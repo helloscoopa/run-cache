@@ -1,0 +1,40 @@
+{
+  "title": "RunCache Documentation",
+  "description": "Documentation for the RunCache library - A dependency-free, lightweight runtime caching library for JavaScript and TypeScript applications",
+  "author": "helloscoopa",
+  "language": "en",
+  "structure": {
+    "readme": "README.md",
+    "summary": "SUMMARY.md"
+  },
+  "plugins": [
+    "search",
+    "github",
+    "edit-link",
+    "prism",
+    "-highlight",
+    "copy-code-button",
+    "expandable-chapters",
+    "heading-anchors",
+    "back-to-top-button"
+  ],
+  "pluginsConfig": {
+    "github": {
+      "url": "https://github.com/helloscoopa/run-cache"
+    },
+    "edit-link": {
+      "base": "https://github.com/helloscoopa/run-cache/edit/main/gitbook",
+      "label": "Edit This Page"
+    },
+    "prism": {
+      "lang": {
+        "typescript": "typescript",
+        "bash": "bash",
+        "json": "json"
+      }
+    }
+  },
+  "styles": {
+    "website": "styles/website.css"
+  }
+} 

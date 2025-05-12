@@ -1,0 +1,95 @@
+/* Custom styles for RunCache documentation */
+
+/* Improve code block readability */
+.markdown-section pre {
+  background-color: #f8f8f8;
+  border-radius: 4px;
+  border: 1px solid #e8e8e8;
+}
+
+.markdown-section code {
+  border-radius: 3px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.9em;
+}
+
+/* Improve headings */
+.markdown-section h1 {
+  border-bottom: 1px solid #eaecef;
+  padding-bottom: 0.3em;
+}
+
+.markdown-section h2 {
+  border-bottom: 1px solid #eaecef;
+  padding-bottom: 0.3em;
+}
+
+/* Improve tables */
+.markdown-section table {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.markdown-section table th {
+  font-weight: 600;
+  background-color: #f6f8fa;
+}
+
+.markdown-section table tr {
+  border-top: 1px solid #dfe2e5;
+}
+
+.markdown-section table tr:nth-child(2n) {
+  background-color: #f6f8fa;
+}
+
+.markdown-section table td,
+.markdown-section table th {
+  border: 1px solid #dfe2e5;
+  padding: 6px 13px;
+}
+
+/* Improve blockquotes */
+.markdown-section blockquote {
+  border-left: 4px solid #0366d6;
+  color: #6a737d;
+  padding: 0 1em;
+}
+
+/* Improve links */
+.markdown-section a {
+  color: #0366d6;
+  text-decoration: none;
+}
+
+.markdown-section a:hover {
+  text-decoration: underline;
+}
+
+/* Improve note boxes */
+.markdown-section .hint,
+.markdown-section .warning {
+  padding: 1em;
+  border-radius: 4px;
+  margin: 1em 0;
+}
+
+.markdown-section .hint {
+  background-color: #f1f8ff;
+  border-left: 4px solid #0366d6;
+}
+
+.markdown-section .warning {
+  background-color: #fff5f5;
+  border-left: 4px solid #d73a49;
+}
+
+/* Custom class for API method signatures */
+.method-signature {
+  background-color: #f6f8fa;
+  padding: 1em;
+  border-radius: 4px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  overflow-x: auto;
+} 

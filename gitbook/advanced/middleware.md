@@ -1,4 +1,4 @@
-# RunCache Middleware
+# Middleware
 
 The middleware system in RunCache allows you to intercept and transform cache operations. This enables powerful customization options such as:
 
@@ -191,4 +191,10 @@ RunCache.clearMiddleware();
 2. **Handle all operations**: Make sure to handle all relevant operations (get, set, refetch) for consistency.
 3. **Always call next()**: Ensure you call `next(value)` to continue the middleware chain, unless you explicitly want to short-circuit it.
 4. **Error handling**: Properly handle errors in your middleware to avoid breaking the cache functionality.
-5. **Performance**: Be mindful of performance implications, especially for computationally expensive operations like encryption. 
+5. **Performance**: Be mindful of performance implications, especially for computationally expensive operations like encryption.
+
+## Next Steps
+
+- Learn about [Event System](event-system.md) for responding to cache events
+- Explore [Persistent Storage](persistent-storage.md) for saving cache data across application restarts
+- Check out [Resource Management](resource-management.md) for optimizing memory usage 
