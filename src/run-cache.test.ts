@@ -1108,7 +1108,7 @@ describe("RunCache", () => {
     beforeEach(() => {
       // Reset configuration to default before each test
       RunCache.configure({
-        maxSize: Infinity,
+        maxSize: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE
       });
       RunCache.flush();
@@ -1247,7 +1247,7 @@ describe("RunCache", () => {
     it("should correctly update configuration", async () => {
       // Check initial configuration
       expect(RunCache.getConfig()).toEqual({
-        maxSize: Infinity,
+        maxSize: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE,
         verbose: false
       });
@@ -1335,7 +1335,7 @@ describe("RunCache", () => {
       
       // Check that configuration is reset
       expect(RunCache.getConfig()).toEqual({
-        maxSize: Infinity,
+        maxSize: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE,
         verbose: false
       });
@@ -1376,7 +1376,7 @@ describe("RunCache", () => {
       
       // Reset configuration with verbose off by default
       RunCache.configure({
-        maxSize: Infinity,
+        maxSize: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE,
         verbose: false
       });
