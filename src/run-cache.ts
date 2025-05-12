@@ -77,6 +77,52 @@ type EventName = (typeof EVENT)[keyof typeof EVENT];
 type SourceFn = () => Promise<string> | string;
 type EventFn = (params: EventParam) => Promise<void> | void;
 
+export { RunCache };
+
+// Register a shutdown handler to clean up resources when the application terminates
+// This is only available in Node.js environments
+if (typeof process !== 'undefined' && 
+    process !== null && 
+    typeof process.on === 'function') {
+  try {
+    // Handle graceful shutdown in Node.js environments
+    process.on('SIGTERM', () => {
+      // Clean up all resources when the application is shutting down
+      RunCache.shutdown();
+    });
+    
+    // Also handle SIGINT (Ctrl+C) for development environments
+    process.on('SIGINT', () => {
+      RunCache.shutdown();
+      // Only exit if we're in a Node.js process
+      if (typeof process.exit === 'function') {
+        process.exit(0);
+      }
+    });
+  } catch (e) {
+    // Silently handle errors in environments where process events aren't fully supported
+    if (typeof console !== 'undefined' && console.debug) {
+      console.debug('RunCache: Unable to register process termination handlers', e);
+    }
+  }
+}
+
+// In browser environments, try to use the beforeunload event if available
+if (typeof window !== 'undefined' && 
+    window !== null && 
+    typeof window.addEventListener === 'function') {
+  try {
+    window.addEventListener('beforeunload', () => {
+      RunCache.shutdown();
+    });
+  } catch (e) {
+    // Silently handle errors in environments where window events aren't fully supported
+    if (typeof console !== 'undefined' && console.debug) {
+      console.debug('RunCache: Unable to register window unload handler', e);
+    }
+  }
+}
+
 class RunCache {
   private static cache: Map<string, CacheState> = new Map<string, CacheState>();
   private static emitter: EventEmitter = new EventEmitter();
@@ -928,6 +974,31 @@ class RunCache {
   static getConfig(): RunCacheConfig {
     return { ...RunCache.config };
   }
+  
+  /**
+   * Performs a complete shutdown of the cache, cleaning up all resources:
+   * - Clears all cache entries and their associated intervals
+   * - Removes all event listeners
+   * - Resets the cache to its initial state
+   * 
+   * This method should be called when the application is shutting down to prevent memory leaks.
+   */
+  static shutdown(): void {
+    // Clear all cache entries and their intervals
+    RunCache.flush();
+    
+    // Remove all event listeners
+    RunCache.clearEventListeners();
+    
+    // Reset configuration to defaults
+    RunCache.config = {
+      maxSize: Number.POSITIVE_INFINITY,
+      evictionPolicy: EvictionPolicy.NONE,
+    };
+    
+    // Log shutdown completion if in a Node.js environment with a console
+    if (typeof console !== 'undefined' && console.debug) {
+      console.debug('RunCache: shutdown complete, all resources released');
+    }
+  }
 }
-
-export { RunCache };
