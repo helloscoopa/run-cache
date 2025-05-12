@@ -1199,6 +1199,7 @@ describe("RunCache", () => {
       });
 
       // Add 3 entries (at the max size)
+      // These are added in sequence so key1 is oldest
       await RunCache.set({ key: "key1", value: "value1" });
       await RunCache.set({ key: "key2", value: "value2" });
       await RunCache.set({ key: "key3", value: "value3" });
@@ -1208,7 +1209,8 @@ describe("RunCache", () => {
       await RunCache.get("key2");
       await RunCache.get("key3");
 
-      // Add another entry to trigger eviction (key1 should be evicted as it's the oldest)
+      // Add another entry to trigger eviction
+      // key1 should be evicted as it's the oldest with the same frequency
       await RunCache.set({ key: "key4", value: "value4" });
 
       // Check that key1 was evicted (it had same frequency but was least recently used)

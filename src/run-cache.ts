@@ -90,7 +90,7 @@ class RunCache {
   
   // Cache configuration
   private static config: RunCacheConfig = {
-    maxSize: Infinity,
+    maxSize: Number.POSITIVE_INFINITY,
     evictionPolicy: EvictionPolicy.NONE,
   };
 
@@ -162,12 +162,12 @@ class RunCache {
    */
   private static enforceEvictionPolicy(): void {
     // Skip if the cache isn't full yet
-    if (RunCache.cache.size <= (RunCache.config.maxSize ?? Infinity)) {
+    if (RunCache.cache.size <= (RunCache.config.maxSize ?? Number.POSITIVE_INFINITY)) {
       return;
     }
 
     // Number of entries to evict
-    const entriesToEvict = RunCache.cache.size - (RunCache.config.maxSize ?? Infinity);
+    const entriesToEvict = RunCache.cache.size - (RunCache.config.maxSize ?? Number.POSITIVE_INFINITY);
     
     if (entriesToEvict <= 0) {
       return;
@@ -197,11 +197,10 @@ class RunCache {
     const entries = Array.from(RunCache.cache.entries())
       .map(([key, state]) => [key, state] as [string, CacheState])
       .sort((a, b) => {
-        const [keyA, stateA] = a;
-        const [keyB, stateB] = b;
+        const [, stateA] = a;
+        const [, stateB] = b;
         
-        // First sort by accessCount for keys that haven't been manually accessed
-        // This helps with the test case where key2 needs to be evicted
+        // First sort by access count - items that were never accessed get evicted first
         if (stateA.accessCount === 0 && stateB.accessCount > 0) {
           return -1; // A comes first (should be evicted)
         }
@@ -209,21 +208,13 @@ class RunCache {
           return 1; // B comes first (should be evicted)
         }
         
-        // Special handling for test cases with the same lastAccessed time
+        // If both items have the same access counts, sort by last accessed time
         if (stateA.lastAccessed === stateB.lastAccessed) {
-          // In tests where all items have the same timestamp, prioritize evicting key2
-          if (keyA === "key2") return -1;
-          if (keyB === "key2") return 1;
-          
-          // Next priority is key1
-          if (keyA === "key1") return -1;
-          if (keyB === "key1") return 1;
-          
-          // Then sort by accessCount
-          return stateA.accessCount - stateB.accessCount;
+          // Sort by creation time if last accessed times are identical
+          return stateA.createdAt - stateB.createdAt;
         }
         
-        // Otherwise just sort by lastAccessed
+        // Otherwise just sort by lastAccessed time (oldest first)
         return stateA.lastAccessed - stateB.lastAccessed;
       });
     
@@ -248,13 +239,14 @@ class RunCache {
         const [, stateA] = a;
         const [, stateB] = b;
         
-        // First sort by accessCount
+        // First sort by accessCount (lowest first)
         if (stateA.accessCount !== stateB.accessCount) {
           return stateA.accessCount - stateB.accessCount;
         }
         
-        // If accessCount is the same, sort by lastAccessed (least recently used first)
-        return stateA.lastAccessed - stateB.lastAccessed;
+        // If accessCount is the same, sort by createdAt (oldest first)
+        // This ensures deterministic behavior when entries have the same frequency
+        return stateA.createdAt - stateB.createdAt;
       });
     
     // Take the least frequently accessed 'count' entries
@@ -347,55 +339,16 @@ class RunCache {
       }
     }
 
-    // SPECIAL HANDLING FOR TESTS: 
-    // If we're adding key4 and the cache already contains keys key1, key2, and key3, 
-    // we know we're in the LRU test case and need to evict key2
-    if (key === "key4" && RunCache.cache.size === 3) {
-      // Check if we're in the LRU test case (key1, key2, key3 exist)
-      if (
-        RunCache.cache.has("key1") && 
-        RunCache.cache.has("key2") && 
-        RunCache.cache.has("key3") && 
-        RunCache.config.evictionPolicy === EvictionPolicy.LRU
-      ) {
-        RunCache.cache.delete("key2");
-      }
-      
-      // Check if we're in the LFU test case with non-equal frequencies
-      else if (
-        RunCache.cache.has("key1") && 
-        RunCache.cache.has("key2") && 
-        RunCache.cache.has("key3") && 
-        RunCache.config.evictionPolicy === EvictionPolicy.LFU
-      ) {
-        const key1State = RunCache.cache.get("key1");
-        const key2State = RunCache.cache.get("key2");
-        const key3State = RunCache.cache.get("key3");
-        
-        // In the "equal frequency" test, all keys are accessed exactly once
-        if (key1State && key2State && key3State && 
-            key1State.accessCount === key2State.accessCount && 
-            key2State.accessCount === key3State.accessCount && 
-            key1State.accessCount === 1) {
-          RunCache.cache.delete("key1");
-          
-          // Add key4 directly to the cache
-          RunCache.cache.set(key, {
-            value: cacheValue ?? "undefined",
-            ttl,
-            sourceFn,
-            autoRefetch,
-            interval: interval || undefined,
-            createdAt: time,
-            updatedAt: time,
-            accessCount: 0,
-            lastAccessed: time,
-          });
-          
-          return true;
-        }
-        
-        RunCache.cache.delete("key2");
+    // Check if adding this entry will exceed max size and enforce eviction if needed
+    // Do this check BEFORE adding the new entry to ensure proper eviction
+    if (RunCache.cache.size >= (RunCache.config.maxSize ?? Number.POSITIVE_INFINITY) &&
+        !RunCache.cache.has(key) &&
+        RunCache.config.evictionPolicy !== EvictionPolicy.NONE) {
+      // We're adding a new key and we're already at max size, so evict one
+      if (RunCache.config.evictionPolicy === EvictionPolicy.LRU) {
+        RunCache.evictLRU(1);
+      } else if (RunCache.config.evictionPolicy === EvictionPolicy.LFU) {
+        RunCache.evictLFU(1);
       }
     }
 
@@ -416,6 +369,8 @@ class RunCache {
       lastAccessed,
     });
 
+    // Double-check after adding to ensure we're not over the limit
+    RunCache.enforceEvictionPolicy();
     return true;
   }
 
@@ -536,24 +491,6 @@ class RunCache {
   static async get(key: string): Promise<string | string[] | undefined> {
     if (!key) {
       return undefined;
-    }
-
-    // Special case for "should evict LFU entries with same frequency based on recency" test
-    // This test is uniquely identified by having 3 keys with equal access counts
-    if (key === "key1" && 
-        RunCache.config.evictionPolicy === EvictionPolicy.LFU && 
-        RunCache.cache.size === 3 &&
-        RunCache.cache.has("key2") && 
-        RunCache.cache.has("key3") && 
-        RunCache.cache.has("key4")) {
-      
-      const key2State = RunCache.cache.get("key2");
-      const key3State = RunCache.cache.get("key3");
-      
-      // If key2 and key3 have the same accessCount (equal frequency test case)
-      if (key2State && key3State && key2State.accessCount === key3State.accessCount && key2State.accessCount === 1) {
-        return undefined;
-      }
     }
 
     const isWildcard = key.includes("*");
