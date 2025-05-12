@@ -111,6 +111,24 @@ async function filesystemExample() {
       console.log('Session still valid');
     }
   }, 10000);
+
+  // Ensure interval is cleared on application shutdown
+  if (typeof process !== 'undefined' && process && process.on && typeof process.on === 'function') {
+    try {
+      process.on('SIGINT', () => {
+        clearInterval(interval);
+        console.log('Cleared session check interval');
+        process.exit(0);
+      });
+      
+      process.on('SIGTERM', () => {
+        clearInterval(interval);
+        console.log('Cleared session check interval');
+      });
+    } catch (error) {
+      console.error('Failed to register process handlers:', error);
+    }
+  }
 }
 
 // Detect environment and run appropriate example

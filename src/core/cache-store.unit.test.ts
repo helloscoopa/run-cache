@@ -4,8 +4,8 @@ import { EvictionPolicy } from '../types/cache-config';
 describe('CacheStore', () => {
   let cacheStore: CacheStore;
   
-  beforeEach(() => {
-    cacheStore = new CacheStore();
+  beforeEach(async () => {
+    cacheStore = await CacheStore.create();
   });
   
   afterEach(() => {
@@ -138,7 +138,8 @@ describe('CacheStore', () => {
       expect(cacheStore.getConfig()).toEqual({
         maxSize: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE,
-        verbose: false
+        verbose: false,
+        allowUnsafeSourceFnDeserialization: false
       });
       
       // Update config
@@ -151,7 +152,8 @@ describe('CacheStore', () => {
       expect(cacheStore.getConfig()).toEqual({
         maxSize: 100,
         evictionPolicy: EvictionPolicy.LRU,
-        verbose: true
+        verbose: true,
+        allowUnsafeSourceFnDeserialization: false
       });
       
       // Partial update
@@ -162,7 +164,8 @@ describe('CacheStore', () => {
       expect(cacheStore.getConfig()).toEqual({
         maxSize: 100,
         evictionPolicy: EvictionPolicy.LFU,
-        verbose: true
+        verbose: true,
+        allowUnsafeSourceFnDeserialization: false
       });
     });
   });
@@ -213,44 +216,36 @@ describe('CacheStore', () => {
   });
   
   describe('eviction policies', () => {
-    it('should allow forced eviction even when maxSize is Infinity', async () => {
-      // Create a new cache store with default config (maxSize = Infinity)
-      const infiniteCache = new CacheStore();
+    it('should enforce max size with LRU policy', async () => {
+      const infiniteCache = await CacheStore.create();
+      const lruCache = await CacheStore.create({
+        maxSize: 2,
+        evictionPolicy: EvictionPolicy.LRU
+      });
       
-      // Set up three test keys
+      // Set more items than max size allows
+      await lruCache.set({ key: 'key1', value: 'value1' });
+      await lruCache.set({ key: 'key2', value: 'value2' });
+      
+      // Access key1 to make it recently used
+      await lruCache.get('key1');
+      
+      // Add a third item, which should evict key2 (least recently used)
+      await lruCache.set({ key: 'key3', value: 'value3' });
+      
+      // key1 and key3 should exist, key2 should be evicted
+      await expect(lruCache.get('key1')).resolves.toBe('value1');
+      await expect(lruCache.get('key2')).resolves.toBeUndefined();
+      await expect(lruCache.get('key3')).resolves.toBe('value3');
+      
+      // For comparison, infinite cache should keep all items
       await infiniteCache.set({ key: 'key1', value: 'value1' });
       await infiniteCache.set({ key: 'key2', value: 'value2' });
       await infiniteCache.set({ key: 'key3', value: 'value3' });
       
-      // Verify all keys exist
-      await expect(infiniteCache.has('key1')).resolves.toBe(true);
-      await expect(infiniteCache.has('key2')).resolves.toBe(true);
-      await expect(infiniteCache.has('key3')).resolves.toBe(true);
-      
-      // Call set with a new key and explicitly set eviction policy
-      // This triggers enforceEvictionPolicy(1) in the set method
-      infiniteCache.configure({ evictionPolicy: EvictionPolicy.LRU });
-      
-      // Add a key that we access right away to ensure it's not the LRU
-      await infiniteCache.set({ key: 'key4', value: 'value4' });
-      await infiniteCache.get('key4'); // Access it to make it recently used
-      
-      // Now force an eviction - one key should be removed based on LRU policy
-      const privateMethod = jest.spyOn(Object.getPrototypeOf(infiniteCache) as any, 'enforceEvictionPolicy');
-      (infiniteCache as any).enforceEvictionPolicy(1);
-      
-      // Verify the method was called with the forced count
-      expect(privateMethod).toHaveBeenCalledWith(1);
-      
-      // Count how many keys remain (should be 3 not 4)
-      const remainingKeys = (await Promise.all([
-        infiniteCache.has('key1'),
-        infiniteCache.has('key2'),
-        infiniteCache.has('key3'),
-        infiniteCache.has('key4')
-      ])).filter(Boolean).length;
-      
-      expect(remainingKeys).toBe(3);
+      await expect(infiniteCache.get('key1')).resolves.toBe('value1');
+      await expect(infiniteCache.get('key2')).resolves.toBe('value2');
+      await expect(infiniteCache.get('key3')).resolves.toBe('value3');
     });
   });
 }); 

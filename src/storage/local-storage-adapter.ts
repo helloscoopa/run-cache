@@ -16,14 +16,21 @@ export class LocalStorageAdapter implements StorageAdapter {
   }
 
   /**
+   * Verifies that the adapter is running in a supported environment
+   * @throws Error if not in a browser environment with localStorage
+   */
+  private verifyEnvironment(): void {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      throw new Error('LocalStorageAdapter can only be used in browser environments with localStorage support');
+    }
+  }
+
+  /**
    * Store cache data to localStorage
    * @param data The serialized cache data to store
    */
   async save(data: string): Promise<void> {
-    // Check if we're in a browser environment with localStorage
-    if (typeof window === 'undefined' || !window.localStorage) {
-      throw new Error('LocalStorageAdapter can only be used in browser environments with localStorage support');
-    }
+    this.verifyEnvironment();
 
     try {
       window.localStorage.setItem(this.storageKey, data);
@@ -38,10 +45,7 @@ export class LocalStorageAdapter implements StorageAdapter {
    * @returns The serialized cache data, or null if no data exists
    */
   async load(): Promise<string | null> {
-    // Check if we're in a browser environment with localStorage
-    if (typeof window === 'undefined' || !window.localStorage) {
-      throw new Error('LocalStorageAdapter can only be used in browser environments with localStorage support');
-    }
+    this.verifyEnvironment();
     
     return window.localStorage.getItem(this.storageKey);
   }
@@ -50,10 +54,7 @@ export class LocalStorageAdapter implements StorageAdapter {
    * Clear stored cache data from localStorage
    */
   async clear(): Promise<void> {
-    // Check if we're in a browser environment with localStorage
-    if (typeof window === 'undefined' || !window.localStorage) {
-      throw new Error('LocalStorageAdapter can only be used in browser environments with localStorage support');
-    }
+    this.verifyEnvironment();
     
     window.localStorage.removeItem(this.storageKey);
   }

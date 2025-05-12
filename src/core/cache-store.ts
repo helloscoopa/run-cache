@@ -77,11 +77,18 @@ export class CacheStore {
   private storageAdapter: StorageAdapter | null = null;
   private autoSaveInterval: NodeJS.Timeout | null = null;
 
-  constructor(config: RunCacheConfig = {}) {
+  /**
+   * Creates a new CacheStore instance.
+   * Note: Use the static `create` method instead for proper initialization with storage adapters.
+   * @param config Configuration options
+   * @private
+   */
+  private constructor(config: RunCacheConfig = {}) {
     this.config = {
       maxSize: Number.POSITIVE_INFINITY,
       evictionPolicy: EvictionPolicy.NONE,
       verbose: false,
+      allowUnsafeSourceFnDeserialization: false,
       ...config
     };
     
@@ -94,15 +101,32 @@ export class CacheStore {
     this.lruPolicy = new LRUPolicy(this.logger);
     this.lfuPolicy = new LFUPolicy(this.logger);
     
-    // Initialize storage adapter if provided
+    // Initialize storage adapter if provided, but defer loading until create() method
     if (this.config.storageAdapter) {
       this.storageAdapter = this.config.storageAdapter;
-      
-      // Load persisted data if available
-      this.loadFromStorage().catch(error => {
-        this.logger.log('error', 'Failed to load cache data from storage', error);
-      });
     }
+  }
+
+  /**
+   * Creates and initializes a new CacheStore instance with proper async storage loading.
+   * This is the recommended way to create a CacheStore to ensure all data is loaded before use.
+   * 
+   * @param config Configuration options
+   * @returns A fully initialized CacheStore instance with data loaded from storage
+   */
+  static async create(config: RunCacheConfig = {}): Promise<CacheStore> {
+    const store = new CacheStore(config);
+    
+    // Load from storage if a storage adapter is provided
+    if (store.storageAdapter) {
+      try {
+        await store.loadFromStorage();
+      } catch (error) {
+        store.logger.log('error', 'Failed to load cache data from storage', error);
+      }
+    }
+    
+    return store;
   }
 
   /**
@@ -856,7 +880,7 @@ export class CacheStore {
   /**
    * Configures the cache store
    */
-  configure(config: RunCacheConfig): void {
+  async configure(config: RunCacheConfig): Promise<void> {
     // Update configuration
     this.config = {
       ...this.config,
@@ -870,18 +894,22 @@ export class CacheStore {
     if (config.storageAdapter !== undefined) {
       // If we're replacing the storage adapter, save current data first
       if (this.storageAdapter) {
-        this.saveToStorage().catch(error => {
+        try {
+          await this.saveToStorage();
+        } catch (error) {
           this.logger.log('error', 'Failed to save cache data before changing storage adapter', error);
-        });
+        }
       }
       
       this.storageAdapter = config.storageAdapter;
       
       // Load from new storage if it's not null
       if (this.storageAdapter) {
-        this.loadFromStorage().catch(error => {
+        try {
+          await this.loadFromStorage();
+        } catch (error) {
           this.logger.log('error', 'Failed to load cache data from new storage adapter', error);
-        });
+        }
       }
     }
   }
@@ -1059,13 +1087,15 @@ export class CacheStore {
           // Try to reconstruct source function if it exists
           let sourceFn: SourceFn | undefined = undefined;
           if (sourceFnString) {
-            try {
-              // This is a potential security risk, but necessary for persistence
-              // We could consider additional validation or safeguards here
-              sourceFn = new Function(`return ${sourceFnString}`)() as SourceFn;
-            } catch (error) {
-              // Format error as string to avoid the third parameter
-              this.logger.log('error', `Failed to reconstruct source function for key: ${key}`);
+            if (this.config.allowUnsafeSourceFnDeserialization) {
+              try {
+                // This is a potential security risk, but explicitly allowed by configuration
+                sourceFn = new Function(`return ${sourceFnString}`)() as SourceFn;
+              } catch (error) {
+                this.logger.log('error', `Failed to reconstruct source function for key: ${key}`);
+              }
+            } else {
+              this.logger.log('warn', `Skipped deserializing sourceFn for key: ${key} due to security policy. Enable 'allowUnsafeSourceFnDeserialization' config option to allow this operation.`);
             }
           }
           
@@ -1080,7 +1110,7 @@ export class CacheStore {
           this.cache.set(key, cacheState);
           
           // Reset TTL interval if needed
-          if (entryData.ttl && entryData.autoRefetch) {
+          if (entryData.ttl) {
             this.setExpiryInterval(key, cacheState);
           }
         }
@@ -1414,16 +1444,14 @@ export class CacheStore {
   /**
    * Shuts down the cache store, clearing resources and saving data if persistence is enabled
    */
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     // Save to persistent storage if available
     if (this.storageAdapter) {
       try {
-        // Use Promise.resolve to handle both sync and async calls
-        Promise.resolve(this.saveToStorage()).catch(error => {
-          this.logger.log('error', 'Failed to save cache data during shutdown', error);
-        });
+        // Properly await the saveToStorage operation
+        await this.saveToStorage();
       } catch (error) {
-        this.logger.log('error', 'Error occurred while saving cache data during shutdown', error);
+        this.logger.log('error', 'Failed to save cache data during shutdown', error);
       }
     }
     

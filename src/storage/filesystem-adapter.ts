@@ -40,13 +40,21 @@ export class FilesystemAdapter implements StorageAdapter {
   }
 
   /**
+   * Verifies that the adapter is properly initialized
+   * @throws Error if not initialized properly
+   */
+  private verifyInitialization(): void {
+    if (!this.fs) {
+      throw new Error('FilesystemAdapter is not properly initialized');
+    }
+  }
+
+  /**
    * Store cache data to the filesystem
    * @param data The serialized cache data to store
    */
   async save(data: string): Promise<void> {
-    if (!this.fs) {
-      throw new Error('FilesystemAdapter is not properly initialized');
-    }
+    this.verifyInitialization();
 
     try {
       await this.fs.writeFile(this.filePath, data, 'utf8');
@@ -60,9 +68,7 @@ export class FilesystemAdapter implements StorageAdapter {
    * @returns The serialized cache data, or null if no data exists
    */
   async load(): Promise<string | null> {
-    if (!this.fs) {
-      throw new Error('FilesystemAdapter is not properly initialized');
-    }
+    this.verifyInitialization();
 
     try {
       // Check if the file exists
@@ -85,9 +91,7 @@ export class FilesystemAdapter implements StorageAdapter {
    * Clear stored cache data from the filesystem
    */
   async clear(): Promise<void> {
-    if (!this.fs) {
-      throw new Error('FilesystemAdapter is not properly initialized');
-    }
+    this.verifyInitialization();
 
     try {
       // Check if the file exists before trying to delete it

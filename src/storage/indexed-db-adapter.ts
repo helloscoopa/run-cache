@@ -8,6 +8,7 @@ export class IndexedDBAdapter implements StorageAdapter {
   private storageKey: string;
   private dbName: string = 'run-cache-db';
   private storeName: string = 'cache-store';
+  private dbVersion: number = 1;
   private db: IDBDatabase | null = null;
   private dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -20,6 +21,16 @@ export class IndexedDBAdapter implements StorageAdapter {
     
     // Initialize the database connection
     this.initDB();
+  }
+
+  /**
+   * Verifies that the adapter is running in a supported environment
+   * @throws Error if not in a browser environment with IndexedDB support
+   */
+  private verifyEnvironment(): void {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      throw new Error('IndexedDBAdapter can only be used in browser environments with IndexedDB support');
+    }
   }
 
   /**
@@ -36,13 +47,16 @@ export class IndexedDBAdapter implements StorageAdapter {
     }
 
     // Check if we're in a browser environment with IndexedDB
-    if (typeof window === 'undefined' || !window.indexedDB) {
-      return Promise.reject(new Error('IndexedDBAdapter can only be used in browser environments with IndexedDB support'));
-    }
+    this.verifyEnvironment();
 
     // Create a new connection promise
     this.dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-      const request = window.indexedDB.open(this.dbName, 1);
+      const request = window.indexedDB.open(this.dbName, this.dbVersion);
+      
+      // Set a timeout for the connection request
+      const timeoutId = setTimeout(() => {
+        reject(new Error('IndexedDB connection timed out'));
+      }, 5000);
 
       // Handle upgrade needed (first time or version change)
       request.onupgradeneeded = (event) => {
@@ -54,14 +68,38 @@ export class IndexedDBAdapter implements StorageAdapter {
         }
       };
 
+      // Handle blocked (occurs when there are open connections that don't close when a version change is requested)
+      request.onblocked = () => {
+        clearTimeout(timeoutId);
+        reject(new Error('IndexedDB connection blocked. Close all other tabs with this site open'));
+      };
+
       // Handle success
       request.onsuccess = (event) => {
+        clearTimeout(timeoutId);
         this.db = request.result;
+        
+        // Listen for close events
+        this.db.onclose = () => {
+          this.db = null;
+          this.dbPromise = null;
+        };
+        
+        // Listen for version change events
+        this.db.onversionchange = () => {
+          if (this.db) {
+            this.db.close();
+            this.db = null;
+            this.dbPromise = null;
+          }
+        };
+        
         resolve(this.db);
       };
 
       // Handle error
       request.onerror = (event) => {
+        clearTimeout(timeoutId);
         reject(new Error(`Failed to open IndexedDB: ${request.error?.message || 'unknown error'}`));
       };
     });
@@ -86,6 +124,16 @@ export class IndexedDBAdapter implements StorageAdapter {
         
         request.onsuccess = () => resolve();
         request.onerror = () => reject(new Error(`Failed to save to IndexedDB: ${request.error?.message || 'unknown error'}`));
+        
+        // Handle transaction errors
+        transaction.onerror = () => {
+          reject(new Error(`Transaction failed: ${transaction.error?.message || 'unknown error'}`));
+        };
+        
+        // Handle transaction aborts
+        transaction.onabort = () => {
+          reject(new Error(`Transaction aborted: ${transaction.error?.message || 'unknown error'}`));
+        };
       });
     } catch (error) {
       throw new Error(`Failed to save cache data to IndexedDB: ${error instanceof Error ? error.message : 'unknown error'}`);
@@ -117,6 +165,16 @@ export class IndexedDBAdapter implements StorageAdapter {
         };
         
         request.onerror = () => reject(new Error(`Failed to load from IndexedDB: ${request.error?.message || 'unknown error'}`));
+        
+        // Handle transaction errors
+        transaction.onerror = () => {
+          reject(new Error(`Transaction failed: ${transaction.error?.message || 'unknown error'}`));
+        };
+        
+        // Handle transaction aborts
+        transaction.onabort = () => {
+          reject(new Error(`Transaction aborted: ${transaction.error?.message || 'unknown error'}`));
+        };
       });
     } catch (error) {
       throw new Error(`Failed to load cache data from IndexedDB: ${error instanceof Error ? error.message : 'unknown error'}`);
@@ -139,9 +197,31 @@ export class IndexedDBAdapter implements StorageAdapter {
         
         request.onsuccess = () => resolve();
         request.onerror = () => reject(new Error(`Failed to clear from IndexedDB: ${request.error?.message || 'unknown error'}`));
+        
+        // Handle transaction errors
+        transaction.onerror = () => {
+          reject(new Error(`Transaction failed: ${transaction.error?.message || 'unknown error'}`));
+        };
+        
+        // Handle transaction aborts
+        transaction.onabort = () => {
+          reject(new Error(`Transaction aborted: ${transaction.error?.message || 'unknown error'}`));
+        };
       });
     } catch (error) {
       throw new Error(`Failed to clear cache data from IndexedDB: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+  }
+
+  /**
+   * Close the database connection and clean up resources
+   * This should be called when the adapter is no longer needed
+   */
+  async close(): Promise<void> {
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+      this.dbPromise = null;
     }
   }
 } 

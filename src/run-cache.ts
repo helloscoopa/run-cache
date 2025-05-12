@@ -109,11 +109,46 @@ function registerShutdownHandlers(): void {
  * });
  */
 export class RunCache {
-  private static instance: CacheStore = new CacheStore();
+  private static instance: CacheStore;
+  private static instancePromise: Promise<CacheStore> | null = null;
+  private static isInitialized = false;
 
   // Register shutdown handlers when the class is loaded
   static {
     registerShutdownHandlers();
+    // Initialize the cache store
+    RunCache.initialize();
+  }
+
+  /**
+   * Initializes the RunCache instance. 
+   * This is automatically called when the class is loaded.
+   * @private
+   */
+  private static async initialize() {
+    if (!RunCache.instancePromise) {
+      RunCache.instancePromise = CacheStore.create();
+      try {
+        RunCache.instance = await RunCache.instancePromise;
+        RunCache.isInitialized = true;
+      } catch (error) {
+        console.error('Failed to initialize RunCache:', error);
+        // Log the error but don't create a new instance as the constructor is private
+        // The error will propagate to methods that try to use RunCache before it's initialized
+        throw new Error('Failed to initialize RunCache storage');
+      }
+    }
+    return RunCache.instance;
+  }
+
+  /**
+   * Ensures the RunCache is initialized before accessing it.
+   * @private
+   */
+  private static async ensureInitialized() {
+    if (!RunCache.isInitialized) {
+      await RunCache.initialize();
+    }
   }
 
   /**
@@ -159,6 +194,7 @@ export class RunCache {
     tags?: string[];
     dependencies?: string[];
   }): Promise<boolean> {
+    await RunCache.ensureInitialized();
     return RunCache.instance.set(params);
   }
 
@@ -171,6 +207,7 @@ export class RunCache {
    * If a wildcard pattern is used, returns true if any key was successfully refetched.
    */
   static async refetch(key: string): Promise<boolean> {
+    await RunCache.ensureInitialized();
     return RunCache.instance.refetch(key);
   }
 
@@ -186,6 +223,7 @@ export class RunCache {
    * - For wildcard keys: An array of matching values or undefined if no matches
    */
   static async get(key: string): Promise<string | string[] | undefined> {
+    await RunCache.ensureInitialized();
     return RunCache.instance.get(key);
   }
 
@@ -198,7 +236,8 @@ export class RunCache {
    * @returns {boolean} - Returns `true` if at least one cache entry was successfully deleted, 
    * `false` if no entries exist for the given key/pattern.
    */
-  static delete(key: string): boolean {
+  static async delete(key: string): Promise<boolean> {
+    await RunCache.ensureInitialized();
     return RunCache.instance.delete(key);
   }
 
@@ -208,7 +247,8 @@ export class RunCache {
    *
    * @returns {void}
    */
-  static flush(): void {
+  static async flush(): Promise<void> {
+    await RunCache.ensureInitialized();
     RunCache.instance.flush();
   }
 
@@ -222,6 +262,7 @@ export class RunCache {
    *  - For wildcard patterns: `true` if ANY matching entry exists and is not expired, otherwise `false`.
    */
   static async has(key: string): Promise<boolean> {
+    await RunCache.ensureInitialized();
     return RunCache.instance.has(key);
   }
 
@@ -232,7 +273,8 @@ export class RunCache {
    *
    * @returns {void}
    */
-  static onExpiry(callback: (event: EventParam) => void | Promise<void>): void {
+  static async onExpiry(callback: (event: EventParam) => void | Promise<void>): Promise<void> {
+    await RunCache.ensureInitialized();
     RunCache.instance.onExpiry(callback);
   }
 
@@ -247,7 +289,8 @@ export class RunCache {
    *
    * @throws {Error} If the `key` is empty.
    */
-  static onKeyExpiry(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+  static async onKeyExpiry(key: string, callback: (event: EventParam) => void | Promise<void>): Promise<void> {
+    await RunCache.ensureInitialized();
     RunCache.instance.onKeyExpiry(key, callback);
   }
 
@@ -258,7 +301,8 @@ export class RunCache {
    *
    * @returns {void}
    */
-  static onRefetch(callback: (event: EventParam) => void | Promise<void>): void {
+  static async onRefetch(callback: (event: EventParam) => void | Promise<void>): Promise<void> {
+    await RunCache.ensureInitialized();
     RunCache.instance.onRefetch(callback);
   }
 
@@ -273,7 +317,8 @@ export class RunCache {
    *
    * @throws {Error} If the `key` is empty.
    */
-  static onKeyRefetch(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+  static async onKeyRefetch(key: string, callback: (event: EventParam) => void | Promise<void>): Promise<void> {
+    await RunCache.ensureInitialized();
     RunCache.instance.onKeyRefetch(key, callback);
   }
 
@@ -284,7 +329,8 @@ export class RunCache {
    * 
    * @returns {void}
    */
-  static onRefetchFailure(callback: (event: EventParam) => void | Promise<void>): void {
+  static async onRefetchFailure(callback: (event: EventParam) => void | Promise<void>): Promise<void> {
+    await RunCache.ensureInitialized();
     RunCache.instance.onRefetchFailure(callback);
   }
 
@@ -296,33 +342,30 @@ export class RunCache {
    * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when the event is triggered.
    * 
    * @returns {void}
-   * 
-   * @throws {Error} If the `key` is empty.
    */
-  static onKeyRefetchFailure(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+  static async onKeyRefetchFailure(key: string, callback: (event: EventParam) => void | Promise<void>): Promise<void> {
+    await RunCache.ensureInitialized();
     RunCache.instance.onKeyRefetchFailure(key, callback);
   }
 
   /**
-   * Clears event listeners from the RunCache emitter based on the specified event and key.
-   *
-   * - If no parameters are provided, all event listeners will be removed.
-   * - If only an `event` is provided, all listeners for that event will be removed.
-   * - If both `event` and `key` are provided, listeners for that specific event-key combination will be removed.
-   * - Supports wildcard patterns in the key.
-   *
-   * @param {Object} [params] - Optional parameters to specify which listeners to clear.
-   * @param {EventName} [params.event] - The event type for which listeners should be removed.
-   * @param {string} [params.key] - The key associated with the event for which listeners should be removed. Must be provided if `event` is provided. Supports wildcards (*).
-   *
-   * @returns {boolean} - Returns `true` if listeners were removed successfully or `false` if no action was taken.
-   *
-   * @throws {Error} If `key` is provided without an `event`.
+   * Clears event listeners for a specific event type and/or key.
+   * If no parameters are provided, clears all event listeners.
+   * If only event is provided, clears all listeners for that event.
+   * If only key is provided, clears all event listeners for that key.
+   * If both event and key are provided, clears only listeners for that specific combination.
+   * 
+   * @param {Object} [params] - Optional parameters to specify which event listeners to clear.
+   * @param {EventName} [params.event] - Optional event name to clear listeners for.
+   * @param {string} [params.key] - Optional key to clear listeners for.
+   * 
+   * @returns {boolean} - Returns `true` if any listeners were cleared, `false` otherwise.
    */
-  static clearEventListeners(params?: {
+  static async clearEventListeners(params?: {
     event?: EventName;
     key?: string;
-  }): boolean {
+  }): Promise<boolean> {
+    await RunCache.ensureInitialized();
     return RunCache.instance.clearEventListeners(params);
   }
 
@@ -334,19 +377,10 @@ export class RunCache {
    *   - evictionPolicy: The eviction policy to use when the cache exceeds its maximum size (default: EvictionPolicy.NONE)
    *   - verbose: Enable verbose logging (default: false)
    *   - storageAdapter: Optional adapter for persisting cache data (default: undefined)
-   * 
-   * @example
-   * // Configure with local storage persistence
-   * import { RunCache, LocalStorageAdapter } from 'run-cache';
-   * 
-   * RunCache.configure({
-   *   maxSize: 1000,
-   *   evictionPolicy: EvictionPolicy.LRU,
-   *   storageAdapter: new LocalStorageAdapter({ storageKey: "my-app-cache" })
-   * });
    */
-  static configure(config: RunCacheConfig): void {
-    RunCache.instance.configure(config);
+  static async configure(config: RunCacheConfig): Promise<void> {
+    await RunCache.ensureInitialized();
+    await RunCache.instance.configure(config);
   }
 
   /**
@@ -356,12 +390,9 @@ export class RunCache {
    *   - maxSize: Maximum number of entries the cache can hold
    *   - evictionPolicy: The current eviction policy
    *   - verbose: Whether verbose logging is enabled
-   * 
-   * @example
-   * const config = RunCache.getConfig();
-   * console.log(`Max cache size: ${config.maxSize}`);
    */
-  static getConfig(): RunCacheConfig {
+  static async getConfig(): Promise<RunCacheConfig> {
+    await RunCache.ensureInitialized();
     return RunCache.instance.getConfig();
   }
   
@@ -370,26 +401,22 @@ export class RunCache {
    * - Clears all cache entries and their associated intervals
    * - Removes all event listeners
    * - Resets the cache to its initial state
-   * 
-   * This method should be called when the application is shutting down to prevent memory leaks.
-   * Note: The RunCache automatically registers shutdown handlers for common termination signals.
-   * 
-   * @example
-   * // Manual shutdown in your application
-   * process.on('SIGTERM', () => {
-   *   RunCache.shutdown();
-   *   process.exit(0);
-   * });
    */
-  static shutdown(): void {
-    RunCache.instance.shutdown();
-    
-    // Reset configuration to default values
-    RunCache.configure({
-      maxSize: Number.POSITIVE_INFINITY,
-      evictionPolicy: EvictionPolicy.NONE,
-      verbose: false
-    });
+  static async shutdown(): Promise<void> {
+    if (RunCache.isInitialized) {
+      await RunCache.instance.shutdown();
+      
+      // Reset configuration to default values
+      await RunCache.configure({
+        maxSize: Number.POSITIVE_INFINITY,
+        evictionPolicy: EvictionPolicy.NONE,
+        verbose: false,
+        storageAdapter: undefined
+      });
+    }
+    // Reset initialization state
+    RunCache.isInitialized = false;
+    RunCache.instancePromise = null;
   }
 
   /**
@@ -398,35 +425,18 @@ export class RunCache {
    * during operations like get, set, and refetch.
    * 
    * Each middleware function is called in the order they were added.
-   * 
-   * @example
-   * // Add encryption middleware
-   * RunCache.use(async (value, context, next) => {
-   *   if (context.operation === 'set') {
-   *     // Encrypt the value before storing
-   *     return next(encrypt(value));
-   *   } else if (context.operation === 'get' || context.operation === 'refetch') {
-   *     // Decrypt the value after retrieval
-   *     const encrypted = await next(value);
-   *     return encrypted ? decrypt(encrypted) : undefined;
-   *   }
-   *   return next(value);
-   * });
-   * 
-   * @param {MiddlewareFunction} middleware - The middleware function to add
-   * @returns The middleware manager for chaining additional middleware
    */
-  static use(middleware: MiddlewareFunction) {
+  static async use(middleware: MiddlewareFunction) {
+    await RunCache.ensureInitialized();
     return RunCache.instance.use(middleware);
   }
 
   /**
    * Clears all registered middleware functions.
    * This effectively disables any custom transformations that were previously applied.
-   * 
-   * @returns The middleware manager for chaining
    */
-  static clearMiddleware() {
+  static async clearMiddleware() {
+    await RunCache.ensureInitialized();
     return RunCache.instance.clearMiddleware();
   }
 
@@ -436,17 +446,9 @@ export class RunCache {
    * 
    * @param {string} tag - The tag to invalidate. All cache entries with this tag will be removed.
    * @returns {boolean} - Returns `true` if at least one cache entry was invalidated, `false` otherwise.
-   * 
-   * @example
-   * // Tag-based invalidation
-   * // First, set entries with tags
-   * await RunCache.set({ key: "user:123:profile", value: profileData, tags: ["user:123"] });
-   * await RunCache.set({ key: "user:123:settings", value: settingsData, tags: ["user:123"] });
-   * 
-   * // Later, invalidate all entries related to user:123
-   * RunCache.invalidateByTag("user:123");
    */
-  static invalidateByTag(tag: string): boolean {
+  static async invalidateByTag(tag: string): Promise<boolean> {
+    await RunCache.ensureInitialized();
     return RunCache.instance.invalidateByTag(tag);
   }
 
@@ -456,22 +458,9 @@ export class RunCache {
    * 
    * @param {string} key - The key that entries may depend on. All entries listing this key as a dependency will be removed.
    * @returns {boolean} - Returns `true` if at least one cache entry was invalidated, `false` otherwise.
-   * 
-   * @example
-   * // Dependency-based invalidation
-   * // First, set up a dependency relationship
-   * await RunCache.set({ key: "user:123:profile", value: profileData });
-   * await RunCache.set({ 
-   *   key: "user:123:dashboard", 
-   *   value: dashboardData,
-   *   dependencies: ["user:123:profile"] 
-   * });
-   * 
-   * // Later, when profile changes, invalidate dependent entries
-   * RunCache.invalidateByDependency("user:123:profile");
-   * // This will invalidate user:123:dashboard since it depends on user:123:profile
    */
-  static invalidateByDependency(key: string): boolean {
+  static async invalidateByDependency(key: string): Promise<boolean> {
+    await RunCache.ensureInitialized();
     return RunCache.instance.invalidateByDependency(key);
   }
 
@@ -482,15 +471,9 @@ export class RunCache {
    * @param {string} targetKey - The key to check for dependencies
    * @param {string} dependencyKey - The dependency key to look for
    * @returns {Promise<boolean>} - Returns `true` if targetKey depends on dependencyKey, `false` otherwise
-   * 
-   * @example
-   * // Check dependency relationship
-   * const isDependency = await RunCache.isDependencyOf("user:dashboard:123", "user:profile:123");
-   * if (isDependency) {
-   *   console.log("Dashboard depends on profile data");
-   * }
    */
   static async isDependencyOf(targetKey: string, dependencyKey: string): Promise<boolean> {
+    await RunCache.ensureInitialized();
     return RunCache.instance.isDependencyOf(targetKey, dependencyKey);
   }
 
@@ -499,15 +482,9 @@ export class RunCache {
    * This event occurs when cache entries are invalidated using a tag.
    * 
    * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when the event is triggered.
-   * 
-   * @returns {void}
-   * 
-   * @example
-   * RunCache.onTagInvalidation((event) => {
-   *   console.log(`Cache entry ${event.key} was invalidated by tag: ${event.tag}`);
-   * });
    */
-  static onTagInvalidation(callback: (event: EventParam) => void | Promise<void>): void {
+  static async onTagInvalidation(callback: (event: EventParam) => void | Promise<void>): Promise<void> {
+    await RunCache.ensureInitialized();
     RunCache.instance.onTagInvalidation(callback);
   }
 
@@ -517,34 +494,20 @@ export class RunCache {
    * 
    * @param {string} key - The key for which the tag invalidation event is being tracked. Supports wildcards (*).
    * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when the event is triggered.
-   * 
-   * @returns {void}
-   * 
-   * @throws {Error} If the `key` is empty.
-   * 
-   * @example
-   * RunCache.onKeyTagInvalidation("user:*", (event) => {
-   *   console.log(`User cache entry ${event.key} was invalidated by tag: ${event.tag}`);
-   * });
    */
-  static onKeyTagInvalidation(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+  static async onKeyTagInvalidation(key: string, callback: (event: EventParam) => void | Promise<void>): Promise<void> {
+    await RunCache.ensureInitialized();
     RunCache.instance.onKeyTagInvalidation(key, callback);
   }
 
   /**
    * Registers a callback function to be executed when the global `dependency_invalidation` event is triggered.
-   * This event occurs when cache entries are invalidated due to a dependency relationship.
+   * This event occurs when cache entries are invalidated due to dependency relationships.
    * 
    * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when the event is triggered.
-   * 
-   * @returns {void}
-   * 
-   * @example
-   * RunCache.onDependencyInvalidation((event) => {
-   *   console.log(`Cache entry ${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
-   * });
    */
-  static onDependencyInvalidation(callback: (event: EventParam) => void | Promise<void>): void {
+  static async onDependencyInvalidation(callback: (event: EventParam) => void | Promise<void>): Promise<void> {
+    await RunCache.ensureInitialized();
     RunCache.instance.onDependencyInvalidation(callback);
   }
 
@@ -554,81 +517,36 @@ export class RunCache {
    * 
    * @param {string} key - The key for which the dependency invalidation event is being tracked. Supports wildcards (*).
    * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when the event is triggered.
-   * 
-   * @returns {void}
-   * 
-   * @throws {Error} If the `key` is empty.
-   * 
-   * @example
-   * RunCache.onKeyDependencyInvalidation("dashboard:*", (event) => {
-   *   console.log(`Dashboard cache ${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
-   * });
    */
-  static onKeyDependencyInvalidation(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+  static async onKeyDependencyInvalidation(key: string, callback: (event: EventParam) => void | Promise<void>): Promise<void> {
+    await RunCache.ensureInitialized();
     RunCache.instance.onKeyDependencyInvalidation(key, callback);
   }
 
   /**
-   * Clears event listeners based on the provided parameters.
-   *
-   * @param {Object} [params] - Optional parameters for selective clearing of event listeners.
-   * @param {EventName} [params.event] - The event type to clear listeners for (e.g., EVENT.EXPIRE).
-   * @param {string} [params.key] - The key pattern to clear listeners for (supports wildcards).
-   *
-   * @returns {boolean} - Returns `true` if any listeners were removed, `false` otherwise.
-   *
-   * @example
-   * // Clear all event listeners
-   * RunCache.clearEventListeners();
-   *
-   * @example
-   * // Clear only expiry listeners
-   * RunCache.clearEventListeners({ event: EVENT.EXPIRE });
-   *
-   * @example
-   * // Clear listeners for a specific pattern
-   * RunCache.clearEventListeners({ event: EVENT.EXPIRE, key: "user-*" });
-   */
-
-  /**
    * Sets up auto-save interval for persistent storage
-   * 
-   * @param {number} intervalMs - Milliseconds between auto-saves, or 0 to disable auto-saving
-   * 
-   * @example
-   * // Auto-save cache to storage every 5 minutes
-   * RunCache.setupAutoSave(300000);
-   * 
-   * // Disable auto-saving
-   * RunCache.setupAutoSave(0);
+   * @param intervalMs Milliseconds between auto-saves, or 0 to disable
    */
-  static setupAutoSave(intervalMs: number): void {
+  static async setupAutoSave(intervalMs: number): Promise<void> {
+    await RunCache.ensureInitialized();
     RunCache.instance.setupAutoSave(intervalMs);
   }
 
   /**
-   * Manually saves the current cache state to persistent storage
-   * 
-   * @returns {Promise<boolean>} - True if the save was successful, false if no storage adapter is configured
-   * 
-   * @example
-   * // Manually save the cache state
-   * await RunCache.saveToStorage();
+   * Manually saves the current cache state to the configured storage adapter
+   * @returns Promise that resolves to true if saved successfully
    */
   static async saveToStorage(): Promise<boolean> {
+    await RunCache.ensureInitialized();
     return RunCache.instance.saveToStorage();
   }
 
   /**
-   * Manually loads the cache state from persistent storage
-   * 
-   * @returns {Promise<boolean>} - True if the load was successful, false if no storage adapter is configured or no data exists
-   * 
-   * @example
-   * // Manually load the cache state
-   * await RunCache.loadFromStorage();
+   * Manually loads cache state from the configured storage adapter
+   * @returns Promise that resolves to true if loaded successfully
    */
   static async loadFromStorage(): Promise<boolean> {
+    await RunCache.ensureInitialized();
     return RunCache.instance.loadFromStorage();
   }
 } 
