@@ -35,6 +35,12 @@ export interface RunCacheConfig {
    * @default EvictionPolicy.NONE
    */
   evictionPolicy?: EvictionPolicy;
+  
+  /**
+   * Enable verbose logging to print all cache operations to the console.
+   * @default false
+   */
+  verbose?: boolean;
 }
 
 type CacheState = {
@@ -138,12 +144,64 @@ class RunCache {
   private static config: RunCacheConfig = {
     maxSize: Number.POSITIVE_INFINITY,
     evictionPolicy: EvictionPolicy.NONE,
+    verbose: false,
   };
+
+  /**
+   * Internal logging function that respects the verbose configuration
+   * @param level Log level (info, debug, warn, error)
+   * @param message The message to log
+   * @param data Optional data to include in the log
+   */
+  private static log(level: 'info' | 'debug' | 'warn' | 'error', message: string, data?: any): void {
+    if (!RunCache.config.verbose) return;
+    
+    // Only log if console is available
+    if (typeof console === 'undefined') return;
+    
+    const timestamp = new Date().toISOString();
+    const prefix = `RunCache [${timestamp}] [${level.toUpperCase()}]:`;
+    
+    switch (level) {
+      case 'info':
+        if (data) {
+          console.info(prefix, message, data);
+        } else {
+          console.info(prefix, message);
+        }
+        break;
+      case 'debug':
+        if (data) {
+          console.debug(prefix, message, data);
+        } else {
+          console.debug(prefix, message);
+        }
+        break;
+      case 'warn':
+        if (data) {
+          console.warn(prefix, message, data);
+        } else {
+          console.warn(prefix, message);
+        }
+        break;
+      case 'error':
+        if (data) {
+          console.error(prefix, message, data);
+        } else {
+          console.error(prefix, message);
+        }
+        break;
+    }
+  }
 
   private static isExpired(cache: CacheState): boolean {
     if (!cache.ttl) return false;
 
-    return cache.updatedAt + cache.ttl < Date.now();
+    const isExpired = cache.updatedAt + cache.ttl < Date.now();
+    if (isExpired && RunCache.config.verbose) {
+      RunCache.log('debug', `Cache entry expired`, { ttl: cache.ttl, updatedAt: cache.updatedAt });
+    }
+    return isExpired;
   }
 
   /**
@@ -197,9 +255,15 @@ class RunCache {
     if (cached) {
       // Use the current timestamp for the update
       const now = Date.now();
+      const previousAccess = { lastAccessed: cached.lastAccessed, accessCount: cached.accessCount };
       cached.lastAccessed = now;
       cached.accessCount += 1;
       RunCache.cache.set(key, cached);
+      
+      RunCache.log('debug', `Updated access metadata for key: ${key}`, { 
+        before: previousAccess,
+        after: { lastAccessed: cached.lastAccessed, accessCount: cached.accessCount }
+      });
     }
     RunCache.enforceEvictionPolicy();
   }
@@ -221,6 +285,8 @@ class RunCache {
       return;
     }
 
+    RunCache.log('info', `Cache size (${RunCache.cache.size}) exceeds max size (${RunCache.config.maxSize}), evicting ${entriesToEvict} entries using ${RunCache.config.evictionPolicy} policy`);
+
     // Choose eviction strategy based on configuration
     switch (RunCache.config.evictionPolicy) {
       case EvictionPolicy.LRU:
@@ -232,6 +298,7 @@ class RunCache {
       case EvictionPolicy.NONE:
       default:
         // No automatic eviction
+        RunCache.log('debug', `Skipping eviction as policy is set to NONE`);
         break;
     }
   }
@@ -241,6 +308,8 @@ class RunCache {
    * @param count Number of entries to evict
    */
   private static evictLRU(count: number): void {
+    RunCache.log('debug', `Running LRU eviction for ${count} entries`);
+    
     // Create a sorted array based on LRU criteria
     const entries = Array.from(RunCache.cache.entries())
       .map(([key, state]) => [key, state] as [string, CacheState])
@@ -269,6 +338,8 @@ class RunCache {
     // Take the oldest 'count' entries
     const toEvict = entries.slice(0, count).map(([key]) => key);
     
+    RunCache.log('info', `LRU Eviction: removing ${toEvict.length} entries`, { evictedKeys: toEvict });
+    
     // Evict them from the cache
     for (const key of toEvict) {
       RunCache.deleteSingle(key);
@@ -280,6 +351,8 @@ class RunCache {
    * @param count Number of entries to evict
    */
   private static evictLFU(count: number): void {
+    RunCache.log('debug', `Running LFU eviction for ${count} entries`);
+    
     // Create a sorted array based on LFU criteria
     const entries = Array.from(RunCache.cache.entries())
       .map(([key, state]) => [key, state] as [string, CacheState])
@@ -299,6 +372,8 @@ class RunCache {
     
     // Take the least frequently accessed 'count' entries
     const toEvict = entries.slice(0, count).map(([key]) => key);
+    
+    RunCache.log('info', `LFU Eviction: removing ${toEvict.length} entries`, { evictedKeys: toEvict });
     
     // Evict them from the cache
     for (const key of toEvict) {
@@ -336,31 +411,48 @@ class RunCache {
     sourceFn?: SourceFn;
   }): Promise<boolean> {
     if (!key?.length) {
+      RunCache.log('error', `Empty key provided to set() method`);
       throw new Error("Empty key");
     }
 
     if (sourceFn === undefined && (value === undefined || !value.length)) {
+      RunCache.log('error', `Neither value nor sourceFn provided to set() method for key: ${key}`);
       throw new Error("`value` can't be empty without a `sourceFn`");
     }
 
     if (autoRefetch && !ttl) {
+      RunCache.log('error', `autoRefetch enabled without ttl for key: ${key}`);
       throw new Error("`autoRefetch` is not allowed without a `ttl`");
     }
 
     const time = Date.now();
+    
+    RunCache.log('info', `Setting cache for key: ${key}`, { 
+      hasTtl: ttl !== undefined,
+      ttl,
+      hasValue: value !== undefined,
+      hasSourceFn: sourceFn !== undefined,
+      autoRefetch 
+    });
 
     // Clear existing interval if the key already exists
     const existingCache = RunCache.cache.get(key);
     if (existingCache?.interval) {
+      RunCache.log('debug', `Clearing existing interval for key: ${key}`);
       clearInterval(existingCache.interval);
     }
 
     let interval: ReturnType<typeof setInterval> | null = null;
 
     if (ttl !== undefined) {
-      if (ttl < 0) throw new Error("Value `ttl` cannot be negative");
+      if (ttl < 0) {
+        RunCache.log('error', `Negative ttl provided for key: ${key}`, { ttl });
+        throw new Error("Value `ttl` cannot be negative");
+      }
 
+      RunCache.log('debug', `Setting expiry interval for key: ${key}, ttl: ${ttl}ms`);
       interval = setInterval(() => {
+        RunCache.log('debug', `TTL expired for key: ${key}`);
         RunCache.emitEvent(EVENT.EXPIRE, {
           key,
           value: value ?? "undefined",
@@ -370,7 +462,9 @@ class RunCache {
         });
 
         if (typeof sourceFn === "function" && autoRefetch) {
+          RunCache.log('debug', `Auto-refetching key: ${key}`);
           RunCache.refetch(key).catch((e) => {
+            RunCache.log('error', `Auto-refetch failed for key: ${key}`, e);
             /* Ignore as the event is already emitted inside the function */
           });
         }
@@ -381,8 +475,11 @@ class RunCache {
 
     if (value === undefined && typeof sourceFn === "function") {
       try {
+        RunCache.log('debug', `Fetching value using sourceFn for key: ${key}`);
         cacheValue = await sourceFn();
+        RunCache.log('debug', `Successfully fetched value using sourceFn for key: ${key}`);
       } catch (e) {
+        RunCache.log('error', `Source function failed for key: ${key}`, e);
         throw new Error(`Source function failed for key: '${key}'`);
       }
     }
@@ -393,6 +490,7 @@ class RunCache {
         !RunCache.cache.has(key) &&
         RunCache.config.evictionPolicy !== EvictionPolicy.NONE) {
       // We're adding a new key and we're already at max size, so evict one
+      RunCache.log('info', `Cache at capacity, evicting one entry before adding key: ${key}`);
       if (RunCache.config.evictionPolicy === EvictionPolicy.LRU) {
         RunCache.evictLRU(1);
       } else if (RunCache.config.evictionPolicy === EvictionPolicy.LFU) {
@@ -416,6 +514,11 @@ class RunCache {
       accessCount,
       lastAccessed,
     });
+    
+    RunCache.log('debug', `Cache entry set successfully for key: ${key}`, { 
+      newSize: RunCache.cache.size,
+      maxSize: RunCache.config.maxSize
+    });
 
     // Double-check after adding to ensure we're not over the limit
     RunCache.enforceEvictionPolicy();
@@ -433,10 +536,14 @@ class RunCache {
   static async refetch(key: string): Promise<boolean> {
     // Handle wildcard patterns
     if (key.includes("*")) {
+      RunCache.log('info', `Refetching multiple keys matching pattern: ${key}`);
       const matchingKeys = RunCache.getMatchingKeys(key);
       if (matchingKeys.length === 0) {
+        RunCache.log('debug', `No keys found matching pattern: ${key}`);
         return false;
       }
+
+      RunCache.log('debug', `Found ${matchingKeys.length} keys matching pattern: ${key}`, { matchingKeys });
 
       // Attempt to refetch all matching keys
       const results = await Promise.all(
@@ -444,6 +551,7 @@ class RunCache {
           try {
             return await RunCache.refetchSingle(matchedKey);
           } catch (e) {
+            RunCache.log('error', `Failed to refetch key: ${matchedKey}`, e);
             // If one key fails, we still want to try the others
             return false;
           }
@@ -451,7 +559,9 @@ class RunCache {
       );
 
       // Return true if any refetch was successful
-      return results.some(result => result === true);
+      const anySuccessful = results.some(result => result === true);
+      RunCache.log('info', `Refetch of pattern ${key} ${anySuccessful ? 'succeeded' : 'failed'}`);
+      return anySuccessful;
     }
 
     // Handle single key
@@ -464,24 +574,31 @@ class RunCache {
    * @returns Promise<boolean> indicating success
    */
   private static async refetchSingle(key: string): Promise<boolean> {
+    RunCache.log('debug', `Attempting to refetch single key: ${key}`);
     const cached = RunCache.cache.get(key);
 
     if (!cached) {
+      RunCache.log('debug', `Refetch failed: key not found: ${key}`);
       return false;
     }
 
     if (typeof cached.sourceFn === "undefined") {
+      RunCache.log('debug', `Refetch failed: no sourceFn for key: ${key}`);
       return false;
     }
 
     if (cached.fetching) {
+      RunCache.log('debug', `Refetch skipped: already fetching key: ${key}`);
       return false;
     }
 
     try {
+      RunCache.log('debug', `Setting fetching flag for key: ${key}`);
       RunCache.cache.set(key, { fetching: true, ...cached });
 
+      RunCache.log('debug', `Calling sourceFn for key: ${key}`);
       const value = await cached.sourceFn();
+      RunCache.log('debug', `SourceFn succeeded for key: ${key}`);
 
       const refetchedCache = {
         value: value,
@@ -497,6 +614,8 @@ class RunCache {
         ...refetchedCache,
         fetching: undefined,
       });
+      
+      RunCache.log('info', `Successfully refetched key: ${key}`);
 
       RunCache.emitEvent(EVENT.REFETCH, {
         key,
@@ -508,6 +627,7 @@ class RunCache {
 
       return true;
     } catch (e) {
+      RunCache.log('error', `Refetch failed for key: ${key}`, e);
       RunCache.cache.set(key, {
         ...cached,
         fetching: undefined,
@@ -538,10 +658,12 @@ class RunCache {
    */
   static async get(key: string): Promise<string | string[] | undefined> {
     if (!key) {
+      RunCache.log('debug', `Get called with empty key`);
       return undefined;
     }
 
     const isWildcard = key.includes("*");
+    RunCache.log('debug', `Get called for ${isWildcard ? 'wildcard' : 'exact'} key: ${key}`);
 
     // If wildcard is present, fetch all matching keys
     if (isWildcard) {
@@ -550,14 +672,18 @@ class RunCache {
       // Take a snapshot first to avoid concurrent modification issues
       // This prevents problems if enforceEvictionPolicy() is called during iteration
       const snapshot = Array.from(RunCache.cache.entries());
+      RunCache.log('debug', `Processing ${snapshot.length} entries for wildcard key: ${key}`);
+      
       for (const [cacheKey, cached] of snapshot) {
         if (RunCache.matchesPattern(key, cacheKey) && !RunCache.isExpired(cached)) {
+          RunCache.log('debug', `Matched key: ${cacheKey} for pattern: ${key}`);
           // Update access metadata for the matched key
           RunCache.updateAccessMetadata(cacheKey);
           matchingValues.push(cached.value);
         }
       }
 
+      RunCache.log('info', `Get with wildcard ${key} returned ${matchingValues.length} results`);
       return matchingValues.length > 0 ? matchingValues : undefined;
     }
 
@@ -565,15 +691,18 @@ class RunCache {
     const cached = RunCache.cache.get(key);
 
     if (!cached) {
+      RunCache.log('debug', `Key not found: ${key}`);
       return undefined;
     }
 
     if (!RunCache.isExpired(cached)) {
+      RunCache.log('debug', `Cache hit for key: ${key}`);
       // Update access metadata for LRU/LFU
       RunCache.updateAccessMetadata(key);
       return cached.value;
     }
 
+    RunCache.log('info', `Cache expired for key: ${key}`);
     RunCache.emitEvent(EVENT.EXPIRE, {
       key: key,
       value: cached.value,
@@ -583,19 +712,23 @@ class RunCache {
     });
 
     if (typeof cached.sourceFn === "undefined" || !cached.autoRefetch) {
+      RunCache.log('debug', `Deleting expired key without auto-refetch: ${key}`);
       RunCache.cache.delete(key);
       return undefined;
     }
 
+    RunCache.log('debug', `Auto-refetching expired key: ${key}`);
     await RunCache.refetchSingle(key);
     
     // Update access metadata after refetch
     const refetched = RunCache.cache.get(key);
     if (refetched) {
+      RunCache.log('debug', `Auto-refetch successful for key: ${key}`);
       RunCache.updateAccessMetadata(key);
       return refetched.value;
     }
     
+    RunCache.log('debug', `Auto-refetch failed for key: ${key}`);
     return undefined;
   }
 
@@ -610,10 +743,14 @@ class RunCache {
    */
   static delete(key: string): boolean {
     if (key.includes("*")) {
+      RunCache.log('info', `Deleting keys matching pattern: ${key}`);
       const matchingKeys = RunCache.getMatchingKeys(key);
       if (matchingKeys.length === 0) {
+        RunCache.log('debug', `No keys found matching pattern: ${key}`);
         return false;
       }
+
+      RunCache.log('debug', `Found ${matchingKeys.length} keys matching pattern: ${key}`, { matchingKeys });
 
       let anyDeleted = false;
       for (const matchedKey of matchingKeys) {
@@ -633,12 +770,17 @@ class RunCache {
    */
   private static deleteSingle(key: string): boolean {
     const cache = RunCache.cache.get(key);
-    if (!cache) return false;
+    if (!cache) {
+      RunCache.log('debug', `Delete failed: key not found: ${key}`);
+      return false;
+    }
 
     if (cache.interval) {
+      RunCache.log('debug', `Clearing interval for key: ${key}`);
       clearInterval(cache.interval);
     }
 
+    RunCache.log('info', `Deleted key: ${key}`);
     return RunCache.cache.delete(key);
   }
 
@@ -650,6 +792,9 @@ class RunCache {
    */
   static flush(): void {
     const values = Array.from(RunCache.cache.values());
+    const count = values.length;
+
+    RunCache.log('info', `Flushing ${count} cache entries`);
 
     values.forEach(({ interval }) => {
       if (interval) {
@@ -658,6 +803,7 @@ class RunCache {
     });
 
     RunCache.cache.clear();
+    RunCache.log('debug', `Cache flushed successfully, removed ${count} entries`);
   }
 
   /**
@@ -671,15 +817,18 @@ class RunCache {
    */
   static async has(key: string): Promise<boolean> {
     if (key.includes("*")) {
+      RunCache.log('debug', `Checking existence for pattern: ${key}`);
       const matchingKeys = RunCache.getMatchingKeys(key);
       
       for (const matchedKey of matchingKeys) {
         const exists = await RunCache.hasSingle(matchedKey);
         if (exists) {
+          RunCache.log('debug', `Found existing key: ${matchedKey} for pattern: ${key}`);
           return true;
         }
       }
       
+      RunCache.log('debug', `No valid keys found for pattern: ${key}`);
       return false;
     }
 
@@ -963,7 +1112,19 @@ class RunCache {
    * @param config Configuration options for RunCache.
    */
   static configure(config: RunCacheConfig): void {
+    const previousConfig = { ...RunCache.config };
     RunCache.config = { ...RunCache.config, ...config };
+    
+    const verboseChanged = previousConfig.verbose !== RunCache.config.verbose;
+    // If verbose is being enabled, log that fact
+    if (verboseChanged && RunCache.config.verbose) {
+      RunCache.log('info', `Verbose logging enabled`);
+    }
+    
+    RunCache.log('info', `Configuration updated`, { 
+      previous: previousConfig,
+      current: RunCache.config
+    });
   }
 
   /**
@@ -984,21 +1145,25 @@ class RunCache {
    * This method should be called when the application is shutting down to prevent memory leaks.
    */
   static shutdown(): void {
+    RunCache.log('info', `Shutting down RunCache`);
+    
     // Clear all cache entries and their intervals
     RunCache.flush();
     
     // Remove all event listeners
     RunCache.clearEventListeners();
     
-    // Reset configuration to defaults
+    // Reset configuration to defaults but preserve verbose setting for final log
+    const wasVerbose = RunCache.config.verbose;
     RunCache.config = {
       maxSize: Number.POSITIVE_INFINITY,
       evictionPolicy: EvictionPolicy.NONE,
+      verbose: wasVerbose,
     };
     
     // Log shutdown completion if in a Node.js environment with a console
-    if (typeof console !== 'undefined' && console.debug) {
-      console.debug('RunCache: shutdown complete, all resources released');
+    if (typeof console !== 'undefined' && typeof console.debug === 'function') {
+      RunCache.log('info', 'RunCache: shutdown complete, all resources released');
     }
   }
 }

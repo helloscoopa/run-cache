@@ -1248,7 +1248,8 @@ describe("RunCache", () => {
       // Check initial configuration
       expect(RunCache.getConfig()).toEqual({
         maxSize: Number.POSITIVE_INFINITY,
-        evictionPolicy: EvictionPolicy.NONE
+        evictionPolicy: EvictionPolicy.NONE,
+        verbose: false
       });
       
       // Update configuration
@@ -1260,7 +1261,8 @@ describe("RunCache", () => {
       // Check updated configuration
       expect(RunCache.getConfig()).toEqual({
         maxSize: 10,
-        evictionPolicy: EvictionPolicy.LRU
+        evictionPolicy: EvictionPolicy.LRU,
+        verbose: false
       });
       
       // Partial update
@@ -1271,7 +1273,8 @@ describe("RunCache", () => {
       // Check that only the specified field was updated
       expect(RunCache.getConfig()).toEqual({
         maxSize: 10,
-        evictionPolicy: EvictionPolicy.LFU
+        evictionPolicy: EvictionPolicy.LFU,
+        verbose: false
       });
     });
   });
@@ -1333,13 +1336,160 @@ describe("RunCache", () => {
       // Check that configuration is reset
       expect(RunCache.getConfig()).toEqual({
         maxSize: Number.POSITIVE_INFINITY,
-        evictionPolicy: EvictionPolicy.NONE
+        evictionPolicy: EvictionPolicy.NONE,
+        verbose: false
       });
     });
     
     it("should handle shutdown when cache is already empty", () => {
       // Verify we can safely call shutdown on an empty cache
       expect(() => RunCache.shutdown()).not.toThrow();
+    });
+  });
+
+  describe("verbose logging", () => {
+    let originalConsoleInfo: typeof console.info;
+    let originalConsoleDebug: typeof console.debug;
+    let originalConsoleWarn: typeof console.warn;
+    let originalConsoleError: typeof console.error;
+    let logSpy: jest.Mock;
+    
+    beforeEach(() => {
+      // Store original console methods
+      originalConsoleInfo = console.info;
+      originalConsoleDebug = console.debug;
+      originalConsoleWarn = console.warn;
+      originalConsoleError = console.error;
+      
+      // Create a single spy to track all console methods
+      logSpy = jest.fn();
+      
+      // Replace all console methods with the spy
+      console.info = logSpy as any;
+      console.debug = logSpy as any;
+      console.warn = logSpy as any;
+      console.error = logSpy as any;
+      
+      // Reset RunCache state
+      RunCache.flush();
+      RunCache.clearEventListeners();
+      
+      // Reset configuration with verbose off by default
+      RunCache.configure({
+        maxSize: Number.POSITIVE_INFINITY,
+        evictionPolicy: EvictionPolicy.NONE,
+        verbose: false
+      });
+    });
+    
+    afterEach(() => {
+      // Restore original console methods
+      console.info = originalConsoleInfo;
+      console.debug = originalConsoleDebug;
+      console.warn = originalConsoleWarn;
+      console.error = originalConsoleError;
+      
+      // Turn off verbose logging
+      RunCache.configure({ verbose: false });
+    });
+    
+    it("should not log when verbose is disabled", async () => {
+      // Set a cache entry with verbose disabled
+      await RunCache.set({ key: "test-key", value: "test-value" });
+      
+      // Get the cache entry
+      await RunCache.get("test-key");
+      
+      // Check that no logs were generated
+      expect(logSpy).not.toHaveBeenCalled();
+    });
+    
+    it("should log when verbose is enabled", async () => {
+      // Enable verbose logging
+      RunCache.configure({ verbose: true });
+      
+      // Set a cache entry
+      await RunCache.set({ key: "test-key", value: "test-value" });
+      
+      // Get the cache entry
+      await RunCache.get("test-key");
+      
+      // Check that logs were generated
+      expect(logSpy).toHaveBeenCalled();
+      
+      // Verify the log contains expected information
+      const calls = logSpy.mock.calls;
+      
+      // Find log entries related to setting the cache
+      const setLogs = calls.filter(call => 
+        call.some((arg: any) => typeof arg === 'string' && arg.includes('Setting cache for key: test-key'))
+      );
+      expect(setLogs.length).toBeGreaterThan(0);
+      
+      // Find log entries related to getting the cache
+      const getLogs = calls.filter(call => 
+        call.some((arg: any) => typeof arg === 'string' && arg.includes('Get called for exact key: test-key'))
+      );
+      expect(getLogs.length).toBeGreaterThan(0);
+    });
+    
+    it("should log cache eviction when verbose is enabled", async () => {
+      // Enable verbose logging and configure cache with eviction policy
+      RunCache.configure({
+        verbose: true,
+        maxSize: 2,
+        evictionPolicy: EvictionPolicy.LRU
+      });
+      
+      // Add entries to trigger eviction
+      await RunCache.set({ key: "key1", value: "value1" });
+      await RunCache.set({ key: "key2", value: "value2" });
+      
+      // Reset log spy to focus only on eviction logs
+      logSpy.mockClear();
+      
+      // Add third entry to trigger eviction
+      await RunCache.set({ key: "key3", value: "value3" });
+      
+      // Verify eviction logs
+      const evictionLogs = logSpy.mock.calls.filter(call => 
+        call.some((arg: any) => typeof arg === 'string' && 
+          (arg.includes('Cache size') || arg.includes('evicting') || arg.includes('Eviction')))
+      );
+      
+      expect(evictionLogs.length).toBeGreaterThan(0);
+    });
+    
+    it("should respect verbose setting changes during runtime", async () => {
+      // Start with verbose enabled
+      RunCache.configure({ verbose: true });
+      
+      // Set a cache entry
+      await RunCache.set({ key: "test-key-1", value: "test-value-1" });
+      
+      // Verify logs were generated
+      expect(logSpy).toHaveBeenCalled();
+      
+      // Reset log spy
+      logSpy.mockClear();
+      
+      // Disable verbose logging
+      RunCache.configure({ verbose: false });
+      
+      // Set another cache entry
+      await RunCache.set({ key: "test-key-2", value: "test-value-2" });
+      
+      // Verify no logs were generated after disabling verbose
+      expect(logSpy).not.toHaveBeenCalled();
+      
+      // Re-enable verbose logging
+      RunCache.configure({ verbose: true });
+      
+      // Set another cache entry
+      await RunCache.set({ key: "test-key-3", value: "test-value-3" });
+      
+      // Verify logs are being generated again
+      expect(logSpy).toHaveBeenCalled();
     });
   });
 });

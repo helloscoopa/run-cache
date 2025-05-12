@@ -311,6 +311,51 @@ The `shutdown` method performs the following cleanup:
 
 This is particularly useful in long-running applications or when you need to release resources manually.
 
+## Debugging and Logging
+
+RunCache provides built-in verbose logging to help with debugging and monitoring cache behavior.
+
+### Verbose Logging
+
+Enable verbose logging to see detailed information about all cache operations:
+
+```typescript
+// Enable verbose logging when configuring the cache
+RunCache.configure({
+  verbose: true
+});
+```
+
+When verbose mode is enabled, RunCache logs detailed information about:
+- Cache operations (set, get, delete, etc.)
+- Entry expiration and eviction
+- Refetch operations and failures
+- Configuration changes
+
+All logs include timestamps and log levels for easy filtering.
+
+```typescript
+// Example of enabling verbose logging for debugging
+RunCache.configure({ verbose: true });
+
+// Perform some cache operations
+await RunCache.set({ key: "user-1", value: "Alice" });
+await RunCache.get("user-1");
+
+// Disable verbose logging when done debugging
+RunCache.configure({ verbose: false });
+```
+
+### Log Levels
+
+Logs are output at different levels depending on their importance:
+- `info`: General information about cache operations
+- `debug`: Detailed information useful for debugging
+- `warn`: Warnings about potential issues
+- `error`: Errors that occurred during operations
+
+This is useful when you want to filter logs in complex applications.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
