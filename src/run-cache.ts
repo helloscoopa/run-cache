@@ -40,6 +40,13 @@ type EventFn = (params: EventParam) => Promise<void> | void;
 class RunCache {
   private static cache: Map<string, CacheState> = new Map<string, CacheState>();
   private static emitter: EventEmitter = new EventEmitter();
+  
+  // Track wildcard listeners for proper cleanup
+  private static _wildcardListeners: Array<{
+    event: EventName;
+    keyPattern: string;
+    fn: EventFn;
+  }> = [];
 
   private static isExpired(cache: CacheState): boolean {
     if (!cache.ttl) return false;
@@ -494,11 +501,21 @@ class RunCache {
     if (!key) throw Error("Empty key");
 
     if (key.includes("*")) {
-      // For wildcard patterns, we need to listen to all expire events and filter
-      RunCache.emitter.on(EVENT.EXPIRE, (params: EventParam) => {
+      // For wildcard patterns, create a wrapper function that filters events
+      const wrapper: EventFn = (params: EventParam) => {
         if (RunCache.matchesPattern(key, params.key)) {
           callback(params);
         }
+      };
+      
+      // Attach the wrapper to the root event
+      RunCache.emitter.on(EVENT.EXPIRE, wrapper);
+      
+      // Store the reference for later cleanup
+      RunCache._wildcardListeners.push({
+        event: EVENT.EXPIRE,
+        keyPattern: key,
+        fn: wrapper,
       });
     } else {
       RunCache.emitter.on(`${EVENT.EXPIRE}-${key}`, callback);
@@ -531,11 +548,21 @@ class RunCache {
     if (!key) throw Error("Empty key");
 
     if (key.includes("*")) {
-      // For wildcard patterns, we need to listen to all refetch events and filter
-      RunCache.emitter.on(EVENT.REFETCH, (params: EventParam) => {
+      // For wildcard patterns, create a wrapper function that filters events
+      const wrapper: EventFn = (params: EventParam) => {
         if (RunCache.matchesPattern(key, params.key)) {
           callback(params);
         }
+      };
+      
+      // Attach the wrapper to the root event
+      RunCache.emitter.on(EVENT.REFETCH, wrapper);
+      
+      // Store the reference for later cleanup
+      RunCache._wildcardListeners.push({
+        event: EVENT.REFETCH,
+        keyPattern: key,
+        fn: wrapper,
       });
     } else {
       RunCache.emitter.on(`${EVENT.REFETCH}-${key}`, callback);
@@ -564,11 +591,21 @@ class RunCache {
     if (!key) throw Error("Empty key");
 
     if (key.includes("*")) {
-      // For wildcard patterns, we need to listen to all refetch failure events and filter
-      RunCache.emitter.on(EVENT.REFETCH_FAILURE, (params: EventParam) => {
+      // For wildcard patterns, create a wrapper function that filters events
+      const wrapper: EventFn = (params: EventParam) => {
         if (RunCache.matchesPattern(key, params.key)) {
           callback(params);
         }
+      };
+      
+      // Attach the wrapper to the root event
+      RunCache.emitter.on(EVENT.REFETCH_FAILURE, wrapper);
+      
+      // Store the reference for later cleanup
+      RunCache._wildcardListeners.push({
+        event: EVENT.REFETCH_FAILURE,
+        keyPattern: key,
+        fn: wrapper,
       });
     } else {
       RunCache.emitter.on(`${EVENT.REFETCH_FAILURE}-${key}`, callback);
@@ -597,6 +634,7 @@ class RunCache {
   }): boolean {
     if (!params) {
       RunCache.emitter.removeAllListeners();
+      RunCache._wildcardListeners = [];
       return true;
     }
 
@@ -606,10 +644,9 @@ class RunCache {
 
     if (params.event && params.key) {
       if (params.key.includes("*")) {
+        // 1) Remove namespaced listeners
         const prefix = `${params.event}-`;
-        const eventNames = RunCache.emitter.eventNames();
-        
-        for (const eventName of eventNames) {
+        for (const eventName of RunCache.emitter.eventNames()) {
           if (typeof eventName === "string" && eventName.startsWith(prefix)) {
             const eventKey = eventName.slice(prefix.length);
             if (RunCache.matchesPattern(params.key, eventKey)) {
@@ -617,6 +654,20 @@ class RunCache {
             }
           }
         }
+        
+        // 2) Remove wildcard wrappers
+        const remaining: typeof RunCache._wildcardListeners = [];
+        for (const entry of RunCache._wildcardListeners) {
+          if (
+            entry.event === params.event &&
+            RunCache.matchesPattern(params.key, entry.keyPattern)
+          ) {
+            RunCache.emitter.removeListener(entry.event, entry.fn);
+          } else {
+            remaining.push(entry);
+          }
+        }
+        RunCache._wildcardListeners = remaining;
       } else {
         RunCache.emitter.removeAllListeners(`${params.event}-${params.key}`);
       }
@@ -626,6 +677,7 @@ class RunCache {
     if (params.event) {
       RunCache.emitter.removeAllListeners(params.event);
 
+      // Remove all namespaced events
       RunCache.emitter.eventNames().forEach((eventName) => {
         if (
           params.event &&
@@ -635,6 +687,17 @@ class RunCache {
           RunCache.emitter.removeAllListeners(eventName);
         }
       });
+      
+      // Remove all wildcard listeners for this event
+      const remaining: typeof RunCache._wildcardListeners = [];
+      for (const entry of RunCache._wildcardListeners) {
+        if (entry.event === params.event) {
+          // Already removed by removeAllListeners(params.event) above
+        } else {
+          remaining.push(entry);
+        }
+      }
+      RunCache._wildcardListeners = remaining;
 
       return true;
     }

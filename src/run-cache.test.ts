@@ -851,6 +851,98 @@ describe("RunCache", () => {
       // Refetch callbacks should still be called
       expect(callback2).toHaveBeenCalledTimes(3);
     });
+
+    it("should properly clean up wildcard pattern listeners", async () => {
+      // Setup: create a prefix to use for all keys
+      const prefix = "test-cleanup-";
+      const wildcardPattern = `${prefix}*`;
+      
+      // Create some test keys
+      await RunCache.set({ key: `${prefix}1`, value: "Value 1", ttl: 100 });
+      await RunCache.set({ key: `${prefix}2`, value: "Value 2", ttl: 100 });
+      
+      // Create counters to track callback executions
+      let expiryCount = 0;
+      let refetchCount = 0;
+      let refetchFailCount = 0;
+      
+      // Set up wildcard listeners
+      RunCache.onKeyExpiry(wildcardPattern, () => { expiryCount++; });
+      RunCache.onKeyRefetch(wildcardPattern, () => { refetchCount++; });
+      RunCache.onKeyRefetchFailure(wildcardPattern, () => { refetchFailCount++; });
+
+      // Trigger expiry events
+      jest.advanceTimersByTime(101);
+      await Promise.resolve(); // Flush microtasks
+      
+      // Verify listeners were triggered
+      expect(expiryCount).toBe(2); // Both keys expired
+      
+      // Reset counters
+      expiryCount = 0;
+      
+      // Add new keys that should trigger the same wildcards
+      await RunCache.set({ key: `${prefix}3`, value: "Value 3", ttl: 100 });
+      await RunCache.set({ key: `${prefix}4`, value: "Value 4", ttl: 100 });
+      
+      // Clear the wildcard listeners for expiry events
+      RunCache.clearEventListeners({
+        event: EVENT.EXPIRE,
+        key: wildcardPattern
+      });
+      
+      // Trigger expiry events again
+      jest.advanceTimersByTime(101);
+      await Promise.resolve(); // Flush microtasks
+      
+      // Verify the expiry listeners were NOT triggered (they were cleared)
+      expect(expiryCount).toBe(0);
+      
+      // Test clearing specific event wildcards doesn't affect others
+      // Set up a source function that will fail for refetch
+      const errorFn = jest.fn(() => {
+        throw new Error("Intentional error for testing");
+      });
+      
+      await RunCache.set({ 
+        key: `${prefix}5`, 
+        value: "Value 5", 
+        sourceFn: errorFn,
+        ttl: 100,
+        autoRefetch: true
+      });
+      
+      // Trigger a refetch failure
+      jest.advanceTimersByTime(101);
+      await Promise.resolve(); // Flush microtasks
+      
+      // Verify refetch failure was triggered (this listener wasn't cleared)
+      expect(refetchFailCount).toBeGreaterThan(0);
+      
+      // Now clear all remaining listeners
+      RunCache.clearEventListeners();
+      
+      // Reset counters again
+      refetchCount = 0;
+      refetchFailCount = 0;
+      
+      // Add another key that would trigger callbacks if they existed
+      await RunCache.set({ 
+        key: `${prefix}6`, 
+        value: "Value 6", 
+        sourceFn: errorFn,
+        ttl: 100,
+        autoRefetch: true
+      });
+      
+      // Trigger events
+      jest.advanceTimersByTime(101);
+      await Promise.resolve(); // Flush microtasks
+      
+      // Verify no listeners were triggered
+      expect(refetchCount).toBe(0);
+      expect(refetchFailCount).toBe(0);
+    });
   });
 
   describe("wildcard pattern matching", () => {
