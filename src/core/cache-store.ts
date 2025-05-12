@@ -142,7 +142,12 @@ export class CacheStore {
         timestamp: time
       };
       
-      cacheValue = await this.middlewareManager.execute(cacheValue, context);
+      const processed = await this.middlewareManager.execute(cacheValue, context);
+      if (processed === undefined) {
+        this.logger.log('error', `Middleware returned undefined for key: ${key}`);
+        throw new Error(`Middleware returned undefined for key: '${key}'`);
+      }
+      cacheValue = processed;
       this.logger.log('debug', `Applied middleware for key: ${key}`);
     } catch (error) {
       this.logger.log('error', `Middleware execution failed for key: ${key}`, error);
@@ -333,9 +338,6 @@ export class CacheStore {
       return undefined;
     }
 
-    // Update the access metadata for LRU/LFU policies
-    this.updateAccessMetadata(key);
-
     // Check if the entry has expired
     if (isExpired(cached)) {
       this.logger.log('debug', `Cache expired for key: ${key}`);
@@ -369,7 +371,12 @@ export class CacheStore {
           timestamp: Date.now()
         };
         
-        return this.middlewareManager.execute(value, context);
+        const processed = await this.middlewareManager.execute(value, context);
+        if (processed === undefined) {
+          this.logger.log('error', `Middleware returned undefined for stale key: ${key}`);
+          throw new Error(`Middleware returned undefined for stale key: '${key}'`);
+        }
+        return processed;
       }
       
       // For non-autoRefetch entries, remove the entry and return undefined
@@ -378,7 +385,8 @@ export class CacheStore {
       return undefined;
     }
 
-    // Cache hit
+    // Cache hit - only update access metadata for non-expired entries
+    this.updateAccessMetadata(key);
     this.logger.log('debug', `Cache hit for key: ${key}`);
     const value = cached.value;
     
@@ -392,7 +400,12 @@ export class CacheStore {
       timestamp: Date.now()
     };
     
-    return this.middlewareManager.execute(value, context);
+    const processed = await this.middlewareManager.execute(value, context);
+    if (processed === undefined) {
+      this.logger.log('error', `Middleware returned undefined for key: ${key}`);
+      throw new Error(`Middleware returned undefined for key: '${key}'`);
+    }
+    return processed;
   }
 
   /**
@@ -512,7 +525,12 @@ export class CacheStore {
         timestamp: now
       };
       
-      newValue = await this.middlewareManager.execute(newValue, context) ?? '';
+      const processed = await this.middlewareManager.execute(newValue, context);
+      if (processed === undefined) {
+        this.logger.log('error', `Middleware returned undefined during refetch for key: ${key}`);
+        throw new Error(`Middleware returned undefined during refetch for key: '${key}'`);
+      }
+      newValue = processed;
       
       // Clear the existing interval if present
       if (cached.interval) {
@@ -685,7 +703,7 @@ export class CacheStore {
       return false;
     }
     
-    // Update access metadata for LRU/LFU
+    // Update access metadata for LRU/LFU - only for non-expired entries
     this.updateAccessMetadata(key);
     return true;
   }
@@ -791,125 +809,5 @@ export class CacheStore {
    */
   clearMiddleware(): MiddlewareManager {
     return this.middlewareManager.clear();
-  }
-
-  /**
-   * Helper for setting a single key
-   */
-  private async setSingle({
-    key,
-    value,
-    ttl,
-    autoRefetch = false,
-    sourceFn,
-  }: {
-    key: string;
-    value?: string;
-    ttl?: number;
-    autoRefetch?: boolean;
-    sourceFn?: SourceFn;
-  }): Promise<boolean> {
-    // Validate ttl
-    if (ttl !== undefined) {
-      validateTTL(ttl);
-    }
-
-    // Check for source function if no value provided
-    if (value === undefined && !sourceFn) {
-      this.logger.log('error', `Tried to set key '${key}' without value or sourceFn`);
-      throw new Error("`value` can't be empty without a `sourceFn`");
-    }
-
-    if (autoRefetch && !ttl) {
-      this.logger.log('error', `Tried to set key '${key}' with autoRefetch but no ttl`);
-      throw new Error("`autoRefetch` is not allowed without a `ttl`");
-    }
-
-    // If a source function is provided, generate the value
-    const now = Date.now();
-    let finalValue = value;
-
-    if (sourceFn) {
-      try {
-        finalValue = await sourceFn();
-      } catch (e) {
-        this.logger.log('error', `Source function failed for key: ${key}`, e);
-        throw new Error(`Source function failed for key: '${key}'`);
-      }
-    }
-
-    // Apply middleware for set operation
-    const context: MiddlewareContext = {
-      key,
-      operation: 'set',
-      value: finalValue,
-      ttl,
-      autoRefetch,
-      timestamp: now
-    };
-    
-    finalValue = await this.middlewareManager.execute(finalValue, context) ?? '';
-
-    // Create interval if ttl is specified
-    let interval: ReturnType<typeof setTimeout> | undefined = undefined;
-
-    if (ttl) {
-      interval = setTimeout(() => {
-        this.logger.log('debug', `TTL expired for key: ${key}`);
-        
-        // First emit expiry event
-        const cached = this.cache.get(key);
-        if (cached) {
-          this.eventSystem.emitEvent(EVENT.EXPIRE, {
-            key,
-            value: cached.value,
-            ttl,
-            createdAt: cached.createdAt,
-            updatedAt: cached.updatedAt,
-          });
-        }
-        
-        // Then handle auto-refetch if needed
-        if (autoRefetch && sourceFn) {
-          this.logger.log('debug', `Auto-refetching key after expiry: ${key}`);
-          
-          // Use Promise.resolve().then() to ensure proper microtask behavior for tests
-          Promise.resolve().then(() => {
-            return this.refetchSingle(key).catch(e => {
-              this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
-            });
-          });
-        } else {
-          // If not auto-refetching, just delete the entry
-          this.logger.log('debug', `Removing expired entry for key: ${key}`);
-          this.deleteSingle(key);
-        }
-      }, ttl);
-    }
-
-    // Set the cache entry
-    this.cache.set(key, {
-      value: finalValue,
-      ttl,
-      autoRefetch,
-      sourceFn,
-      fetching: false,
-      createdAt: now,
-      updatedAt: now,
-      interval,
-      accessCount: 0,
-      lastAccessed: now,
-    });
-
-    this.logger.log('info', `Set cache for key: ${key}`, {
-      ttl,
-      autoRefetch: autoRefetch ? true : undefined,
-      hasSourceFn: sourceFn ? true : undefined,
-    });
-
-    // Enforce eviction policy if needed
-    this.enforceEvictionPolicy();
-
-    return true;
   }
 } 
