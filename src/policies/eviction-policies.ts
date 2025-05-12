@@ -81,9 +81,9 @@ export class LFUPolicy extends EvictionPolicyBase {
         return stateA.accessCount - stateB.accessCount;
       }
       
-      // If accessCount is the same, sort by createdAt (oldest first)
-      // This ensures deterministic behavior when entries have the same frequency
-      return stateA.createdAt - stateB.createdAt;
+      // If accessCount is the same, sort by lastAccessed (oldest first)
+      // This ensures entries with the same frequency are evicted based on recency
+      return stateA.lastAccessed - stateB.lastAccessed;
     });
     
     // Take the least frequently accessed 'count' entries

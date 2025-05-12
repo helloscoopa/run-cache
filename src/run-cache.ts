@@ -1,7 +1,10 @@
 import { CacheStore } from './core/cache-store';
-import { RunCacheConfig } from './types/cache-config';
-import { EventParam, EventName } from './types/events';
+import { RunCacheConfig, EvictionPolicy } from './types/cache-config';
+import { EventParam, EventName, EVENT } from './types/events';
 import { SourceFn } from './types/cache-state';
+
+// Re-export needed types for backwards compatibility with tests
+export { EvictionPolicy, EVENT, EventParam };
 
 // Register shutdown handlers to properly clean up resources
 function registerShutdownHandlers(): void {
