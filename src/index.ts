@@ -18,15 +18,29 @@
  */
 
 import { RunCache } from './run-cache';
-import { EvictionPolicy } from './types/cache-config';
-import { EVENT, EventParam } from './types/events';
-import { MiddlewareFunction, MiddlewareContext } from './types/middleware';
+import { EvictionPolicy, EVENT } from './run-cache';
+import type { RunCacheConfig } from './types/cache-config';
+import type { EventParam, EventName } from './types/events';
+import type { MiddlewareFunction, MiddlewareContext } from './types/middleware';
+import type { StorageAdapter, StorageAdapterConfig } from './types/storage-adapter';
 
-export { 
-  RunCache, 
-  EvictionPolicy, 
-  EVENT, 
+// Re-export the core cache implementation
+export default RunCache;
+export { RunCache };
+
+// Re-export the eviction policy enum and event constants
+export { EvictionPolicy, EVENT };
+
+// Re-export storage adapters
+export * from './storage';
+
+// Re-export types for TypeScript users
+export type {
+  RunCacheConfig,
   EventParam,
+  EventName,
   MiddlewareFunction,
-  MiddlewareContext
+  MiddlewareContext,
+  StorageAdapter,
+  StorageAdapterConfig
 }; 

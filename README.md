@@ -560,6 +560,111 @@ Logs are output at different levels depending on their importance:
 
 This is useful when you want to filter logs in complex applications.
 
+## Persistent Storage
+
+RunCache now supports persisting cache data across application restarts using storage adapters. This allows you to maintain your cache state between sessions, improving user experience and reducing unnecessary API calls.
+
+### Available Storage Adapters
+
+RunCache includes three built-in storage adapters:
+
+1. **LocalStorageAdapter**: For browser environments, uses the browser's localStorage API
+2. **IndexedDBAdapter**: For browser environments, uses the browser's IndexedDB API for larger datasets
+3. **FilesystemAdapter**: For Node.js environments, stores cache data in the filesystem
+
+### Using Storage Adapters
+
+To use a storage adapter, first import the adapter you want to use, then configure RunCache with it:
+
+```typescript
+import { RunCache, LocalStorageAdapter } from 'run-cache';
+
+// Configure RunCache with LocalStorage persistence
+RunCache.configure({
+  storageAdapter: new LocalStorageAdapter({
+    storageKey: 'my-app-cache' // Optional custom key
+  })
+});
+```
+
+### Auto-Saving and Manual Control
+
+You can configure automatic saving at regular intervals:
+
+```typescript
+// Save cache to storage every 5 minutes (300,000 ms)
+RunCache.setupAutoSave(300000);
+
+// Disable auto-saving
+RunCache.setupAutoSave(0);
+```
+
+You can also manually control when to save and load:
+
+```typescript
+// Manually save cache state
+await RunCache.saveToStorage();
+
+// Manually load cache state
+await RunCache.loadFromStorage();
+```
+
+### Adapter Configuration Options
+
+Each adapter accepts the following common options:
+
+```typescript
+interface StorageAdapterConfig {
+  // Storage key/filename to use
+  storageKey?: string; // Default: "run-cache-data"
+  
+  // Auto-save interval in milliseconds
+  autoSaveInterval?: number; // Default: 0 (disabled)
+  
+  // Whether to load cache automatically when adapter is initialized
+  autoLoadOnInit?: boolean; // Default: true
+}
+```
+
+The FilesystemAdapter also accepts an additional option:
+
+```typescript
+// Custom file path (FilesystemAdapter only)
+new FilesystemAdapter({
+  filePath: '/custom/path/to/cache.json'
+});
+```
+
+### Recovery Mechanism
+
+When the application restarts, the cache state is automatically restored if:
+
+1. A storage adapter is configured when initializing RunCache
+2. The adapter contains valid cached data
+
+This recovery happens automatically when you configure RunCache with a storage adapter. Any cache entries with TTL values will have their expiry timers properly restored based on their original expiration time.
+
+### Example: Full Cache Persistence Setup
+
+```typescript
+import { RunCache, LocalStorageAdapter } from 'run-cache';
+
+// Configure RunCache with persistence
+RunCache.configure({
+  maxSize: 1000,
+  evictionPolicy: EvictionPolicy.LRU,
+  storageAdapter: new LocalStorageAdapter({
+    storageKey: 'my-app-cache'
+  })
+});
+
+// Set up auto-save every minute
+RunCache.setupAutoSave(60000);
+
+// When the app shuts down, the cache will be saved automatically
+// When the app starts up, the cache will be loaded automatically
+```
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.

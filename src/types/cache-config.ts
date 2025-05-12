@@ -1,3 +1,5 @@
+import { StorageAdapter } from './storage-adapter';
+
 /**
  * Cache eviction policy types.
  */
@@ -39,4 +41,11 @@ export interface RunCacheConfig {
    * @default false
    */
   verbose?: boolean;
+  
+  /**
+   * Storage adapter for persisting cache data.
+   * If provided, cache data will be persisted using this adapter.
+   * @default undefined (no persistence)
+   */
+  storageAdapter?: StorageAdapter;
 } 

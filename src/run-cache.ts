@@ -3,9 +3,13 @@ import { RunCacheConfig, EvictionPolicy } from './types/cache-config';
 import { EventParam, EventName, EVENT } from './types/events';
 import { SourceFn } from './types/cache-state';
 import { MiddlewareFunction } from './types/middleware';
+import { StorageAdapter, StorageAdapterConfig } from './types/storage-adapter';
 
 // Re-export needed types for backwards compatibility with tests
 export { EvictionPolicy, EVENT, EventParam };
+
+// Re-export storage adapters
+export * from './storage';
 
 /**
  * Registers shutdown handlers to properly clean up resources when the application is terminated.
@@ -78,6 +82,7 @@ function registerShutdownHandlers(): void {
  * - Wildcard key pattern support for batch operations
  * - Support for multiple eviction policies (NONE, LRU, LFU)
  * - Compatible with both Node.js and browser environments
+ * - Optional persistent storage through adapters (localStorage, IndexedDB, or filesystem)
  * 
  * @example
  * // Basic usage
@@ -91,6 +96,16 @@ function registerShutdownHandlers(): void {
  *   sourceFn: async () => getUserFromAPI(123),
  *   ttl: 60000,
  *   autoRefetch: true
+ * });
+ * 
+ * @example
+ * // With persistent storage
+ * // First, import the storage adapter
+ * import { RunCache, LocalStorageAdapter } from 'run-cache';
+ * 
+ * // Configure RunCache with a storage adapter
+ * RunCache.configure({
+ *   storageAdapter: new LocalStorageAdapter({ storageKey: "my-app-cache" })
  * });
  */
 export class RunCache {
@@ -318,12 +333,16 @@ export class RunCache {
    *   - maxSize: Maximum number of entries the cache can hold before eviction occurs (default: Infinity)
    *   - evictionPolicy: The eviction policy to use when the cache exceeds its maximum size (default: EvictionPolicy.NONE)
    *   - verbose: Enable verbose logging (default: false)
+   *   - storageAdapter: Optional adapter for persisting cache data (default: undefined)
    * 
    * @example
+   * // Configure with local storage persistence
+   * import { RunCache, LocalStorageAdapter } from 'run-cache';
+   * 
    * RunCache.configure({
    *   maxSize: 1000,
    *   evictionPolicy: EvictionPolicy.LRU,
-   *   verbose: true
+   *   storageAdapter: new LocalStorageAdapter({ storageKey: "my-app-cache" })
    * });
    */
   static configure(config: RunCacheConfig): void {
@@ -364,6 +383,13 @@ export class RunCache {
    */
   static shutdown(): void {
     RunCache.instance.shutdown();
+    
+    // Reset configuration to default values
+    RunCache.configure({
+      maxSize: Number.POSITIVE_INFINITY,
+      evictionPolicy: EvictionPolicy.NONE,
+      verbose: false
+    });
   }
 
   /**
@@ -563,4 +589,46 @@ export class RunCache {
    * // Clear listeners for a specific pattern
    * RunCache.clearEventListeners({ event: EVENT.EXPIRE, key: "user-*" });
    */
+
+  /**
+   * Sets up auto-save interval for persistent storage
+   * 
+   * @param {number} intervalMs - Milliseconds between auto-saves, or 0 to disable auto-saving
+   * 
+   * @example
+   * // Auto-save cache to storage every 5 minutes
+   * RunCache.setupAutoSave(300000);
+   * 
+   * // Disable auto-saving
+   * RunCache.setupAutoSave(0);
+   */
+  static setupAutoSave(intervalMs: number): void {
+    RunCache.instance.setupAutoSave(intervalMs);
+  }
+
+  /**
+   * Manually saves the current cache state to persistent storage
+   * 
+   * @returns {Promise<boolean>} - True if the save was successful, false if no storage adapter is configured
+   * 
+   * @example
+   * // Manually save the cache state
+   * await RunCache.saveToStorage();
+   */
+  static async saveToStorage(): Promise<boolean> {
+    return RunCache.instance.saveToStorage();
+  }
+
+  /**
+   * Manually loads the cache state from persistent storage
+   * 
+   * @returns {Promise<boolean>} - True if the load was successful, false if no storage adapter is configured or no data exists
+   * 
+   * @example
+   * // Manually load the cache state
+   * await RunCache.loadFromStorage();
+   */
+  static async loadFromStorage(): Promise<boolean> {
+    return RunCache.instance.loadFromStorage();
+  }
 } 
