@@ -52,12 +52,16 @@ export class EventSystem {
 
     this.logger.log('debug', `Emitting ${event} event for key: ${cache.key}`);
 
-    // Emit both global and key-specific events
-    [event, `${event}-${cache.key}`].forEach((eventId) => {
-      const listenerCount = this.emitter.listenerCount(eventId);
-      this.emitter.emit(eventId, eventParam);
-      this.logger.log('debug', `Emitted ${eventId} to ${listenerCount} listeners`);
-    });
+    // Emit for the global event type (this includes wildcard listeners)
+    const globalListenerCount = this.emitter.listenerCount(event);
+    this.emitter.emit(event, eventParam);
+    this.logger.log('debug', `Emitted ${event} to ${globalListenerCount} global listeners`);
+
+    // Emit for the key-specific event
+    const keyEvent = `${event}-${cache.key}`;
+    const keyListenerCount = this.emitter.listenerCount(keyEvent);
+    this.emitter.emit(keyEvent, eventParam);
+    this.logger.log('debug', `Emitted ${keyEvent} to ${keyListenerCount} key-specific listeners`);
   }
 
   /**
