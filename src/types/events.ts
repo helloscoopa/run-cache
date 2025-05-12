@@ -12,9 +12,7 @@ export type EventParam = {
 /**
  * Parameter for emitting events
  */
-export type EmitParam = Pick<EventParam, "value" | "ttl" | "createdAt" | "updatedAt"> & {
-  key: string;
-};
+export type EmitParam = EventParam;
 
 /**
  * Event callback function type
@@ -27,7 +25,7 @@ export type EventFn = (params: EventParam) => Promise<void> | void;
 export const EVENT = Object.freeze({
   EXPIRE: "expire",
   REFETCH: "refetch",
-  REFETCH_FAILURE: "refetch-failure",
+  REFETCH_FAILURE: "refetch_failure",
 });
 
 /**

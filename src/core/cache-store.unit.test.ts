@@ -211,4 +211,46 @@ describe('CacheStore', () => {
       await expect(cacheStore.refetch('non-existent-key')).resolves.toBe(false);
     });
   });
+  
+  describe('eviction policies', () => {
+    it('should allow forced eviction even when maxSize is Infinity', async () => {
+      // Create a new cache store with default config (maxSize = Infinity)
+      const infiniteCache = new CacheStore();
+      
+      // Set up three test keys
+      await infiniteCache.set({ key: 'key1', value: 'value1' });
+      await infiniteCache.set({ key: 'key2', value: 'value2' });
+      await infiniteCache.set({ key: 'key3', value: 'value3' });
+      
+      // Verify all keys exist
+      await expect(infiniteCache.has('key1')).resolves.toBe(true);
+      await expect(infiniteCache.has('key2')).resolves.toBe(true);
+      await expect(infiniteCache.has('key3')).resolves.toBe(true);
+      
+      // Call set with a new key and explicitly set eviction policy
+      // This triggers enforceEvictionPolicy(1) in the set method
+      infiniteCache.configure({ evictionPolicy: EvictionPolicy.LRU });
+      
+      // Add a key that we access right away to ensure it's not the LRU
+      await infiniteCache.set({ key: 'key4', value: 'value4' });
+      await infiniteCache.get('key4'); // Access it to make it recently used
+      
+      // Now force an eviction - one key should be removed based on LRU policy
+      const privateMethod = jest.spyOn(Object.getPrototypeOf(infiniteCache) as any, 'enforceEvictionPolicy');
+      (infiniteCache as any).enforceEvictionPolicy(1);
+      
+      // Verify the method was called with the forced count
+      expect(privateMethod).toHaveBeenCalledWith(1);
+      
+      // Count how many keys remain (should be 3 not 4)
+      const remainingKeys = (await Promise.all([
+        infiniteCache.has('key1'),
+        infiniteCache.has('key2'),
+        infiniteCache.has('key3'),
+        infiniteCache.has('key4')
+      ])).filter(Boolean).length;
+      
+      expect(remainingKeys).toBe(3);
+    });
+  });
 }); 

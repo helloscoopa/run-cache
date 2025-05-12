@@ -14,13 +14,13 @@ function registerShutdownHandlers(): void {
       typeof process.on === 'function') {
     try {
       // Handle graceful shutdown in Node.js environments
-      process.on('SIGTERM', () => {
+      process.once('SIGTERM', () => {
         // Clean up all resources when the application is shutting down
         RunCache.shutdown();
       });
       
       // Also handle SIGINT (Ctrl+C) for development environments
-      process.on('SIGINT', () => {
+      process.once('SIGINT', () => {
         RunCache.shutdown();
         // Only exit if we're in a Node.js process
         if (typeof process.exit === 'function') {
@@ -40,9 +40,13 @@ function registerShutdownHandlers(): void {
       window !== null && 
       typeof window.addEventListener === 'function') {
     try {
-      window.addEventListener('beforeunload', () => {
-        RunCache.shutdown();
-      });
+      window.addEventListener(
+        'beforeunload',
+        () => {
+          RunCache.shutdown();
+        },
+        { once: true }
+      );
     } catch (e) {
       // Silently handle errors in environments where window events aren't fully supported
       if (typeof console !== 'undefined' && console.debug) {

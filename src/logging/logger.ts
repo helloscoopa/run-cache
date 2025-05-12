@@ -32,35 +32,11 @@ export class Logger {
     const timestamp = new Date().toISOString();
     const prefix = `RunCache [${timestamp}] [${level.toUpperCase()}]:`;
     
-    switch (level) {
-      case 'info':
-        if (data) {
-          console.info(prefix, message, data);
-        } else {
-          console.info(prefix, message);
-        }
-        break;
-      case 'debug':
-        if (data) {
-          console.debug(prefix, message, data);
-        } else {
-          console.debug(prefix, message);
-        }
-        break;
-      case 'warn':
-        if (data) {
-          console.warn(prefix, message, data);
-        } else {
-          console.warn(prefix, message);
-        }
-        break;
-      case 'error':
-        if (data) {
-          console.error(prefix, message, data);
-        } else {
-          console.error(prefix, message);
-        }
-        break;
+    const logMethod = console[level];
+    if (data) {
+      logMethod(prefix, message, data);
+    } else {
+      logMethod(prefix, message);
     }
   }
 } 

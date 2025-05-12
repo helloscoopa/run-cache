@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { EventFn, EventName, EventParam, EmitParam, EVENT } from '../types/events';
 import { Logger } from '../logging/logger';
-import { CacheUtils } from './utils';
+import { matchesPattern } from './utils';
 
 /**
  * EventSystem class to handle cache events
@@ -13,12 +13,11 @@ export class EventSystem {
     keyPattern: string;
     fn: EventFn;
   }>;
-  private logger: Logger;
 
-  constructor(logger: Logger) {
+  constructor(private readonly logger: Logger) {
     this.emitter = new EventEmitter();
+    this.emitter.setMaxListeners(0); // unlimited – safe for library code
     this.wildcardListeners = [];
-    this.logger = logger;
   }
 
   /**
@@ -33,9 +32,13 @@ export class EventSystem {
       updatedAt: cache.updatedAt,
     };
 
+    this.logger.log('debug', `Emitting ${event} event for key: ${cache.key}`);
+
     // Emit both global and key-specific events
     [event, `${event}-${cache.key}`].forEach((eventId) => {
+      const listenerCount = this.emitter.listenerCount(eventId);
       this.emitter.emit(eventId, eventParam);
+      this.logger.log('debug', `Emitted ${eventId} to ${listenerCount} listeners`);
     });
   }
 
@@ -43,6 +46,7 @@ export class EventSystem {
    * Registers a callback for global expire events
    */
   onExpiry(callback: EventFn): void {
+    this.logger.log('debug', `Registering global expiry listener`);
     this.emitter.on(EVENT.EXPIRE, callback);
   }
 
@@ -52,6 +56,7 @@ export class EventSystem {
    */
   onKeyExpiry(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
+    this.logger.log('debug', `Registering key-specific expiry listener for: ${key}`);
     this.addKeyListener(EVENT.EXPIRE, key, callback);
   }
 
@@ -59,6 +64,7 @@ export class EventSystem {
    * Registers a callback for global refetch events
    */
   onRefetch(callback: EventFn): void {
+    this.logger.log('debug', `Registering global refetch listener`);
     this.emitter.on(EVENT.REFETCH, callback);
   }
 
@@ -68,6 +74,7 @@ export class EventSystem {
    */
   onKeyRefetch(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
+    this.logger.log('debug', `Registering key-specific refetch listener for: ${key}`);
     this.addKeyListener(EVENT.REFETCH, key, callback);
   }
 
@@ -75,6 +82,7 @@ export class EventSystem {
    * Registers a callback for global refetch failure events
    */
   onRefetchFailure(callback: EventFn): void {
+    this.logger.log('debug', `Registering global refetch failure listener`);
     this.emitter.on(EVENT.REFETCH_FAILURE, callback);
   }
 
@@ -84,6 +92,7 @@ export class EventSystem {
    */
   onKeyRefetchFailure(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
+    this.logger.log('debug', `Registering key-specific refetch failure listener for: ${key}`);
     this.addKeyListener(EVENT.REFETCH_FAILURE, key, callback);
   }
 
@@ -95,6 +104,7 @@ export class EventSystem {
     key?: string;
   }): boolean {
     if (!params) {
+      this.logger.log('info', `Clearing all event listeners`);
       this.emitter.removeAllListeners();
       this.wildcardListeners = [];
       return true;
@@ -120,9 +130,11 @@ export class EventSystem {
    */
   private addKeyListener(event: EventName, key: string, callback: EventFn): void {
     if (key.includes("*")) {
+      this.logger.log('debug', `Adding wildcard listener for event: ${event}, pattern: ${key}`);
       // For wildcard patterns, create a wrapper function that filters events
       const wrapper: EventFn = (params: EventParam) => {
-        if (CacheUtils.matchesPattern(key, params.key)) {
+        if (matchesPattern(key, params.key)) {
+          this.logger.log('debug', `Wildcard match: pattern ${key} matched key ${params.key}`);
           callback(params);
         }
       };
@@ -137,6 +149,7 @@ export class EventSystem {
         fn: wrapper,
       });
     } else {
+      this.logger.log('debug', `Adding exact key listener for event: ${event}, key: ${key}`);
       this.emitter.on(`${event}-${key}`, callback);
     }
   }
@@ -145,33 +158,45 @@ export class EventSystem {
    * Clears all listeners for a specific event and key combination
    */
   private clearKeyEventListeners(event: EventName, key: string): boolean {
+    this.logger.log('debug', `Clearing listeners for event: ${event}, key: ${key}`);
+    
     if (key.includes("*")) {
+      let removedCount = 0;
       // 1) Remove namespaced listeners
       const prefix = `${event}-`;
       for (const eventName of this.emitter.eventNames()) {
         if (typeof eventName === "string" && eventName.startsWith(prefix)) {
           const eventKey = eventName.slice(prefix.length);
-          if (CacheUtils.matchesPattern(key, eventKey)) {
+          if (matchesPattern(key, eventKey)) {
+            const count = this.emitter.listenerCount(eventName);
             this.emitter.removeAllListeners(eventName);
+            removedCount += count;
+            this.logger.log('debug', `Removed ${count} listeners for ${eventName}`);
           }
         }
       }
       
       // 2) Remove wildcard wrappers
       const remaining: typeof this.wildcardListeners = [];
+      let wildcardRemoved = 0;
       for (const entry of this.wildcardListeners) {
         if (
           entry.event === event &&
-          CacheUtils.matchesPattern(key, entry.keyPattern)
+          matchesPattern(key, entry.keyPattern)
         ) {
           this.emitter.removeListener(entry.event, entry.fn);
+          wildcardRemoved++;
         } else {
           remaining.push(entry);
         }
       }
       this.wildcardListeners = remaining;
+      this.logger.log('debug', `Removed ${wildcardRemoved} wildcard listeners`);
+      this.logger.log('info', `Cleared ${removedCount + wildcardRemoved} total listeners for event: ${event}, key pattern: ${key}`);
     } else {
+      const count = this.emitter.listenerCount(`${event}-${key}`);
       this.emitter.removeAllListeners(`${event}-${key}`);
+      this.logger.log('info', `Cleared ${count} listeners for event: ${event}, exact key: ${key}`);
     }
     return true;
   }
@@ -180,29 +205,39 @@ export class EventSystem {
    * Clears all listeners for a specific event type
    */
   private clearEventTypeListeners(event: EventName): boolean {
+    const rootCount = this.emitter.listenerCount(event);
+    this.logger.log('debug', `Clearing ${rootCount} root listeners for event: ${event}`);
     this.emitter.removeAllListeners(event);
 
     // Remove all namespaced events
+    let namespacedCount = 0;
     this.emitter.eventNames().forEach((eventName) => {
       if (
         typeof eventName === "string" &&
         eventName.startsWith(event)
       ) {
+        const count = this.emitter.listenerCount(eventName);
+        namespacedCount += count;
         this.emitter.removeAllListeners(eventName);
       }
     });
+    this.logger.log('debug', `Cleared ${namespacedCount} namespaced listeners for event: ${event}`);
     
     // Remove all wildcard listeners for this event
     const remaining: typeof this.wildcardListeners = [];
+    let wildcardCount = 0;
     for (const entry of this.wildcardListeners) {
       if (entry.event === event) {
         // Already removed by removeAllListeners(event) above
+        wildcardCount++;
       } else {
         remaining.push(entry);
       }
     }
     this.wildcardListeners = remaining;
+    this.logger.log('debug', `Removed ${wildcardCount} wildcard listener references for event: ${event}`);
 
+    this.logger.log('info', `Cleared all listeners (${rootCount + namespacedCount + wildcardCount} total) for event: ${event}`);
     return true;
   }
 } 

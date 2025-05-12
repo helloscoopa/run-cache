@@ -14,7 +14,7 @@ export type CacheState = {
   autoRefetch?: boolean;
   fetching?: boolean;
   sourceFn?: SourceFn;
-  interval?: ReturnType<typeof setInterval>;
+  interval?: ReturnType<typeof setTimeout>;
   // LRU/LFU metadata
   accessCount: number;
   lastAccessed: number;

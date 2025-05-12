@@ -1,6 +1,6 @@
 {
   "name": "run-cache",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "description": "A dependency-free, lightweight runtime caching library with TTL support and automatic value regeneration",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,7 +22,7 @@
     "caching",
     "lightweight"
   ],
-  "author": "Scoopa Inc.",
+  "author": "helloscoopa",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/helloscoopa/run-cache/issues"

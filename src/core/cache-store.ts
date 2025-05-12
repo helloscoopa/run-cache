@@ -4,7 +4,7 @@ import { EVENT, EmitParam, EventName } from '../types/events';
 import { Logger } from '../logging/logger';
 import { EventSystem } from './event-system';
 import { LFUPolicy, LRUPolicy } from '../policies/eviction-policies';
-import { CacheUtils } from './utils';
+import { isExpired, matchesPattern, validateTTL } from './utils';
 
 /**
  * The core cache storage implementation handling cache operations
@@ -65,6 +65,14 @@ export class CacheStore {
       throw new Error("`autoRefetch` is not allowed without a `ttl`");
     }
 
+    // Validate that TTL is positive if provided
+    try {
+      validateTTL(ttl, key);
+    } catch (error) {
+      this.logger.log('error', `Invalid ttl provided for key: ${key}`, { ttl });
+      throw error;
+    }
+
     const time = Date.now();
     
     this.logger.log('info', `Setting cache for key: ${key}`, { 
@@ -79,19 +87,14 @@ export class CacheStore {
     const existingCache = this.cache.get(key);
     if (existingCache?.interval) {
       this.logger.log('debug', `Clearing existing interval for key: ${key}`);
-      clearInterval(existingCache.interval);
+      clearTimeout(existingCache.interval);
     }
 
-    let interval: ReturnType<typeof setInterval> | null = null;
+    let interval: ReturnType<typeof setTimeout> | null = null;
 
     if (ttl !== undefined) {
-      if (ttl < 0) {
-        this.logger.log('error', `Negative ttl provided for key: ${key}`, { ttl });
-        throw new Error("Value `ttl` cannot be negative");
-      }
-
       this.logger.log('debug', `Setting expiry interval for key: ${key}, ttl: ${ttl}ms`);
-      interval = setInterval(() => {
+      interval = setTimeout(() => {
         this.logger.log('debug', `TTL expired for key: ${key}`);
         this.eventSystem.emitEvent(EVENT.EXPIRE, {
           key,
@@ -187,13 +190,16 @@ export class CacheStore {
    * Enforces the configured eviction policy if needed
    */
   private enforceEvictionPolicy(forcedCount?: number): void {
-    // Skip if the cache isn't full yet
-    if (this.cache.size <= (this.config.maxSize ?? Number.POSITIVE_INFINITY)) {
+    // Skip if the cache isn't full yet and there's no forced count
+    if (!forcedCount && 
+        this.cache.size <= (this.config.maxSize ?? Number.POSITIVE_INFINITY)) {
       return;
     }
 
     // Number of entries to evict
-    const entriesToEvict = forcedCount || this.cache.size - (this.config.maxSize ?? Number.POSITIVE_INFINITY);
+    const entriesToEvict = 
+      forcedCount ?? 
+      Math.max(0, this.cache.size - (this.config.maxSize ?? Number.POSITIVE_INFINITY));
     
     if (entriesToEvict <= 0) {
       return;
@@ -243,7 +249,7 @@ export class CacheStore {
     const allKeys = Array.from(this.cache.keys());
     
     for (const cacheKey of allKeys) {
-      if (CacheUtils.matchesPattern(pattern, cacheKey)) {
+      if (matchesPattern(pattern, cacheKey)) {
         matchingKeys.push(cacheKey);
       }
     }
@@ -272,7 +278,7 @@ export class CacheStore {
       this.logger.log('debug', `Processing ${snapshot.length} entries for wildcard key: ${key}`);
       
       for (const [cacheKey, cached] of snapshot) {
-        if (CacheUtils.matchesPattern(key, cacheKey) && !CacheUtils.isExpired(cached)) {
+        if (matchesPattern(key, cacheKey) && !isExpired(cached)) {
           this.logger.log('debug', `Matched key: ${cacheKey} for pattern: ${key}`);
           // Update access metadata for the matched key
           this.updateAccessMetadata(cacheKey);
@@ -292,7 +298,7 @@ export class CacheStore {
       return undefined;
     }
 
-    if (!CacheUtils.isExpired(cached)) {
+    if (!isExpired(cached)) {
       this.logger.log('debug', `Cache hit for key: ${key}`);
       // Update access metadata for LRU/LFU
       this.updateAccessMetadata(key);
@@ -397,16 +403,54 @@ export class CacheStore {
       const value = await cached.sourceFn();
       this.logger.log('debug', `SourceFn succeeded for key: ${key}`);
 
+      const now = Date.now();
+      
+      // Clear the existing timeout if it exists
+      if (cached.interval) {
+        clearTimeout(cached.interval);
+      }
+      
+      // Set up a new timeout if ttl and autoRefetch are configured
+      let newInterval = cached.interval;
+      if (cached.ttl !== undefined && cached.autoRefetch) {
+        // Validate the TTL value before creating a new interval
+        try {
+          validateTTL(cached.ttl, key);
+        } catch (error) {
+          this.logger.log('error', `Invalid ttl for refetching key: ${key}`, { ttl: cached.ttl });
+          throw error;
+        }
+        
+        this.logger.log('debug', `Setting new expiry timeout for refetched key: ${key}, ttl: ${cached.ttl}ms`);
+        newInterval = setTimeout(() => {
+          this.logger.log('debug', `TTL expired for refetched key: ${key}`);
+          this.eventSystem.emitEvent(EVENT.EXPIRE, {
+            key,
+            value: value,
+            ttl: cached.ttl,
+            createdAt: cached.createdAt,
+            updatedAt: now,
+          });
+
+          if (typeof cached.sourceFn === "function" && cached.autoRefetch) {
+            this.logger.log('debug', `Auto-refetching key after expiry: ${key}`);
+            this.refetchSingle(key).catch((e) => {
+              this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
+            });
+          }
+        }, cached.ttl);
+      }
+
       const refetchedCache = {
         value: value,
         ttl: cached.ttl,
         sourceFn: cached.sourceFn,
         createdAt: cached.createdAt,
-        updatedAt: Date.now(),
+        updatedAt: now,
         accessCount: cached.accessCount + 1,
-        lastAccessed: Date.now(),
+        lastAccessed: now,
         autoRefetch: cached.autoRefetch,
-        interval: cached.interval,
+        interval: newInterval,
       };
 
       this.cache.set(key, {
@@ -480,8 +524,8 @@ export class CacheStore {
     }
 
     if (cache.interval) {
-      this.logger.log('debug', `Clearing interval for key: ${key}`);
-      clearInterval(cache.interval);
+      this.logger.log('debug', `Clearing timeout for key: ${key}`);
+      clearTimeout(cache.interval);
     }
 
     this.logger.log('info', `Deleted key: ${key}`);
@@ -499,7 +543,7 @@ export class CacheStore {
 
     values.forEach(({ interval }) => {
       if (interval) {
-        clearInterval(interval);
+        clearTimeout(interval);
       }
     });
 
@@ -540,7 +584,7 @@ export class CacheStore {
       return false;
     }
 
-    if (CacheUtils.isExpired(cached)) {
+    if (isExpired(cached)) {
       this.eventSystem.emitEvent(EVENT.EXPIRE, {
         key: key,
         value: cached.value,
@@ -549,6 +593,14 @@ export class CacheStore {
         updatedAt: cached.updatedAt,
       });
 
+      // Clean up expired entry to prevent memory leaks
+      if (cached.interval) {
+        this.logger.log('debug', `Clearing timeout for expired key: ${key}`);
+        clearTimeout(cached.interval);
+      }
+      this.logger.log('debug', `Removing expired key during has() check: ${key}`);
+      this.cache.delete(key);
+      
       return false;
     }
     
