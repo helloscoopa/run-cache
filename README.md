@@ -16,6 +16,7 @@ A dependency-free, lightweight runtime caching library for JavaScript and TypeSc
 - **Comprehensive Event System:** Subscribe to cache events including expiry, refetch, and refetch failures
 - **Pattern Matching:** Use wildcard patterns to operate on groups of related cache keys
 - **Eviction Policies:** Configure size limits with LRU (Least Recently Used) or LFU (Least Frequently Used) eviction strategies
+- **Middleware Support:** Add custom processing for intercepting and transforming cache operations
 - **TypeScript Support:** Full type definitions included
 
 ## Installation
@@ -249,6 +250,80 @@ RunCache.clearEventListeners({
   key: "external-*"
 });
 ```
+
+### Middleware
+
+RunCache supports middleware functions that can intercept and transform cache operations. This allows for powerful customizations like validation, normalization, encryption, or custom business logic.
+
+#### Adding Middleware
+
+```typescript
+import { RunCache } from "run-cache";
+
+// Add a simple logging middleware
+RunCache.use(async (value, context, next) => {
+  console.log(`${context.operation} operation for key: ${context.key}`);
+  return next(value);
+});
+```
+
+#### Encryption Middleware Example
+
+```typescript
+import { RunCache } from "run-cache";
+import { encrypt, decrypt } from "./your-crypto-lib";
+
+// Add encryption middleware
+RunCache.use(async (value, context, next) => {
+  if (context.operation === 'set' && value) {
+    // Encrypt value before storing in cache
+    return next(encrypt(value));
+  } else if (context.operation === 'get' || context.operation === 'refetch') {
+    // Decrypt value after retrieving from cache
+    const encrypted = await next(value);
+    return encrypted ? decrypt(encrypted) : undefined;
+  }
+  return next(value);
+});
+
+// Use cache normally - encryption/decryption happens transparently
+await RunCache.set({ key: "sensitive-data", value: "secret-value" });
+const value = await RunCache.get("sensitive-data"); // Returns decrypted "secret-value"
+```
+
+#### Chaining Multiple Middleware
+
+Middleware functions are executed in the order they are added:
+
+```typescript
+// First middleware validates input
+RunCache.use(async (value, context, next) => {
+  if (context.operation === 'set' && (!value || value.length < 3)) {
+    throw new Error("Value must be at least 3 characters");
+  }
+  return next(value);
+});
+
+// Second middleware adds a timestamp
+RunCache.use(async (value, context, next) => {
+  if (context.operation === 'set' && value) {
+    return next(`${value}|${Date.now()}`);
+  } else if (context.operation === 'get' && value) {
+    const result = await next(value);
+    return result?.split('|')[0]; // Remove timestamp on get
+  }
+  return next(value);
+});
+```
+
+#### Clearing Middleware
+
+```typescript
+// Remove all middleware
+RunCache.clearMiddleware();
+```
+
+For more detailed information on middleware, see the [middleware documentation](./docs/middleware.md).
 
 ## Wildcard Pattern Matching
 

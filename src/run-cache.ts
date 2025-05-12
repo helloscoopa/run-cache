@@ -2,6 +2,7 @@ import { CacheStore } from './core/cache-store';
 import { RunCacheConfig, EvictionPolicy } from './types/cache-config';
 import { EventParam, EventName, EVENT } from './types/events';
 import { SourceFn } from './types/cache-state';
+import { MiddlewareFunction } from './types/middleware';
 
 // Re-export needed types for backwards compatibility with tests
 export { EvictionPolicy, EVENT, EventParam };
@@ -339,5 +340,43 @@ export class RunCache {
    */
   static shutdown(): void {
     RunCache.instance.shutdown();
+  }
+
+  /**
+   * Adds a middleware function to the cache processing pipeline.
+   * Middleware functions can intercept, validate, modify, or transform cache values
+   * during operations like get, set, and refetch.
+   * 
+   * Each middleware function is called in the order they were added.
+   * 
+   * @example
+   * // Add encryption middleware
+   * RunCache.use(async (value, context, next) => {
+   *   if (context.operation === 'set') {
+   *     // Encrypt the value before storing
+   *     return next(encrypt(value));
+   *   } else if (context.operation === 'get' || context.operation === 'refetch') {
+   *     // Decrypt the value after retrieval
+   *     const encrypted = await next(value);
+   *     return encrypted ? decrypt(encrypted) : undefined;
+   *   }
+   *   return next(value);
+   * });
+   * 
+   * @param {MiddlewareFunction} middleware - The middleware function to add
+   * @returns The middleware manager for chaining additional middleware
+   */
+  static use(middleware: MiddlewareFunction) {
+    return RunCache.instance.use(middleware);
+  }
+
+  /**
+   * Clears all registered middleware functions.
+   * This effectively disables any custom transformations that were previously applied.
+   * 
+   * @returns The middleware manager for chaining
+   */
+  static clearMiddleware() {
+    return RunCache.instance.clearMiddleware();
   }
 } 
