@@ -1,6 +1,6 @@
 import { RunCacheConfig, EvictionPolicy } from '../types/cache-config';
 import { CacheState, SourceFn } from '../types/cache-state';
-import { EVENT, EmitParam, EventName } from '../types/events';
+import { EVENT, EmitParam, EventName, EventParam } from '../types/events';
 import { Logger } from '../logging/logger';
 import { EventSystem } from './event-system';
 import { LFUPolicy, LRUPolicy } from '../policies/eviction-policies';
@@ -47,12 +47,16 @@ export class CacheStore {
     ttl,
     sourceFn,
     autoRefetch,
+    tags,
+    dependencies,
   }: {
     key: string;
     value?: string;
     ttl?: number;
     autoRefetch?: boolean;
     sourceFn?: SourceFn;
+    tags?: string[];
+    dependencies?: string[];
   }): Promise<boolean> {
     if (!key?.length) {
       this.logger.log('error', `Empty key provided to set() method`);
@@ -84,7 +88,9 @@ export class CacheStore {
       ttl,
       hasValue: value !== undefined,
       hasSourceFn: sourceFn !== undefined,
-      autoRefetch 
+      autoRefetch,
+      hasTags: tags !== undefined && tags.length > 0,
+      hasDependencies: dependencies !== undefined && dependencies.length > 0
     });
 
     // Clear existing interval if the key already exists
@@ -168,6 +174,10 @@ export class CacheStore {
     const accessCount = existingCache ? existingCache.accessCount : 0;
     const lastAccessed = existingCache ? existingCache.lastAccessed : time;
 
+    // Copy existing tags and dependencies, or use provided ones
+    const finalTags = tags || existingCache?.tags || [];
+    const finalDependencies = dependencies || existingCache?.dependencies || [];
+
     this.cache.set(key, {
       value: cacheValue ?? "undefined",
       ttl,
@@ -179,11 +189,16 @@ export class CacheStore {
       // Initialize access metadata for eviction policies
       accessCount,
       lastAccessed,
+      // Add tags and dependencies
+      tags: finalTags,
+      dependencies: finalDependencies,
     });
     
     this.logger.log('debug', `Cache entry set successfully for key: ${key}`, { 
       newSize: this.cache.size,
-      maxSize: this.config.maxSize
+      maxSize: this.config.maxSize,
+      tags: finalTags,
+      dependencies: finalDependencies
     });
 
     // Double-check after adding to ensure we're not over the limit
@@ -738,32 +753,98 @@ export class CacheStore {
   }
 
   /**
-   * Event system accessor methods
+   * Registers a callback function to be called when a global expiry event occurs.
    */
-  onExpiry(callback: (event: EmitParam & { key: string }) => void | Promise<void>): void {
+  onExpiry(callback: (event: EventParam) => void | Promise<void>): void {
     this.eventSystem.onExpiry(callback);
   }
 
-  onKeyExpiry(key: string, callback: (event: EmitParam & { key: string }) => void | Promise<void>): void {
+  /**
+   * Registers a callback function to be called when an expiry event occurs for a specific key.
+   */
+  onKeyExpiry(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+    if (!key?.length) {
+      this.logger.log('error', `Empty key provided to onKeyExpiry() method`);
+      throw Error("Empty key");
+    }
     this.eventSystem.onKeyExpiry(key, callback);
   }
 
-  onRefetch(callback: (event: EmitParam & { key: string }) => void | Promise<void>): void {
+  /**
+   * Registers a callback function to be called when a global refetch event occurs.
+   */
+  onRefetch(callback: (event: EventParam) => void | Promise<void>): void {
     this.eventSystem.onRefetch(callback);
   }
 
-  onKeyRefetch(key: string, callback: (event: EmitParam & { key: string }) => void | Promise<void>): void {
+  /**
+   * Registers a callback function to be called when a refetch event occurs for a specific key.
+   */
+  onKeyRefetch(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+    if (!key?.length) {
+      this.logger.log('error', `Empty key provided to onKeyRefetch() method`);
+      throw Error("Empty key");
+    }
     this.eventSystem.onKeyRefetch(key, callback);
   }
 
-  onRefetchFailure(callback: (event: EmitParam & { key: string }) => void | Promise<void>): void {
+  /**
+   * Registers a callback function to be called when a global refetch failure event occurs.
+   */
+  onRefetchFailure(callback: (event: EventParam) => void | Promise<void>): void {
     this.eventSystem.onRefetchFailure(callback);
   }
 
-  onKeyRefetchFailure(key: string, callback: (event: EmitParam & { key: string }) => void | Promise<void>): void {
+  /**
+   * Registers a callback function to be called when a refetch failure event occurs for a specific key.
+   */
+  onKeyRefetchFailure(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+    if (!key?.length) {
+      this.logger.log('error', `Empty key provided to onKeyRefetchFailure() method`);
+      throw Error("Empty key");
+    }
     this.eventSystem.onKeyRefetchFailure(key, callback);
   }
 
+  /**
+   * Registers a callback function to be called when a global tag invalidation event occurs.
+   */
+  onTagInvalidation(callback: (event: EventParam) => void | Promise<void>): void {
+    this.eventSystem.onTagInvalidation(callback);
+  }
+
+  /**
+   * Registers a callback function to be called when a tag invalidation event occurs for a specific key.
+   */
+  onKeyTagInvalidation(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+    if (!key?.length) {
+      this.logger.log('error', `Empty key provided to onKeyTagInvalidation() method`);
+      throw Error("Empty key");
+    }
+    this.eventSystem.onKeyTagInvalidation(key, callback);
+  }
+
+  /**
+   * Registers a callback function to be called when a global dependency invalidation event occurs.
+   */
+  onDependencyInvalidation(callback: (event: EventParam) => void | Promise<void>): void {
+    this.eventSystem.onDependencyInvalidation(callback);
+  }
+
+  /**
+   * Registers a callback function to be called when a dependency invalidation event occurs for a specific key.
+   */
+  onKeyDependencyInvalidation(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+    if (!key?.length) {
+      this.logger.log('error', `Empty key provided to onKeyDependencyInvalidation() method`);
+      throw Error("Empty key");
+    }
+    this.eventSystem.onKeyDependencyInvalidation(key, callback);
+  }
+
+  /**
+   * Clears all event listeners or filters by event type and/or key pattern.
+   */
   clearEventListeners(params?: { event?: EventName; key?: string }): boolean {
     return this.eventSystem.clearEventListeners(params);
   }
@@ -809,5 +890,172 @@ export class CacheStore {
    */
   clearMiddleware(): MiddlewareManager {
     return this.middlewareManager.clear();
+  }
+
+  /**
+   * Invalidates all cache entries that have been tagged with the specified tag.
+   * Returns true if at least one entry was invalidated, false otherwise.
+   * 
+   * @param {string} tag - The tag to invalidate
+   * @returns {boolean} - Whether any entries were invalidated
+   */
+  invalidateByTag(tag: string): boolean {
+    if (!tag || !tag.length) {
+      this.logger.log('error', `Empty tag provided to invalidateByTag() method`);
+      return false;
+    }
+
+    this.logger.log('info', `Invalidating cache entries with tag: ${tag}`);
+
+    let invalidated = false;
+    
+    // Find all keys that have the specified tag
+    for (const [key, cacheState] of this.cache.entries()) {
+      if (cacheState.tags && cacheState.tags.includes(tag)) {
+        this.logger.log('debug', `Invalidating ${key} due to tag match: ${tag}`);
+        
+        // Emit event before deleting
+        this.eventSystem.emitEvent(EVENT.TAG_INVALIDATION, {
+          key,
+          value: cacheState.value,
+          ttl: cacheState.ttl,
+          createdAt: cacheState.createdAt,
+          updatedAt: cacheState.updatedAt,
+          tag
+        });
+        
+        this.deleteSingle(key);
+        invalidated = true;
+      }
+    }
+
+    if (invalidated) {
+      this.logger.log('info', `Successfully invalidated entries with tag: ${tag}`);
+    } else {
+      this.logger.log('debug', `No entries found with tag: ${tag}`);
+    }
+
+    return invalidated;
+  }
+
+  /**
+   * Invalidates all cache entries that depend on the specified key.
+   * Returns true if at least one entry was invalidated, false otherwise.
+   * 
+   * @param {string} key - The dependency key to invalidate by
+   * @returns {boolean} - Whether any entries were invalidated
+   */
+  invalidateByDependency(key: string): boolean {
+    if (!key || !key.length) {
+      this.logger.log('error', `Empty key provided to invalidateByDependency() method`);
+      return false;
+    }
+
+    this.logger.log('info', `Invalidating cache entries dependent on key: ${key}`);
+
+    let invalidated = false;
+    const invalidatedKeys = new Set<string>();
+    
+    // First pass: find all keys that directly depend on the specified key
+    for (const [entryKey, cacheState] of this.cache.entries()) {
+      if (cacheState.dependencies && cacheState.dependencies.includes(key)) {
+        this.logger.log('debug', `Invalidating ${entryKey} due to dependency on: ${key}`);
+        invalidatedKeys.add(entryKey);
+        invalidated = true;
+      }
+    }
+    
+    // Second pass: look for cascade effects (entries depending on entries we're invalidating)
+    let newDependencies = true;
+    const processedKeys = new Set<string>();
+    
+    // Continue finding dependencies until no new ones are found
+    while (newDependencies) {
+      newDependencies = false;
+      const currentKeys = Array.from(invalidatedKeys).filter(k => !processedKeys.has(k));
+      
+      for (const dependentKey of currentKeys) {
+        processedKeys.add(dependentKey);
+        
+        // Find any entries that depend on this key
+        for (const [entryKey, cacheState] of this.cache.entries()) {
+          if (invalidatedKeys.has(entryKey)) continue; // Skip already invalidated entries
+          
+          if (cacheState.dependencies && cacheState.dependencies.includes(dependentKey)) {
+            this.logger.log('debug', `Cascade invalidating ${entryKey} due to dependency on: ${dependentKey}`);
+            invalidatedKeys.add(entryKey);
+            newDependencies = true;
+            invalidated = true;
+          }
+        }
+      }
+    }
+    
+    // Delete all invalidated keys
+    for (const invalidKey of invalidatedKeys) {
+      const cacheState = this.cache.get(invalidKey);
+      if (cacheState) {
+        // Emit event before deleting
+        this.eventSystem.emitEvent(EVENT.DEPENDENCY_INVALIDATION, {
+          key: invalidKey,
+          value: cacheState.value,
+          ttl: cacheState.ttl,
+          createdAt: cacheState.createdAt,
+          updatedAt: cacheState.updatedAt,
+          dependencyKey: key
+        });
+        
+        this.deleteSingle(invalidKey);
+      }
+    }
+
+    if (invalidated) {
+      this.logger.log('info', `Successfully invalidated ${invalidatedKeys.size} entries dependent on: ${key}`);
+    } else {
+      this.logger.log('debug', `No entries found dependent on: ${key}`);
+    }
+
+    return invalidated;
+  }
+
+  /**
+   * Checks if the target key depends on the specified dependency key.
+   * 
+   * @param {string} targetKey - The key to check for dependencies
+   * @param {string} dependencyKey - The dependency key to look for
+   * @returns {Promise<boolean>} - Whether targetKey depends on dependencyKey
+   */
+  async isDependencyOf(targetKey: string, dependencyKey: string): Promise<boolean> {
+    if (!targetKey || !targetKey.length || !dependencyKey || !dependencyKey.length) {
+      this.logger.log('error', `Empty key provided to isDependencyOf() method`);
+      return false;
+    }
+
+    this.logger.log('debug', `Checking if ${targetKey} depends on ${dependencyKey}`);
+
+    // Check if target key exists and is not expired
+    if (!(await this.hasSingle(targetKey))) {
+      this.logger.log('debug', `Target key ${targetKey} does not exist or is expired`);
+      return false;
+    }
+
+    const cacheState = this.cache.get(targetKey);
+    if (!cacheState || !cacheState.dependencies || cacheState.dependencies.length === 0) {
+      return false;
+    }
+
+    // Check for direct dependency
+    if (cacheState.dependencies.includes(dependencyKey)) {
+      return true;
+    }
+
+    // Check for indirect dependencies (recursive check)
+    for (const dependency of cacheState.dependencies) {
+      if (await this.isDependencyOf(dependency, dependencyKey)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 } 

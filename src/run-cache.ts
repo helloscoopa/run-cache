@@ -110,12 +110,30 @@ export class RunCache {
    * @param {number} [params.ttl] - The time-to-live for the cache entry in milliseconds. After this time, the cache entry will expire.
    * @param {boolean} [params.autoRefetch] - Whether to automatically refetch the value after the TTL expires. Requires a TTL to be set.
    * @param {SourceFn} [params.sourceFn] - A function that returns the value for the cache. This is used when the value is not provided directly.
+   * @param {string[]} [params.tags] - Optional array of tags to assign to this cache entry for tag-based invalidation.
+   * @param {string[]} [params.dependencies] - Optional array of cache keys that this entry depends on for dependency-based invalidation.
    *
    * @returns {Promise<boolean>} - Returns `true` when the cache entry is successfully set.
    *
    * @throws {Error} If the key is empty, if both `value` and `sourceFn` are missing, or if `autoRefetch` is set without a TTL.
    * @throws {Error} If `ttl` is negative.
    * @throws {Error} If the `sourceFn` fails to generate a value.
+   * 
+   * @example
+   * // Basic usage with tags
+   * await RunCache.set({ 
+   *   key: "user:profile:123", 
+   *   value: JSON.stringify({name: "John"}), 
+   *   tags: ["user:123", "profile"]
+   * });
+   * 
+   * @example
+   * // With dependencies
+   * await RunCache.set({
+   *   key: "user:dashboard:123",
+   *   value: dashboardData,
+   *   dependencies: ["user:profile:123", "user:stats:123"]
+   * });
    */
   static async set(params: {
     key: string;
@@ -123,6 +141,8 @@ export class RunCache {
     ttl?: number;
     autoRefetch?: boolean;
     sourceFn?: SourceFn;
+    tags?: string[];
+    dependencies?: string[];
   }): Promise<boolean> {
     return RunCache.instance.set(params);
   }
@@ -243,22 +263,26 @@ export class RunCache {
   }
 
   /**
-   * Registers a callback to be called when a refetch failure occurs for any key.
-   *
-   * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when a refetch failure event occurs.
+   * Registers a callback function to be executed when the global `refetch_failure` event is triggered.
+   * 
+   * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when the event is triggered.
+   * 
+   * @returns {void}
    */
   static onRefetchFailure(callback: (event: EventParam) => void | Promise<void>): void {
     RunCache.instance.onRefetchFailure(callback);
   }
 
   /**
-   * Registers a callback to be called when a refetch failure occurs for a specific key.
+   * Registers a callback function to be executed when the `refetch_failure` event for a specific key is triggered.
    * Supports wildcard patterns in the key.
-   *
-   * @param {string} key - The key for which to listen for refetch failures. Supports wildcards (*).
-   * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when a refetch failure event occurs for the specified key.
-   *
-   * @throws {Error} Throws an error if the key is empty.
+   * 
+   * @param {string} key - The key for which the refetch failure event is being tracked. Supports wildcards (*).
+   * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when the event is triggered.
+   * 
+   * @returns {void}
+   * 
+   * @throws {Error} If the `key` is empty.
    */
   static onKeyRefetchFailure(key: string, callback: (event: EventParam) => void | Promise<void>): void {
     RunCache.instance.onKeyRefetchFailure(key, callback);
@@ -379,4 +403,164 @@ export class RunCache {
   static clearMiddleware() {
     return RunCache.instance.clearMiddleware();
   }
+
+  /**
+   * Invalidates all cache entries that have been tagged with the specified tag.
+   * This allows for efficient group-based invalidation of related cache entries.
+   * 
+   * @param {string} tag - The tag to invalidate. All cache entries with this tag will be removed.
+   * @returns {boolean} - Returns `true` if at least one cache entry was invalidated, `false` otherwise.
+   * 
+   * @example
+   * // Tag-based invalidation
+   * // First, set entries with tags
+   * await RunCache.set({ key: "user:123:profile", value: profileData, tags: ["user:123"] });
+   * await RunCache.set({ key: "user:123:settings", value: settingsData, tags: ["user:123"] });
+   * 
+   * // Later, invalidate all entries related to user:123
+   * RunCache.invalidateByTag("user:123");
+   */
+  static invalidateByTag(tag: string): boolean {
+    return RunCache.instance.invalidateByTag(tag);
+  }
+
+  /**
+   * Invalidates all cache entries that depend on the specified key.
+   * This creates a cascading invalidation effect for related cache data.
+   * 
+   * @param {string} key - The key that entries may depend on. All entries listing this key as a dependency will be removed.
+   * @returns {boolean} - Returns `true` if at least one cache entry was invalidated, `false` otherwise.
+   * 
+   * @example
+   * // Dependency-based invalidation
+   * // First, set up a dependency relationship
+   * await RunCache.set({ key: "user:123:profile", value: profileData });
+   * await RunCache.set({ 
+   *   key: "user:123:dashboard", 
+   *   value: dashboardData,
+   *   dependencies: ["user:123:profile"] 
+   * });
+   * 
+   * // Later, when profile changes, invalidate dependent entries
+   * RunCache.invalidateByDependency("user:123:profile");
+   * // This will invalidate user:123:dashboard since it depends on user:123:profile
+   */
+  static invalidateByDependency(key: string): boolean {
+    return RunCache.instance.invalidateByDependency(key);
+  }
+
+  /**
+   * Checks if the target key depends on the specified dependency key.
+   * Useful for verifying dependency relationships in the cache.
+   * 
+   * @param {string} targetKey - The key to check for dependencies
+   * @param {string} dependencyKey - The dependency key to look for
+   * @returns {Promise<boolean>} - Returns `true` if targetKey depends on dependencyKey, `false` otherwise
+   * 
+   * @example
+   * // Check dependency relationship
+   * const isDependency = await RunCache.isDependencyOf("user:dashboard:123", "user:profile:123");
+   * if (isDependency) {
+   *   console.log("Dashboard depends on profile data");
+   * }
+   */
+  static async isDependencyOf(targetKey: string, dependencyKey: string): Promise<boolean> {
+    return RunCache.instance.isDependencyOf(targetKey, dependencyKey);
+  }
+
+  /**
+   * Registers a callback function to be executed when the global `tag_invalidation` event is triggered.
+   * This event occurs when cache entries are invalidated using a tag.
+   * 
+   * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when the event is triggered.
+   * 
+   * @returns {void}
+   * 
+   * @example
+   * RunCache.onTagInvalidation((event) => {
+   *   console.log(`Cache entry ${event.key} was invalidated by tag: ${event.tag}`);
+   * });
+   */
+  static onTagInvalidation(callback: (event: EventParam) => void | Promise<void>): void {
+    RunCache.instance.onTagInvalidation(callback);
+  }
+
+  /**
+   * Registers a callback function to be executed when the `tag_invalidation` event for a specific key is triggered.
+   * Supports wildcard patterns in the key.
+   * 
+   * @param {string} key - The key for which the tag invalidation event is being tracked. Supports wildcards (*).
+   * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when the event is triggered.
+   * 
+   * @returns {void}
+   * 
+   * @throws {Error} If the `key` is empty.
+   * 
+   * @example
+   * RunCache.onKeyTagInvalidation("user:*", (event) => {
+   *   console.log(`User cache entry ${event.key} was invalidated by tag: ${event.tag}`);
+   * });
+   */
+  static onKeyTagInvalidation(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+    RunCache.instance.onKeyTagInvalidation(key, callback);
+  }
+
+  /**
+   * Registers a callback function to be executed when the global `dependency_invalidation` event is triggered.
+   * This event occurs when cache entries are invalidated due to a dependency relationship.
+   * 
+   * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when the event is triggered.
+   * 
+   * @returns {void}
+   * 
+   * @example
+   * RunCache.onDependencyInvalidation((event) => {
+   *   console.log(`Cache entry ${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
+   * });
+   */
+  static onDependencyInvalidation(callback: (event: EventParam) => void | Promise<void>): void {
+    RunCache.instance.onDependencyInvalidation(callback);
+  }
+
+  /**
+   * Registers a callback function to be executed when the `dependency_invalidation` event for a specific key is triggered.
+   * Supports wildcard patterns in the key.
+   * 
+   * @param {string} key - The key for which the dependency invalidation event is being tracked. Supports wildcards (*).
+   * @param {(event: EventParam) => void | Promise<void>} callback - The function to be executed when the event is triggered.
+   * 
+   * @returns {void}
+   * 
+   * @throws {Error} If the `key` is empty.
+   * 
+   * @example
+   * RunCache.onKeyDependencyInvalidation("dashboard:*", (event) => {
+   *   console.log(`Dashboard cache ${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
+   * });
+   */
+  static onKeyDependencyInvalidation(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+    RunCache.instance.onKeyDependencyInvalidation(key, callback);
+  }
+
+  /**
+   * Clears event listeners based on the provided parameters.
+   *
+   * @param {Object} [params] - Optional parameters for selective clearing of event listeners.
+   * @param {EventName} [params.event] - The event type to clear listeners for (e.g., EVENT.EXPIRE).
+   * @param {string} [params.key] - The key pattern to clear listeners for (supports wildcards).
+   *
+   * @returns {boolean} - Returns `true` if any listeners were removed, `false` otherwise.
+   *
+   * @example
+   * // Clear all event listeners
+   * RunCache.clearEventListeners();
+   *
+   * @example
+   * // Clear only expiry listeners
+   * RunCache.clearEventListeners({ event: EVENT.EXPIRE });
+   *
+   * @example
+   * // Clear listeners for a specific pattern
+   * RunCache.clearEventListeners({ event: EVENT.EXPIRE, key: "user-*" });
+   */
 } 

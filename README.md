@@ -17,6 +17,8 @@ A dependency-free, lightweight runtime caching library for JavaScript and TypeSc
 - **Pattern Matching:** Use wildcard patterns to operate on groups of related cache keys
 - **Eviction Policies:** Configure size limits with LRU (Least Recently Used) or LFU (Least Frequently Used) eviction strategies
 - **Middleware Support:** Add custom processing for intercepting and transforming cache operations
+- **Tag-based Invalidation:** Group related cache entries with tags for efficient batch invalidation
+- **Dependency Tracking:** Establish relationships between cache entries with automatic cascading invalidation
 - **TypeScript Support:** Full type definitions included
 
 ## Installation
@@ -94,6 +96,90 @@ const config = RunCache.getConfig();
 console.log(config); // { maxSize: 100, evictionPolicy: "lfu" }
 ```
 
+## Tag-based Invalidation
+
+RunCache supports tagging cache entries and invalidating groups of related entries using tags.
+
+```typescript
+// Set entries with tags
+await RunCache.set({ 
+  key: "user:123:profile", 
+  value: JSON.stringify({ name: "John Doe" }),
+  tags: ["user:123", "profile"]
+});
+
+await RunCache.set({ 
+  key: "user:123:settings", 
+  value: JSON.stringify({ theme: "dark" }),
+  tags: ["user:123", "settings"]
+});
+
+await RunCache.set({ 
+  key: "user:123:posts", 
+  value: JSON.stringify([{ id: 1, title: "Hello" }]),
+  tags: ["user:123", "posts"]
+});
+
+// Later, when user data changes, invalidate all related cache entries with a single call
+RunCache.invalidateByTag("user:123");
+
+// This removes all three entries with the "user:123" tag
+
+// You can also listen for tag invalidation events
+RunCache.onTagInvalidation((event) => {
+  console.log(`Cache entry ${event.key} was invalidated by tag: ${event.tag}`);
+});
+```
+
+## Dependency Tracking
+
+RunCache enables establishing dependency relationships between cache entries with automatic cascading invalidation.
+
+```typescript
+// Set the primary data cache
+await RunCache.set({ 
+  key: "user:123:profile", 
+  value: JSON.stringify({ name: "John Doe" })
+});
+
+// Set dependent caches that rely on the profile data
+await RunCache.set({ 
+  key: "user:123:dashboard", 
+  value: JSON.stringify({ widgets: [...] }),
+  dependencies: ["user:123:profile"]
+});
+
+await RunCache.set({ 
+  key: "user:123:recommendations", 
+  value: JSON.stringify([...]),
+  dependencies: ["user:123:profile"]
+});
+
+// Create multi-level dependencies
+await RunCache.set({ 
+  key: "home:feed", 
+  value: JSON.stringify([...]),
+  dependencies: ["user:123:recommendations"]
+});
+
+// Check if one entry depends on another (directly or indirectly)
+const isDependency = await RunCache.isDependencyOf("home:feed", "user:123:profile");
+console.log(isDependency); // true
+
+// When the primary data changes, invalidate dependent entries with cascading effect
+RunCache.invalidateByDependency("user:123:profile");
+
+// This will invalidate all dependent entries, including nested dependencies:
+// - user:123:dashboard
+// - user:123:recommendations
+// - home:feed (because it depends on user:123:recommendations)
+
+// You can also listen for dependency invalidation events
+RunCache.onDependencyInvalidation((event) => {
+  console.log(`Cache entry ${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
+});
+```
+
 ## API Reference
 
 ### Cache Management
@@ -106,7 +192,9 @@ await RunCache.set({
   value?: string,                      // Optional: String value to cache (required if no sourceFn)
   ttl?: number,                        // Optional: Time-to-live in milliseconds
   autoRefetch?: boolean,               // Optional: Automatically refetch on expiry (requires ttl and sourceFn)
-  sourceFn?: () => string | Promise<string> // Optional: Function to generate cache value (required if no value)
+  sourceFn?: () => string | Promise<string>, // Optional: Function to generate cache value (required if no value)
+  tags?: string[],                     // Optional: Array of tags for tag-based invalidation
+  dependencies?: string[]              // Optional: Array of cache keys this entry depends on
 });
 ```
 
@@ -141,6 +229,19 @@ RunCache.delete("temp-*");
 
 // Remove all cache entries
 RunCache.flush();
+```
+
+#### Tag and Dependency Management
+
+```typescript
+// Invalidate all entries with a specific tag
+RunCache.invalidateByTag("user:123");
+
+// Invalidate all entries dependent on a specific key
+RunCache.invalidateByDependency("user:123:profile");
+
+// Check if one key depends on another
+const isDependency = await RunCache.isDependencyOf("dashboard:123", "user:123");
 ```
 
 #### Checking Cache Status
@@ -224,6 +325,34 @@ RunCache.onKeyRefetchFailure("api-data", (event) => {
 // Pattern-based refetch failure events
 RunCache.onKeyRefetchFailure("external-*", (event) => {
   console.error(`External data refresh failed for ${event.key}`);
+});
+```
+
+#### Tag Invalidation Events
+
+```typescript
+// Global tag invalidation event
+RunCache.onTagInvalidation((event) => {
+  console.log(`Cache key ${event.key} was invalidated by tag: ${event.tag}`);
+});
+
+// Specific key tag invalidation
+RunCache.onKeyTagInvalidation("user:profile:*", (event) => {
+  console.log(`User profile cache was invalidated by tag: ${event.tag}`);
+});
+```
+
+#### Dependency Invalidation Events
+
+```typescript
+// Global dependency invalidation event
+RunCache.onDependencyInvalidation((event) => {
+  console.log(`Cache key ${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
+});
+
+// Specific key dependency invalidation
+RunCache.onKeyDependencyInvalidation("dashboard:*", (event) => {
+  console.log(`Dashboard cache was invalidated due to dependency on: ${event.dependencyKey}`);
 });
 ```
 
