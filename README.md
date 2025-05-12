@@ -3,166 +3,237 @@
 [![ci-build](https://img.shields.io/github/actions/workflow/status/helloscoopa/run-cache/build.yml?label=build)](https://github.com/helloscoopa/run-cache/actions/workflows/build.yml)
 [![ci-tests](https://img.shields.io/github/actions/workflow/status/helloscoopa/run-cache/tests.yml?label=tests)](https://github.com/helloscoopa/run-cache/actions/workflows/tests.yml)
 
-# Run~time~Cache
+# RunCache
 
-RunCache is a dependency-free, lightweight runtime caching library for JavaScript and TypeScript that allows you to cache `string` values with optional time-to-live (TTL) settings. It also supports caching values generated from sync/async functions and provide methods to refetch them on expiry or on demand; with a set of events to keep track of the state of the cache.
+A dependency-free, lightweight runtime caching library for JavaScript and TypeScript applications. RunCache allows you to cache string values with configurable time-to-live (TTL) settings and supports automatic value regeneration through source functions.
 
-## Features
+## Key Features
 
-- **Dependency-free:** Does not consume any external dependencies.
-- **In-memory caching:** A runtime cache that gives you quick access.
-- **Sync/async source functions:** Fetch dynamic data from user-defined functions.
-- **Events:** Get to know when cache expires, refetched or refetch fails.
-- **Intuitive SDK:** Clean interface to access data.
+- **Zero Dependencies:** Lightweight implementation with no external dependencies
+- **In-Memory Performance:** Fast, efficient runtime cache for optimal application performance
+- **Source Function Support:** Cache values generated from synchronous or asynchronous functions
+- **Automatic Refetching:** Configure cache entries to automatically refresh on expiration
+- **Comprehensive Event System:** Subscribe to cache events including expiry, refetch, and refetch failures
+- **Pattern Matching:** Use wildcard patterns to operate on groups of related cache keys
+- **TypeScript Support:** Full type definitions included
 
 ## Installation
-
-To use `RunCache`, simply install it via npm:
 
 ```bash
 npm install run-cache
 ```
 
-## Usage
+## Quick Start
 
-#### Import library
-
-```ts
+```typescript
 import { RunCache } from "run-cache";
-```
 
-#### Set cache
+// Basic caching
+await RunCache.set({ key: "user-profile", value: JSON.stringify({ name: "John Doe" }) });
+const profile = await RunCache.get("user-profile");
 
-```ts
-// Set a cache value
-await RunCache.set({
-  key: "Key",
-  value: "Value",
+// Cache with expiration (TTL in milliseconds)
+await RunCache.set({ 
+  key: "api-data", 
+  value: JSON.stringify({ data: [1, 2, 3] }),
+  ttl: 60000 // 1 minute
 });
 
-// Set a cache value with 60s ttl
+// Cache with automatic refresh
 await RunCache.set({
-  key: "Key",
-  value: "Value",
-  ttl: 60000 // in milliseconds
+  key: "weather-data",
+  sourceFn: async () => JSON.stringify(await fetchWeatherData()),
+  ttl: 300000, // 5 minutes
+  autoRefetch: true
 });
 
-// Set a cache value with function to fetch the value later
+// Using wildcard patterns
+await RunCache.set({ key: "user-1", value: "Alice" });
+await RunCache.set({ key: "user-2", value: "Bob" });
+const users = await RunCache.get("user-*"); // Returns array of all matching values
+```
+
+## API Reference
+
+### Cache Management
+
+#### Setting Cache Entries
+
+```typescript
 await RunCache.set({
-  key: "Key",
-  sourceFn: () => { return Promise.resolve("Value") }
+  key: string,                         // Required: Unique identifier for the cache entry
+  value?: string,                      // Optional: String value to cache (required if no sourceFn)
+  ttl?: number,                        // Optional: Time-to-live in milliseconds
+  autoRefetch?: boolean,               // Optional: Automatically refetch on expiry (requires ttl and sourceFn)
+  sourceFn?: () => string | Promise<string> // Optional: Function to generate cache value (required if no value)
 });
-
-/*
-  Additionally, set autoRefetch: true along with a ttl value
-  to enable automatic refetching. This will cause the cache
-  to refetch the value upon expiry whenever the consumer
-  calls `get` on the specified key.
-*/
-await RunCache.set({
-  key: "Key",
-  sourceFn: () => { return Promise.resolve("Value") }
-  autoRefetch: true,
-  ttl: 10000,
-});
-
-/*
-  Use a callback function to get to know when your cache expires
-  or when its being refetched. The expiry is triggered only
-  on demand, not automatically.
-*/
-import { EventParam } from "run-cache";
-
-// Event of all expiries
-RunCache.onExpiry((cache: EventParam) => {
-  console.log(`Cache of key '${cache.key}' has been expired`);
-})
-
-// Event of a specific key expiry
-RunCache.onKeyExpiry('Key', (cache: EventParam) => {
-  console.log(`Specific key has been expired`);
-})
-
-await RunCache.set({
-  key: "Key",
-  ttl: 10000
-})
-
-// Event of any key refetches
-RunCache.onRefetch((cache: EventParam) => {
-  console.log(`Cache of key '${cache.key}' has been refetched`);
-})
-
-// Event of a specific key refetch
-RunCache.onKeyRefetch('Key', (cache: EventParam) => {
-  console.log(`Specific key has been refetched`);
-})
-
-// Event of a key refetch failure
-RunCache.onRefetchFailure((cache: EventParam) => {
-  console.log(`Cache of key '${cache.key}' has been refetched`);
-})
-
-// Event of a specific key refetch failure
-RunCache.onKeyRefetchFailure('Key', (cache: EventParam) => {
-  console.log(`Specific key has been failed to refetch`);
-})
-
-await RunCache.set({
-  key: "Key",
-  ttl: 10000,
-  sourceFn: () => { return Promise.resolve("Value") }
-})
 ```
 
-#### Refetch cache
+#### Retrieving Cache Entries
 
-```ts
-// Refetch the cache value (Only works if the key is set with a sourceFn)
-await RunCache.refetch("Key");
+```typescript
+// Get a single cache entry
+const value = await RunCache.get("cache-key");
+
+// Get multiple entries using wildcards (returns an array)
+const values = await RunCache.get("user-*");
 ```
 
-#### Get cache
+#### Refreshing Cache
 
-```ts
-/* 
-  Get a value for a given cache key, will refetch value automatically
-  if `sourceFn` is provided and `autoRefetch: true` 
-*/
-const value = await RunCache.get("Key");
+```typescript
+// Manually refresh a cache entry (requires a sourceFn)
+await RunCache.refetch("cache-key");
+
+// Refresh multiple entries using wildcards
+await RunCache.refetch("api-data-*");
 ```
 
-#### Delete cache
+#### Removing Cache Entries
 
-```ts
-// Delete a specific cache key
-RunCache.delete("Key");
+```typescript
+// Remove a specific entry
+RunCache.delete("cache-key");
 
-// Delete all cache keys
+// Remove multiple entries using wildcards
+RunCache.delete("temp-*");
+
+// Remove all cache entries
 RunCache.flush();
 ```
 
-#### Check the existence of a specific cache
+#### Checking Cache Status
 
-```ts
-// Returns a boolean, expired cache returns `false` even if they're refetchable
-const hasCache = RunCache.has("Key");
+```typescript
+// Check if a valid (non-expired) cache entry exists
+const exists = await RunCache.has("cache-key");
+
+// Check if any matching cache entries exist
+const hasItems = await RunCache.has("session-*");
 ```
 
-#### Clear event listeners
+### Event System
 
-```ts
-// Clear all listeners
+RunCache provides a comprehensive event system to monitor cache lifecycle events.
+
+#### Expiry Events
+
+```typescript
+// Global expiry event
+RunCache.onExpiry((event) => {
+  console.log(`Cache key ${event.key} expired at ${new Date(event.updatedAt + event.ttl).toISOString()}`);
+});
+
+// Specific key expiry
+RunCache.onKeyExpiry("api-data", (event) => {
+  console.log(`API data cache expired`);
+});
+
+// Pattern-based expiry events
+RunCache.onKeyExpiry("user-*", (event) => {
+  console.log(`User cache ${event.key} expired`);
+});
+```
+
+#### Refetch Events
+
+```typescript
+// Global refetch event
+RunCache.onRefetch((event) => {
+  console.log(`Cache key ${event.key} was refreshed`);
+});
+
+// Specific key refetch
+RunCache.onKeyRefetch("weather-data", (event) => {
+  console.log(`Weather data was refreshed`);
+});
+
+// Pattern-based refetch events
+RunCache.onKeyRefetch("stats-*", (event) => {
+  console.log(`Statistics for ${event.key} were refreshed`);
+});
+```
+
+#### Refetch Failure Events
+
+```typescript
+// Global refetch failure event
+RunCache.onRefetchFailure((event) => {
+  console.error(`Failed to refresh cache key ${event.key}`);
+});
+
+// Specific key refetch failure
+RunCache.onKeyRefetchFailure("api-data", (event) => {
+  console.error(`API data refresh failed`);
+});
+
+// Pattern-based refetch failure events
+RunCache.onKeyRefetchFailure("external-*", (event) => {
+  console.error(`External data refresh failed for ${event.key}`);
+});
+```
+
+#### Managing Event Listeners
+
+```typescript
+// Remove all event listeners
 RunCache.clearEventListeners();
 
-// Clear specific event listeners
+// Remove listeners for a specific event type
 RunCache.clearEventListeners({
-  event: "expiry",
+  event: EVENT.EXPIRE
 });
 
-// Clear specific event key listeners
+// Remove listeners for a specific key
 RunCache.clearEventListeners({
-  event: "expiry",
-  key: "Key",
+  event: EVENT.REFETCH,
+  key: "api-data"
+});
+
+// Remove listeners using wildcard patterns
+RunCache.clearEventListeners({
+  event: EVENT.REFETCH_FAILURE,
+  key: "external-*"
 });
 ```
+
+## Wildcard Pattern Matching
+
+RunCache supports wildcard pattern matching for operating on multiple related cache keys simultaneously. Use the `*` character as a wildcard in your key patterns.
+
+### Pattern Matching Examples
+
+```typescript
+// Cache multiple related entries
+await RunCache.set({ key: "user:1:profile", value: "Alice's data" });
+await RunCache.set({ key: "user:2:profile", value: "Bob's data" });
+await RunCache.set({ key: "user:1:preferences", value: "Alice's preferences" });
+await RunCache.set({ key: "user:2:preferences", value: "Bob's preferences" });
+
+// Get all user profiles
+const profiles = await RunCache.get("user:*:profile");
+
+// Get all data for user 1
+const user1Data = await RunCache.get("user:1:*");
+
+// Delete all preference data
+RunCache.delete("user:*:preferences");
+
+// Check if any user 2 data exists
+const hasUser2Data = await RunCache.has("user:2:*");
+
+// Refresh all profile data
+await RunCache.refetch("user:*:profile");
+```
+
+Wildcard support is implemented for all key-based operations:
+- `get`: Returns an array of values for matching keys
+- `delete`: Removes all matching keys
+- `refetch`: Refreshes all matching keys
+- `has`: Returns true if any matching key exists
+- Event listeners: Registers callbacks for keys matching patterns
+- `clearEventListeners`: Removes listeners for keys matching patterns
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
