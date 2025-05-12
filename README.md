@@ -15,6 +15,7 @@ A dependency-free, lightweight runtime caching library for JavaScript and TypeSc
 - **Automatic Refetching:** Configure cache entries to automatically refresh on expiration
 - **Comprehensive Event System:** Subscribe to cache events including expiry, refetch, and refetch failures
 - **Pattern Matching:** Use wildcard patterns to operate on groups of related cache keys
+- **Eviction Policies:** Configure size limits with LRU (Least Recently Used) or LFU (Least Frequently Used) eviction strategies
 - **TypeScript Support:** Full type definitions included
 
 ## Installation
@@ -51,6 +52,45 @@ await RunCache.set({
 await RunCache.set({ key: "user-1", value: "Alice" });
 await RunCache.set({ key: "user-2", value: "Bob" });
 const users = await RunCache.get("user-*"); // Returns array of all matching values
+```
+
+## Cache Eviction Policies
+
+RunCache supports configurable cache eviction policies to manage memory usage by automatically removing entries when the cache reaches a defined size limit.
+
+### Available Eviction Policies
+
+- **NONE**: No automatic eviction (default). Cache entries are only removed via TTL or manual deletion.
+- **LRU (Least Recently Used)**: Removes the least recently accessed entries when the cache exceeds its maximum size.
+- **LFU (Least Frequently Used)**: Removes the least frequently accessed entries when the cache exceeds its maximum size. When entries have the same access frequency, the oldest entry is removed first.
+
+### Configuring Eviction Policies
+
+```typescript
+import { RunCache, EvictionPolicy } from "run-cache";
+
+// Configure the cache with a max size of 100 entries and LRU eviction policy
+RunCache.configure({
+  maxSize: 100,
+  evictionPolicy: EvictionPolicy.LRU
+});
+
+// Add entries to the cache
+for (let i = 0; i < 150; i++) {
+  await RunCache.set({ key: `item-${i}`, value: `value-${i}` });
+}
+
+// Only the 100 most recently used entries will be retained
+// The oldest 50 entries will be automatically evicted
+
+// Change to LFU eviction policy
+RunCache.configure({
+  evictionPolicy: EvictionPolicy.LFU
+});
+
+// Get the current configuration
+const config = RunCache.getConfig();
+console.log(config); // { maxSize: 100, evictionPolicy: "lfu" }
 ```
 
 ## API Reference
@@ -110,6 +150,19 @@ const exists = await RunCache.has("cache-key");
 
 // Check if any matching cache entries exist
 const hasItems = await RunCache.has("session-*");
+```
+
+#### Cache Configuration
+
+```typescript
+// Configure cache settings
+RunCache.configure({
+  maxSize: 1000,                  // Maximum number of entries before eviction
+  evictionPolicy: EvictionPolicy.LRU  // Eviction policy to use
+});
+
+// Get current configuration
+const config = RunCache.getConfig();
 ```
 
 ### Event System
