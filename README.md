@@ -287,6 +287,30 @@ Wildcard support is implemented for all key-based operations:
 - Event listeners: Registers callbacks for keys matching patterns
 - `clearEventListeners`: Removes listeners for keys matching patterns
 
+## Resource Management
+
+RunCache is designed to properly manage resources throughout the application lifecycle.
+
+### Automatic Cleanup on Termination
+
+RunCache automatically registers handlers for SIGTERM and SIGINT signals in Node.js environments to ensure proper cleanup of all resources when the application is shutting down. This prevents memory leaks and ensures a clean shutdown.
+
+### Manual Shutdown
+
+You can also manually trigger a complete shutdown of the cache:
+
+```typescript
+// Manually shut down the cache, clearing all entries, intervals, and event listeners
+RunCache.shutdown();
+```
+
+The `shutdown` method performs the following cleanup:
+- Clears all cache entries and their associated intervals
+- Removes all event listeners
+- Resets the cache configuration to default values
+
+This is particularly useful in long-running applications or when you need to release resources manually.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
