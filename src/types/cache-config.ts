@@ -1,3 +1,5 @@
+import { StorageAdapter } from './storage-adapter';
+
 /**
  * Cache eviction policy types.
  */
@@ -39,4 +41,25 @@ export interface RunCacheConfig {
    * @default false
    */
   verbose?: boolean;
+  
+  /**
+   * Storage adapter for persisting cache data.
+   * If provided, cache data will be persisted using this adapter.
+   * @default undefined (no persistence)
+   */
+  storageAdapter?: StorageAdapter;
+  
+  /**
+   * SECURITY WARNING: Enables deserializing source functions with eval-like operations.
+   * 
+   * This is a potentially dangerous setting as it allows execution of arbitrary code 
+   * when deserializing cache data. If an attacker can tamper with persisted data
+   * (e.g., modify a storage file or use XSS to inject into localStorage), this could
+   * lead to remote code execution.
+   * 
+   * Only enable this if you fully trust your storage medium and understand the risks.
+   * 
+   * @default false
+   */
+  allowUnsafeSourceFnDeserialization?: boolean;
 } 

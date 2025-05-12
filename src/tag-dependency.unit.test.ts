@@ -2,9 +2,9 @@ import { RunCache } from "./run-cache";
 import { v4 as uuid } from "uuid";
 
 describe("Tag and Dependency Invalidation", () => {
-  beforeEach(() => {
-    RunCache.flush();
-    RunCache.clearEventListeners();
+  beforeEach(async () => {
+    await RunCache.flush();
+    await RunCache.clearEventListeners();
   });
 
   describe("Tag-based Invalidation", () => {
@@ -39,7 +39,7 @@ describe("Tag and Dependency Invalidation", () => {
       expect(await RunCache.get(otherKey)).toBe("other-value");
 
       // Invalidate by tag
-      const invalidated = RunCache.invalidateByTag(tag);
+      const invalidated = await RunCache.invalidateByTag(tag);
       expect(invalidated).toBe(true);
 
       // Verify tagged entries are removed
@@ -58,7 +58,7 @@ describe("Tag and Dependency Invalidation", () => {
       await RunCache.set({ key, value: "multi-tagged-value", tags });
       
       // Invalidate by one of the tags
-      RunCache.invalidateByTag("profile");
+      await RunCache.invalidateByTag("profile");
       
       // Verify the entry was invalidated
       expect(await RunCache.get(key)).toBeUndefined();
@@ -73,14 +73,14 @@ describe("Tag and Dependency Invalidation", () => {
       const keyInvalidationCallback = jest.fn();
       
       // Register event listeners
-      RunCache.onTagInvalidation(tagInvalidationCallback);
-      RunCache.onKeyTagInvalidation(key, keyInvalidationCallback);
+      await RunCache.onTagInvalidation(tagInvalidationCallback);
+      await RunCache.onKeyTagInvalidation(key, keyInvalidationCallback);
       
       // Set cache entry with tag
       await RunCache.set({ key, value, tags: [tag] });
       
       // Invalidate by tag
-      RunCache.invalidateByTag(tag);
+      await RunCache.invalidateByTag(tag);
       
       // Verify callbacks were called
       expect(tagInvalidationCallback).toHaveBeenCalledWith(
@@ -100,8 +100,8 @@ describe("Tag and Dependency Invalidation", () => {
       );
     });
 
-    it("should return false when invalidating with a non-existent tag", () => {
-      const result = RunCache.invalidateByTag("non-existent-tag");
+    it("should return false when invalidating with a non-existent tag", async () => {
+      const result = await RunCache.invalidateByTag("non-existent-tag");
       expect(result).toBe(false);
     });
   });
@@ -147,7 +147,7 @@ describe("Tag and Dependency Invalidation", () => {
       await RunCache.set({ key: otherKey, value: "other-value" });
       
       // Invalidate by dependency
-      const invalidated = RunCache.invalidateByDependency(dependencyKey);
+      const invalidated = await RunCache.invalidateByDependency(dependencyKey);
       expect(invalidated).toBe(true);
       
       // Verify dependent entries were invalidated
@@ -193,7 +193,7 @@ describe("Tag and Dependency Invalidation", () => {
       expect(await RunCache.isDependencyOf(level2Key, rootKey)).toBe(true);
       
       // Invalidate by root dependency - should cascade to all levels
-      RunCache.invalidateByDependency(rootKey);
+      await RunCache.invalidateByDependency(rootKey);
       
       // Verify level 1 and 2 were invalidated via cascading effect
       expect(await RunCache.get(rootKey)).toBe("root-value"); // Root should still exist
@@ -209,8 +209,8 @@ describe("Tag and Dependency Invalidation", () => {
       const keyInvalidationCallback = jest.fn();
       
       // Register event listeners
-      RunCache.onDependencyInvalidation(depInvalidationCallback);
-      RunCache.onKeyDependencyInvalidation(dependentKey, keyInvalidationCallback);
+      await RunCache.onDependencyInvalidation(depInvalidationCallback);
+      await RunCache.onKeyDependencyInvalidation(dependentKey, keyInvalidationCallback);
       
       // Set cache entries
       await RunCache.set({ key: dependencyKey, value: "dependency-value" });
@@ -221,7 +221,7 @@ describe("Tag and Dependency Invalidation", () => {
       });
       
       // Invalidate by dependency
-      RunCache.invalidateByDependency(dependencyKey);
+      await RunCache.invalidateByDependency(dependencyKey);
       
       // Verify callbacks were called
       expect(depInvalidationCallback).toHaveBeenCalledWith(
@@ -241,8 +241,8 @@ describe("Tag and Dependency Invalidation", () => {
       );
     });
 
-    it("should return false when invalidating with a non-existent dependency", () => {
-      const result = RunCache.invalidateByDependency("non-existent-dependency");
+    it("should return false when invalidating with a non-existent dependency", async () => {
+      const result = await RunCache.invalidateByDependency("non-existent-dependency");
       expect(result).toBe(false);
     });
   });
@@ -268,7 +268,7 @@ describe("Tag and Dependency Invalidation", () => {
       expect(await RunCache.get(entryKey)).toBe("combined-value");
       
       // Invalidate by tag
-      RunCache.invalidateByTag(tag);
+      await RunCache.invalidateByTag(tag);
       
       // Verify entry was invalidated
       expect(await RunCache.get(entryKey)).toBeUndefined();
@@ -285,7 +285,7 @@ describe("Tag and Dependency Invalidation", () => {
       expect(await RunCache.get(entryKey)).toBe("combined-value");
       
       // Now invalidate by dependency
-      RunCache.invalidateByDependency(dependencyKey);
+      await RunCache.invalidateByDependency(dependencyKey);
       
       // Verify entry was invalidated
       expect(await RunCache.get(entryKey)).toBeUndefined();

@@ -4,9 +4,64 @@ import { EVENT, EmitParam, EventName, EventParam } from '../types/events';
 import { Logger } from '../logging/logger';
 import { EventSystem } from './event-system';
 import { LFUPolicy, LRUPolicy } from '../policies/eviction-policies';
-import { isExpired, matchesPattern, validateTTL, normalizeTag, normalizeTags } from './utils';
+import { isExpired as originalIsExpired, matchesPattern, validateTTL, normalizeTag, normalizeTags } from './utils';
 import { DefaultMiddlewareManager } from './middleware-manager';
 import { MiddlewareContext, MiddlewareFunction, MiddlewareManager } from '../types/middleware';
+import { StorageAdapter } from '../types/storage-adapter';
+
+// Use the original isExpired function but add a custom wrapper for the simpler case
+function isExpired(cache: CacheState): boolean;
+function isExpired(updatedAt: number, ttl: number): boolean;
+function isExpired(cacheOrUpdatedAt: CacheState | number, ttl?: number): boolean {
+  if (typeof cacheOrUpdatedAt === 'number' && ttl !== undefined) {
+    // Handle the simple case with just timestamp and TTL
+    return cacheOrUpdatedAt + ttl < Date.now();
+  } else {
+    // Use the original implementation for CacheState objects
+    return originalIsExpired(cacheOrUpdatedAt as CacheState);
+  }
+}
+
+/**
+ * Interface representing serialized cache data for persistence
+ */
+interface SerializedCacheData {
+  /**
+   * Version of the serialized data format
+   */
+  version: number;
+  
+  /**
+   * Timestamp when the data was serialized
+   */
+  timestamp: number;
+  
+  /**
+   * Serialized cache entries
+   */
+  entries: {
+    [key: string]: {
+      value: string;
+      createdAt: number;
+      updatedAt: number;
+      ttl?: number;
+      autoRefetch?: boolean;
+      accessCount: number;
+      lastAccessed: number;
+      tags?: string[];
+      dependencies?: string[];
+      sourceFn?: string; // Serialized as string if available
+    };
+  };
+  
+  /**
+   * Cache configuration
+   */
+  config: {
+    maxSize?: number;
+    evictionPolicy?: string;
+  };
+}
 
 /**
  * The core cache storage implementation handling cache operations
@@ -19,12 +74,21 @@ export class CacheStore {
   private lruPolicy: LRUPolicy;
   private lfuPolicy: LFUPolicy;
   private middlewareManager: MiddlewareManager;
+  private storageAdapter: StorageAdapter | null = null;
+  private autoSaveInterval: NodeJS.Timeout | null = null;
 
-  constructor(config: RunCacheConfig = {}) {
+  /**
+   * Creates a new CacheStore instance.
+   * Note: Use the static `create` method instead for proper initialization with storage adapters.
+   * @param config Configuration options
+   * @private
+   */
+  private constructor(config: RunCacheConfig = {}) {
     this.config = {
       maxSize: Number.POSITIVE_INFINITY,
       evictionPolicy: EvictionPolicy.NONE,
       verbose: false,
+      allowUnsafeSourceFnDeserialization: false,
       ...config
     };
     
@@ -36,6 +100,33 @@ export class CacheStore {
     // Initialize policies
     this.lruPolicy = new LRUPolicy(this.logger);
     this.lfuPolicy = new LFUPolicy(this.logger);
+    
+    // Initialize storage adapter if provided, but defer loading until create() method
+    if (this.config.storageAdapter) {
+      this.storageAdapter = this.config.storageAdapter;
+    }
+  }
+
+  /**
+   * Creates and initializes a new CacheStore instance with proper async storage loading.
+   * This is the recommended way to create a CacheStore to ensure all data is loaded before use.
+   * 
+   * @param config Configuration options
+   * @returns A fully initialized CacheStore instance with data loaded from storage
+   */
+  static async create(config: RunCacheConfig = {}): Promise<CacheStore> {
+    const store = new CacheStore(config);
+    
+    // Load from storage if a storage adapter is provided
+    if (store.storageAdapter) {
+      try {
+        await store.loadFromStorage();
+      } catch (error) {
+        store.logger.log('error', 'Failed to load cache data from storage', error);
+      }
+    }
+    
+    return store;
   }
 
   /**
@@ -417,7 +508,7 @@ export class CacheStore {
     }
 
     // Check if the entry has expired
-    if (isExpired(cached)) {
+    if (cached.ttl && isExpired(cached.updatedAt, cached.ttl)) {
       this.logger.log('debug', `Cache expired for key: ${key}`);
       
       // For entries with autoRefetch, generate a new value in the background
@@ -761,7 +852,7 @@ export class CacheStore {
       return false;
     }
 
-    if (isExpired(cached)) {
+    if (cached.ttl && isExpired(cached.updatedAt, cached.ttl)) {
       this.eventSystem.emitEvent(EVENT.EXPIRE, {
         key: key,
         value: cached.value,
@@ -787,25 +878,43 @@ export class CacheStore {
   }
 
   /**
-   * Configures cache settings
+   * Configures the cache store
    */
-  configure(config: RunCacheConfig): void {
-    const previousConfig = { ...this.config };
-    this.config = { ...this.config, ...config };
+  async configure(config: RunCacheConfig): Promise<void> {
+    // Update configuration
+    this.config = {
+      ...this.config,
+      ...config
+    };
     
-    // Update logger with new configuration
+    // Update logger
     this.logger.updateConfig(this.config);
     
-    const verboseChanged = previousConfig.verbose !== this.config.verbose;
-    // If verbose is being enabled, log that fact
-    if (verboseChanged && this.config.verbose) {
-      this.logger.log('info', `Verbose logging enabled`);
+    // Update storage adapter if provided
+    if ('storageAdapter' in config) {
+      // If we're replacing the storage adapter, save current data first
+      if (this.storageAdapter) {
+        try {
+          await this.saveToStorage();
+        } catch (error) {
+          this.logger.log('error', 'Failed to save cache data before changing storage adapter', error);
+        }
+      }
+      
+      this.storageAdapter = config.storageAdapter ?? null;
+      
+      // If the new adapter is null/undefined we're done
+      if (!this.storageAdapter) {
+        return;
+      }
+      
+      // Load from new storage
+      try {
+        await this.loadFromStorage();
+      } catch (error) {
+        this.logger.log('error', 'Failed to load cache data from new storage adapter', error);
+      }
     }
-    
-    this.logger.log('info', `Configuration updated`, { 
-      previous: previousConfig,
-      current: this.config
-    });
   }
 
   /**
@@ -913,40 +1022,224 @@ export class CacheStore {
   }
 
   /**
-   * Performs a complete shutdown of the cache
+   * Serializes the current cache state for storage
    */
-  shutdown(): void {
-    this.logger.log('info', `Shutting down cache`);
-    
-    // Clear all cache entries and their intervals with explicit cleanup
-    // First, get all intervals that need to be cleared
-    const activeIntervals = Array.from(this.cache.values())
-      .filter(entry => entry.interval)
-      .map(entry => entry.interval);
-    
-    // Clear each interval explicitly
-    activeIntervals.forEach(interval => {
-      if (interval) {
-        clearTimeout(interval);
+  private serializeCache(): string {
+    const serialized: SerializedCacheData = {
+      version: 1,
+      timestamp: Date.now(),
+      entries: {},
+      config: {
+        maxSize: this.config.maxSize,
+        evictionPolicy: this.config.evictionPolicy
       }
-    });
-    
-    // Now flush the cache
-    this.flush();
-    
-    // Remove all event listeners
-    this.clearEventListeners();
-    
-    // Reset configuration to defaults but preserve verbose setting for final log
-    const wasVerbose = this.config.verbose;
-    this.config = {
-      maxSize: Number.POSITIVE_INFINITY,
-      evictionPolicy: EvictionPolicy.NONE,
-      verbose: wasVerbose,
     };
     
-    // Log shutdown completion 
-    this.logger.log('info', 'Cache shutdown complete, all resources released');
+    // Serialize each cache entry
+    for (const [key, entry] of this.cache.entries()) {
+      const { interval, sourceFn, fetching, ...serializableData } = entry;
+      
+      // Store the serializable data
+      serialized.entries[key] = {
+        ...serializableData,
+        // Convert source function to string if it exists
+        sourceFn: sourceFn ? sourceFn.toString() : undefined
+      };
+    }
+    
+    return JSON.stringify(serialized);
+  }
+  
+  /**
+   * Deserializes the cached data from storage
+   * @param data The serialized cache data
+   */
+  private deserializeCache(data: string): void {
+    try {
+      const parsed: SerializedCacheData = JSON.parse(data);
+      
+      // Check data version
+      if (parsed.version !== 1) {
+        throw new Error(`Unsupported cache data version: ${parsed.version}`);
+      }
+      
+      // Clear existing cache
+      this.flush();
+      
+      // Restore config
+      if (parsed.config) {
+        if (parsed.config.maxSize !== undefined) {
+          this.config.maxSize = parsed.config.maxSize;
+        }
+        
+        if (parsed.config.evictionPolicy) {
+          this.config.evictionPolicy = parsed.config.evictionPolicy as EvictionPolicy;
+        }
+      }
+      
+      // Restore entries
+      if (parsed.entries) {
+        for (const [key, entry] of Object.entries(parsed.entries)) {
+          const { sourceFn: sourceFnString, ...entryData } = entry;
+          
+          // Skip entries that have expired
+          if (entryData.ttl && isExpired(entryData.updatedAt, entryData.ttl)) {
+            continue;
+          }
+          
+          // Try to reconstruct source function if it exists
+          let sourceFn: SourceFn | undefined = undefined;
+          if (sourceFnString) {
+            if (this.config.allowUnsafeSourceFnDeserialization) {
+              try {
+                // This is a potential security risk, but explicitly allowed by configuration
+                sourceFn = new Function(`return ${sourceFnString}`)() as SourceFn;
+              } catch (error) {
+                this.logger.log('error', `Failed to reconstruct source function for key: ${key}`);
+              }
+            } else {
+              this.logger.log('warn', `Skipped deserializing sourceFn for key: ${key} due to security policy. Enable 'allowUnsafeSourceFnDeserialization' config option to allow this operation.`);
+            }
+          }
+          
+          // Store in cache
+          const cacheState: CacheState = {
+            ...entryData,
+            sourceFn,
+            accessCount: entryData.accessCount || 0,
+            lastAccessed: entryData.lastAccessed || Date.now()
+          };
+          
+          this.cache.set(key, cacheState);
+          
+          // Reset TTL interval if needed
+          if (entryData.ttl) {
+            this.setExpiryInterval(key, cacheState);
+          }
+        }
+      }
+      
+      this.logger.log('info', `Restored ${this.cache.size} cache entries from storage`);
+    } catch (error) {
+      throw new Error(`Failed to deserialize cache data: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+  }
+  
+  /**
+   * Sets up an expiry interval for a cache entry
+   */
+  private setExpiryInterval(key: string, state: CacheState): void {
+    // Skip if no TTL
+    if (!state.ttl) {
+      return;
+    }
+    
+    // Calculate remaining time based on last update
+    const elapsed = Date.now() - state.updatedAt;
+    const remainingTime = state.ttl - elapsed;
+    
+    // If already expired, handle expiration immediately
+    if (remainingTime <= 0) {
+      this.handleExpiry(key, state);
+      return;
+    }
+    
+    // Otherwise set timeout for remaining time
+    state.interval = setTimeout(() => {
+      this.handleExpiry(key, state);
+    }, remainingTime);
+  }
+  
+  /**
+   * Handles expiry of a cache entry
+   */
+  private handleExpiry(key: string, state: CacheState): void {
+    this.logger.log('debug', `TTL expired for key: ${key}`);
+    
+    this.eventSystem.emitEvent(EVENT.EXPIRE, {
+      key,
+      value: state.value,
+      ttl: state.ttl,
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
+    });
+    
+    if (typeof state.sourceFn === "function" && state.autoRefetch) {
+      this.logger.log('debug', `Auto-refetching key: ${key}`);
+      this.refetchSingle(key).catch((e) => {
+        this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
+        /* Ignore as the event is already emitted inside the function */
+      });
+    }
+  }
+  
+  /**
+   * Saves the current cache state to storage if a storage adapter is configured
+   */
+  async saveToStorage(): Promise<boolean> {
+    if (!this.storageAdapter) {
+      return false;
+    }
+    
+    try {
+      // Serialize the cache data
+      const serializedData = this.serializeCache();
+      
+      // Save to storage
+      await this.storageAdapter.save(serializedData);
+      this.logger.log('debug', `Cache data saved to storage (${serializedData.length} bytes)`);
+      return true;
+    } catch (error) {
+      this.logger.log('error', 'Failed to save cache data to storage', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Loads cache state from storage if a storage adapter is configured
+   */
+  async loadFromStorage(): Promise<boolean> {
+    if (!this.storageAdapter) {
+      return false;
+    }
+    
+    try {
+      // Load from storage
+      const data = await this.storageAdapter.load();
+      
+      if (!data) {
+        this.logger.log('info', 'No cached data found in storage');
+        return false;
+      }
+      
+      // Deserialize and restore cache
+      this.deserializeCache(data);
+      return true;
+    } catch (error) {
+      this.logger.log('error', 'Failed to load cache data from storage', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Sets up auto-save interval for persistent storage
+   * @param intervalMs Milliseconds between auto-saves, or 0 to disable
+   */
+  setupAutoSave(intervalMs: number): void {
+    // Clear existing interval if any
+    if (this.autoSaveInterval) {
+      clearInterval(this.autoSaveInterval);
+      this.autoSaveInterval = null;
+    }
+    
+    // Setup new interval if storage adapter exists and interval > 0
+    if (this.storageAdapter && intervalMs > 0) {
+      this.autoSaveInterval = setInterval(() => {
+        this.saveToStorage().catch(error => {
+          this.logger.log('error', 'Auto-save failed', error);
+        });
+      }, intervalMs);
+    }
   }
 
   /**
@@ -1149,5 +1442,49 @@ export class CacheStore {
     }
 
     return false;
+  }
+
+  /**
+   * Shuts down the cache store, clearing resources and saving data if persistence is enabled
+   */
+  async shutdown(): Promise<void> {
+    // Save to persistent storage if available
+    if (this.storageAdapter) {
+      try {
+        // Properly await the saveToStorage operation
+        await this.saveToStorage();
+      } catch (error) {
+        this.logger.log('error', 'Failed to save cache data during shutdown', error);
+      }
+    }
+    
+    // Clear auto-save interval if set
+    if (this.autoSaveInterval) {
+      clearInterval(this.autoSaveInterval);
+      this.autoSaveInterval = null;
+    }
+
+    // Clear all timeouts
+    for (const [key, cacheItem] of this.cache.entries()) {
+      if (cacheItem?.interval) {
+        clearTimeout(cacheItem.interval);
+        cacheItem.interval = undefined;
+      }
+    }
+
+    // Clear the cache
+    this.cache.clear();
+    
+    // Clear all event listeners
+    this.clearEventListeners();
+    
+    // Detach persistence
+    this.storageAdapter = null;
+    
+    // Defensive: ensure auto-save interval is cleared
+    if (this.autoSaveInterval) {
+      clearInterval(this.autoSaveInterval);
+      this.autoSaveInterval = null;
+    }
   }
 } 
