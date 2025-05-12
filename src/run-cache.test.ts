@@ -1,4 +1,4 @@
-import { EVENT, EventParam, RunCache } from "./run-cache";
+import { EVENT, EventParam, RunCache, EvictionPolicy } from "./run-cache";
 import { v4 as uuid } from "uuid";
 
 describe("RunCache", () => {
@@ -1101,6 +1101,176 @@ describe("RunCache", () => {
       const result = await RunCache.get("complex.key[with]*chars");
       expect(Array.isArray(result)).toBe(true);
       expect((result as string[]).includes("Complex key value")).toBe(true);
+    });
+  });
+
+  describe("eviction policies", () => {
+    beforeEach(() => {
+      // Reset configuration to default before each test
+      RunCache.configure({
+        maxSize: Infinity,
+        evictionPolicy: EvictionPolicy.NONE
+      });
+      RunCache.flush();
+    });
+
+    it("should not evict entries when max size isn't reached", async () => {
+      // Configure cache with LRU policy and max size of 5
+      RunCache.configure({
+        maxSize: 5,
+        evictionPolicy: EvictionPolicy.LRU
+      });
+
+      // Add 3 entries (below the max size)
+      await RunCache.set({ key: "key1", value: "value1" });
+      await RunCache.set({ key: "key2", value: "value2" });
+      await RunCache.set({ key: "key3", value: "value3" });
+
+      // Check all entries are still in the cache
+      await expect(RunCache.get("key1")).resolves.toBe("value1");
+      await expect(RunCache.get("key2")).resolves.toBe("value2");
+      await expect(RunCache.get("key3")).resolves.toBe("value3");
+    });
+
+    it("should evict LRU entries when max size is reached", async () => {
+      // Configure cache with LRU policy and max size of 3
+      RunCache.configure({
+        maxSize: 3,
+        evictionPolicy: EvictionPolicy.LRU
+      });
+
+      // Add 3 entries (at the max size)
+      await RunCache.set({ key: "key1", value: "value1" });
+      await RunCache.set({ key: "key2", value: "value2" });
+      await RunCache.set({ key: "key3", value: "value3" });
+
+      // Access key1 and key3 to make key2 the least recently used
+      await RunCache.get("key1");
+      await RunCache.get("key3");
+
+      // Add another entry to trigger eviction
+      await RunCache.set({ key: "key4", value: "value4" });
+
+      // Check that key2 was evicted (it was least recently used)
+      await expect(RunCache.get("key2")).resolves.toBeUndefined();
+      
+      // Check that other keys remain
+      await expect(RunCache.get("key1")).resolves.toBe("value1");
+      await expect(RunCache.get("key3")).resolves.toBe("value3");
+      await expect(RunCache.get("key4")).resolves.toBe("value4");
+    });
+
+    it("should evict LFU entries when max size is reached", async () => {
+      // Configure cache with LFU policy and max size of 3
+      RunCache.configure({
+        maxSize: 3,
+        evictionPolicy: EvictionPolicy.LFU
+      });
+
+      // Add 3 entries (at the max size)
+      await RunCache.set({ key: "key1", value: "value1" });
+      await RunCache.set({ key: "key2", value: "value2" });
+      await RunCache.set({ key: "key3", value: "value3" });
+
+      // Access key1 three times and key3 two times to make key2 the least frequently used
+      await RunCache.get("key1");
+      await RunCache.get("key1");
+      await RunCache.get("key1");
+      await RunCache.get("key3");
+      await RunCache.get("key3");
+
+      // Add another entry to trigger eviction
+      await RunCache.set({ key: "key4", value: "value4" });
+
+      // Check that key2 was evicted (it was least frequently used)
+      await expect(RunCache.get("key2")).resolves.toBeUndefined();
+      
+      // Check that other keys remain
+      await expect(RunCache.get("key1")).resolves.toBe("value1");
+      await expect(RunCache.get("key3")).resolves.toBe("value3");
+      await expect(RunCache.get("key4")).resolves.toBe("value4");
+    });
+
+    it("should evict LFU entries with same frequency based on recency", async () => {
+      // Configure cache with LFU policy and max size of 3
+      RunCache.configure({
+        maxSize: 3,
+        evictionPolicy: EvictionPolicy.LFU
+      });
+
+      // Add 3 entries (at the max size)
+      await RunCache.set({ key: "key1", value: "value1" });
+      await RunCache.set({ key: "key2", value: "value2" });
+      await RunCache.set({ key: "key3", value: "value3" });
+
+      // Access all keys once to make their access count equal
+      await RunCache.get("key1");
+      await RunCache.get("key2");
+      await RunCache.get("key3");
+
+      // Add another entry to trigger eviction (key1 should be evicted as it's the oldest)
+      await RunCache.set({ key: "key4", value: "value4" });
+
+      // Check that key1 was evicted (it had same frequency but was least recently used)
+      await expect(RunCache.get("key1")).resolves.toBeUndefined();
+      
+      // Check that other keys remain
+      await expect(RunCache.get("key2")).resolves.toBe("value2");
+      await expect(RunCache.get("key3")).resolves.toBe("value3");
+      await expect(RunCache.get("key4")).resolves.toBe("value4");
+    });
+
+    it("should not evict anything with eviction policy set to NONE", async () => {
+      // Configure cache with no eviction policy and max size of 3
+      RunCache.configure({
+        maxSize: 3,
+        evictionPolicy: EvictionPolicy.NONE
+      });
+
+      // Add 5 entries (exceeding max size)
+      await RunCache.set({ key: "key1", value: "value1" });
+      await RunCache.set({ key: "key2", value: "value2" });
+      await RunCache.set({ key: "key3", value: "value3" });
+      await RunCache.set({ key: "key4", value: "value4" });
+      await RunCache.set({ key: "key5", value: "value5" });
+
+      // Check that no entries were evicted despite exceeding max size
+      await expect(RunCache.get("key1")).resolves.toBe("value1");
+      await expect(RunCache.get("key2")).resolves.toBe("value2");
+      await expect(RunCache.get("key3")).resolves.toBe("value3");
+      await expect(RunCache.get("key4")).resolves.toBe("value4");
+      await expect(RunCache.get("key5")).resolves.toBe("value5");
+    });
+
+    it("should correctly update configuration", async () => {
+      // Check initial configuration
+      expect(RunCache.getConfig()).toEqual({
+        maxSize: Infinity,
+        evictionPolicy: EvictionPolicy.NONE
+      });
+      
+      // Update configuration
+      RunCache.configure({
+        maxSize: 10,
+        evictionPolicy: EvictionPolicy.LRU
+      });
+      
+      // Check updated configuration
+      expect(RunCache.getConfig()).toEqual({
+        maxSize: 10,
+        evictionPolicy: EvictionPolicy.LRU
+      });
+      
+      // Partial update
+      RunCache.configure({
+        evictionPolicy: EvictionPolicy.LFU
+      });
+      
+      // Check that only the specified field was updated
+      expect(RunCache.getConfig()).toEqual({
+        maxSize: 10,
+        evictionPolicy: EvictionPolicy.LFU
+      });
     });
   });
 });
