@@ -224,6 +224,35 @@ describe("RunCache", () => {
       
       await expect(RunCache.get("nonexistent-*")).resolves.toBeUndefined();
     });
+
+    it("should handle complex wildcard patterns correctly", async () => {
+      // Set up hierarchical data
+      await RunCache.set({ key: "user:1:profile", value: "Alice profile" });
+      await RunCache.set({ key: "user:1:settings", value: "Alice settings" });
+      await RunCache.set({ key: "user:2:profile", value: "Bob profile" });
+      await RunCache.set({ key: "user:2:settings", value: "Bob settings" });
+      await RunCache.set({ key: "admin:1:profile", value: "Admin profile" });
+      
+      // Get all user profiles
+      const userProfiles = await RunCache.get("user:*:profile");
+      expect(Array.isArray(userProfiles)).toBe(true);
+      expect((userProfiles as string[]).length).toBe(2);
+      expect((userProfiles as string[]).includes("Alice profile")).toBe(true);
+      expect((userProfiles as string[]).includes("Bob profile")).toBe(true);
+      
+      // Get all user 1 data
+      const user1Data = await RunCache.get("user:1:*");
+      expect(Array.isArray(user1Data)).toBe(true);
+      expect((user1Data as string[]).length).toBe(2);
+      expect((user1Data as string[]).includes("Alice profile")).toBe(true);
+      expect((user1Data as string[]).includes("Alice settings")).toBe(true);
+      
+      // Get all profile data
+      const allProfiles = await RunCache.get("*:*:profile");
+      expect(Array.isArray(allProfiles)).toBe(true);
+      expect((allProfiles as string[]).length).toBe(3);
+      expect((allProfiles as string[]).includes("Admin profile")).toBe(true);
+    });
   });
 
   describe("delete()", () => {
@@ -268,6 +297,25 @@ describe("RunCache", () => {
       await RunCache.set({ key: "test-key", value: "test-value" });
       
       expect(RunCache.delete("nonexistent-*")).toBe(false);
+    });
+
+    it("should handle complex wildcard patterns in delete operations", async () => {
+      // Set up hierarchical data
+      await RunCache.set({ key: "user:1:profile", value: "Alice profile" });
+      await RunCache.set({ key: "user:1:settings", value: "Alice settings" });
+      await RunCache.set({ key: "user:2:profile", value: "Bob profile" });
+      await RunCache.set({ key: "user:2:settings", value: "Bob settings" });
+      
+      // Delete all profiles
+      expect(RunCache.delete("*:*:profile")).toBe(true);
+      
+      // Verify profiles are deleted
+      await expect(RunCache.get("user:1:profile")).resolves.toBeUndefined();
+      await expect(RunCache.get("user:2:profile")).resolves.toBeUndefined();
+      
+      // Verify settings are still there
+      await expect(RunCache.get("user:1:settings")).resolves.toBe("Alice settings");
+      await expect(RunCache.get("user:2:settings")).resolves.toBe("Bob settings");
     });
   });
 
@@ -802,6 +850,123 @@ describe("RunCache", () => {
       
       // Refetch callbacks should still be called
       expect(callback2).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe("wildcard pattern matching", () => {
+    beforeEach(async () => {
+      // Set up test data with hierarchical keys
+      await RunCache.set({ key: "app:user:1", value: "User 1 data" });
+      await RunCache.set({ key: "app:user:2", value: "User 2 data" });
+      await RunCache.set({ key: "app:admin:1", value: "Admin 1 data" });
+      await RunCache.set({ key: "app:config:global", value: "Global config" });
+      await RunCache.set({ key: "app:config:local", value: "Local config" });
+      await RunCache.set({ key: "backup:user:1", value: "User 1 backup" });
+    });
+
+    it("should handle wildcards at beginning of pattern", async () => {
+      const results = await RunCache.get("*:user:*");
+      expect(Array.isArray(results)).toBe(true);
+      expect((results as string[]).length).toBe(3);
+      expect((results as string[]).includes("User 1 data")).toBe(true);
+      expect((results as string[]).includes("User 2 data")).toBe(true);
+      expect((results as string[]).includes("User 1 backup")).toBe(true);
+    });
+
+    it("should handle wildcards in middle of pattern", async () => {
+      const results = await RunCache.get("app:*:1");
+      expect(Array.isArray(results)).toBe(true);
+      expect((results as string[]).length).toBe(2);
+      expect((results as string[]).includes("User 1 data")).toBe(true);
+      expect((results as string[]).includes("Admin 1 data")).toBe(true);
+    });
+
+    it("should handle multiple wildcards in pattern", async () => {
+      const results = await RunCache.get("*:*:1");
+      expect(Array.isArray(results)).toBe(true);
+      expect((results as string[]).length).toBe(3);
+      expect((results as string[]).includes("User 1 data")).toBe(true);
+      expect((results as string[]).includes("Admin 1 data")).toBe(true);
+      expect((results as string[]).includes("User 1 backup")).toBe(true);
+    });
+
+    it("should handle wildcards with refetch operations", async () => {
+      let values: Record<string, string> = {
+        "data:1": "Original 1",
+        "data:2": "Original 2",
+        "other:1": "Other 1"
+      };
+      
+      // Set up with source functions
+      const sourceFns = Object.keys(values).map(key => {
+        return jest.fn(() => values[key]);
+      });
+      
+      let i = 0;
+      for (const key of Object.keys(values)) {
+        await RunCache.set({
+          key,
+          sourceFn: sourceFns[i++]
+        });
+      }
+      
+      // Update the values that will be returned
+      values = {
+        "data:1": "Updated 1",
+        "data:2": "Updated 2",
+        "other:1": "Updated Other 1"
+      };
+      
+      // Refetch all data: keys
+      await RunCache.refetch("data:*");
+      
+      // Check data keys were updated
+      await expect(RunCache.get("data:1")).resolves.toBe("Updated 1");
+      await expect(RunCache.get("data:2")).resolves.toBe("Updated 2");
+      
+      // Check other key was not updated - it should still have the original value
+      await expect(RunCache.get("other:1")).resolves.toBe("Other 1");
+      
+      // Check source functions were called correctly
+      expect(sourceFns[0]).toHaveBeenCalledTimes(2); // Once for set, once for refetch
+      expect(sourceFns[1]).toHaveBeenCalledTimes(2); // Once for set, once for refetch
+      expect(sourceFns[2]).toHaveBeenCalledTimes(1); // Once for set only
+    });
+
+    it("should handle pattern matching with special characters", async () => {
+      // Set up keys with various separators but not regex special chars
+      await RunCache.set({ key: "key-with-dash", value: "Dash value" });
+      await RunCache.set({ key: "key.with.dots", value: "Dot value" });
+      await RunCache.set({ key: "key_with_underscores", value: "Underscore value" });
+      
+      // Test pattern matching with these characters
+      const dashResult = await RunCache.get("key-with*");
+      expect(Array.isArray(dashResult)).toBe(true);
+      expect((dashResult as string[]).includes("Dash value")).toBe(true);
+      
+      const dotResult = await RunCache.get("key.with*");
+      expect(Array.isArray(dotResult)).toBe(true);
+      expect((dotResult as string[]).includes("Dot value")).toBe(true);
+      
+      const underscoreResult = await RunCache.get("key_with*");
+      expect(Array.isArray(underscoreResult)).toBe(true);
+      expect((underscoreResult as string[]).includes("Underscore value")).toBe(true);
+    });
+
+    it("should understand pattern matching limitations", async () => {
+      // The current implementation treats any key with * as a pattern
+      // So we can test keys with literals and understand the limitations
+      
+      // Set a key with a literal asterisk in the name
+      await RunCache.set({ key: "key-with-asterisk*", value: "Asterisk key value" });
+      
+      // When we try to get this exact key, it will be treated as a pattern
+      const result = await RunCache.get("key-with-asterisk*");
+      expect(Array.isArray(result)).toBe(true);
+      expect((result as string[]).includes("Asterisk key value")).toBe(true);
+      
+      // This is the current behavior - we can't distinguish between 
+      // literal * and wildcards in the current implementation
     });
   });
 });
