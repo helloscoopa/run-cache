@@ -1108,7 +1108,7 @@ describe("RunCache", () => {
     beforeEach(() => {
       // Reset configuration to default before each test
       RunCache.configure({
-        maxSize: Infinity,
+        maxSize: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE
       });
       RunCache.flush();
@@ -1247,7 +1247,7 @@ describe("RunCache", () => {
     it("should correctly update configuration", async () => {
       // Check initial configuration
       expect(RunCache.getConfig()).toEqual({
-        maxSize: Infinity,
+        maxSize: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE
       });
       
@@ -1273,6 +1273,73 @@ describe("RunCache", () => {
         maxSize: 10,
         evictionPolicy: EvictionPolicy.LFU
       });
+    });
+  });
+
+  describe("shutdown", () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      RunCache.flush();
+    });
+
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      RunCache.clearEventListeners();
+    });
+    
+    it("should clear all cache entries, intervals, and event listeners", async () => {
+      // Setup cache entries with intervals
+      await RunCache.set({ 
+        key: "test-key-1", 
+        value: "value-1",
+        ttl: 1000,
+        autoRefetch: true,
+        sourceFn: () => "refreshed-value"
+      });
+      
+      await RunCache.set({ 
+        key: "test-key-2", 
+        value: "value-2",
+        ttl: 2000
+      });
+      
+      // Setup event listeners
+      const expiryListener = jest.fn();
+      const refetchListener = jest.fn();
+      
+      RunCache.onExpiry(expiryListener);
+      RunCache.onRefetch(refetchListener);
+      
+      // Verify cache is populated
+      await expect(RunCache.get("test-key-1")).resolves.toBe("value-1");
+      await expect(RunCache.get("test-key-2")).resolves.toBe("value-2");
+      
+      // Call shutdown
+      RunCache.shutdown();
+      
+      // Verify cache is empty
+      await expect(RunCache.get("test-key-1")).resolves.toBeUndefined();
+      await expect(RunCache.get("test-key-2")).resolves.toBeUndefined();
+      
+      // Advance timers to verify intervals were cleared
+      jest.advanceTimersByTime(2000);
+      await Promise.resolve(); // Flush microtasks
+      
+      // Listeners should not be called
+      expect(expiryListener).not.toHaveBeenCalled();
+      expect(refetchListener).not.toHaveBeenCalled();
+      
+      // Check that configuration is reset
+      expect(RunCache.getConfig()).toEqual({
+        maxSize: Number.POSITIVE_INFINITY,
+        evictionPolicy: EvictionPolicy.NONE
+      });
+    });
+    
+    it("should handle shutdown when cache is already empty", () => {
+      // Verify we can safely call shutdown on an empty cache
+      expect(() => RunCache.shutdown()).not.toThrow();
     });
   });
 });
