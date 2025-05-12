@@ -4,7 +4,7 @@ import { EVENT, EmitParam, EventName, EventParam } from '../types/events';
 import { Logger } from '../logging/logger';
 import { EventSystem } from './event-system';
 import { LFUPolicy, LRUPolicy } from '../policies/eviction-policies';
-import { isExpired, matchesPattern, validateTTL } from './utils';
+import { isExpired, matchesPattern, validateTTL, normalizeTag, normalizeTags } from './utils';
 import { DefaultMiddlewareManager } from './middleware-manager';
 import { MiddlewareContext, MiddlewareFunction, MiddlewareManager } from '../types/middleware';
 
@@ -79,6 +79,69 @@ export class CacheStore {
     } catch (error) {
       this.logger.log('error', `Invalid ttl provided for key: ${key}`, { ttl });
       throw error;
+    }
+
+    // Validate tags array
+    if (tags) {
+      if (!Array.isArray(tags)) {
+        this.logger.log('error', `Invalid tags provided for key: ${key}, must be an array`);
+        throw new Error("`tags` must be an array");
+      }
+      
+      // Create a set to check for duplicates
+      const tagSet = new Set<string>();
+      
+      for (const tag of tags) {
+        // Check if tag is a non-empty string
+        if (typeof tag !== 'string' || !tag.trim().length) {
+          this.logger.log('error', `Invalid tag provided for key: ${key}, each tag must be a non-empty string`);
+          throw new Error("Each tag must be a non-empty string");
+        }
+        
+        // Normalize tag
+        const normalizedTag = normalizeTag(tag);
+        
+        // Check for duplicates
+        if (tagSet.has(normalizedTag)) {
+          this.logger.log('error', `Duplicate tag "${tag}" provided for key: ${key}`);
+          throw new Error(`Duplicate tag "${tag}" detected`);
+        }
+        
+        tagSet.add(normalizedTag);
+      }
+    }
+    
+    // Validate dependencies array
+    if (dependencies) {
+      if (!Array.isArray(dependencies)) {
+        this.logger.log('error', `Invalid dependencies provided for key: ${key}, must be an array`);
+        throw new Error("`dependencies` must be an array");
+      }
+      
+      // Create a set to check for duplicates
+      const depSet = new Set<string>();
+      
+      for (const dep of dependencies) {
+        // Check if dependency is a non-empty string
+        if (typeof dep !== 'string' || !dep.trim().length) {
+          this.logger.log('error', `Invalid dependency provided for key: ${key}, each dependency must be a non-empty string`);
+          throw new Error("Each dependency must be a non-empty string");
+        }
+        
+        // Check for duplicates
+        if (depSet.has(dep)) {
+          this.logger.log('error', `Duplicate dependency "${dep}" provided for key: ${key}`);
+          throw new Error(`Duplicate dependency "${dep}" detected`);
+        }
+        
+        depSet.add(dep);
+      }
+      
+      // Check if a dependency references the key itself (creates a self-loop)
+      if (dependencies.includes(key)) {
+        this.logger.log('error', `Self-referential dependency detected for key: ${key}`);
+        throw new Error("A key cannot depend on itself");
+      }
     }
 
     const time = Date.now();
@@ -174,9 +237,9 @@ export class CacheStore {
     const accessCount = existingCache ? existingCache.accessCount : 0;
     const lastAccessed = existingCache ? existingCache.lastAccessed : time;
 
-    // Copy existing tags and dependencies, or use provided ones
-    const finalTags = tags || existingCache?.tags || [];
-    const finalDependencies = dependencies || existingCache?.dependencies || [];
+    // Process and sanitize tags and dependencies
+    const finalTags = tags ? normalizeTags(tags) : (existingCache?.tags || []);
+    const finalDependencies = dependencies ? [...dependencies] : (existingCache?.dependencies || []);
 
     this.cache.set(key, {
       value: cacheValue ?? "undefined",
@@ -905,14 +968,16 @@ export class CacheStore {
       return false;
     }
 
-    this.logger.log('info', `Invalidating cache entries with tag: ${tag}`);
+    // Normalize the tag for consistent comparison
+    const normalizedTag = normalizeTag(tag);
+    this.logger.log('info', `Invalidating cache entries with tag: ${normalizedTag}`);
 
     let invalidated = false;
     
     // Find all keys that have the specified tag
     for (const [key, cacheState] of this.cache.entries()) {
-      if (cacheState.tags && cacheState.tags.includes(tag)) {
-        this.logger.log('debug', `Invalidating ${key} due to tag match: ${tag}`);
+      if (cacheState.tags && cacheState.tags.includes(normalizedTag)) {
+        this.logger.log('debug', `Invalidating ${key} due to tag match: ${normalizedTag}`);
         
         // Emit event before deleting
         this.eventSystem.emitEvent(EVENT.TAG_INVALIDATION, {
@@ -921,7 +986,7 @@ export class CacheStore {
           ttl: cacheState.ttl,
           createdAt: cacheState.createdAt,
           updatedAt: cacheState.updatedAt,
-          tag
+          tag: normalizedTag
         });
         
         this.deleteSingle(key);
@@ -930,9 +995,9 @@ export class CacheStore {
     }
 
     if (invalidated) {
-      this.logger.log('info', `Successfully invalidated entries with tag: ${tag}`);
+      this.logger.log('info', `Successfully invalidated entries with tag: ${normalizedTag}`);
     } else {
-      this.logger.log('debug', `No entries found with tag: ${tag}`);
+      this.logger.log('debug', `No entries found with tag: ${normalizedTag}`);
     }
 
     return invalidated;
@@ -1023,15 +1088,29 @@ export class CacheStore {
    * 
    * @param {string} targetKey - The key to check for dependencies
    * @param {string} dependencyKey - The dependency key to look for
+   * @param {Set<string>} [visited] - Set of already visited keys to prevent infinite recursion
    * @returns {Promise<boolean>} - Whether targetKey depends on dependencyKey
    */
-  async isDependencyOf(targetKey: string, dependencyKey: string): Promise<boolean> {
+  async isDependencyOf(
+    targetKey: string,
+    dependencyKey: string,
+    visited: Set<string> = new Set()
+  ): Promise<boolean> {
     if (!targetKey || !targetKey.length || !dependencyKey || !dependencyKey.length) {
       this.logger.log('error', `Empty key provided to isDependencyOf() method`);
       return false;
     }
 
     this.logger.log('debug', `Checking if ${targetKey} depends on ${dependencyKey}`);
+
+    // Check if we've already visited this node to prevent infinite recursion
+    if (visited.has(targetKey)) {
+      this.logger.log('debug', `Already visited ${targetKey}, stopping recursion`);
+      return false;
+    }
+    
+    // Add current target to visited set
+    visited.add(targetKey);
 
     // Check if target key exists and is not expired
     if (!(await this.hasSingle(targetKey))) {
@@ -1051,7 +1130,7 @@ export class CacheStore {
 
     // Check for indirect dependencies (recursive check)
     for (const dependency of cacheState.dependencies) {
-      if (await this.isDependencyOf(dependency, dependencyKey)) {
+      if (await this.isDependencyOf(dependency, dependencyKey, visited)) {
         return true;
       }
     }
