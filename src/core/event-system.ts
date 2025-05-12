@@ -4,16 +4,30 @@ import { Logger } from '../logging/logger';
 import { matchesPattern } from './utils';
 
 /**
- * EventSystem class to handle cache events
+ * EventSystem class to handle cache events.
+ * 
+ * This class provides a pub/sub mechanism for the cache system, allowing applications
+ * to register callbacks for various cache events (expiry, refetch, refetch failure).
+ * It supports both global events and key-specific events with wildcard pattern matching.
+ * 
+ * @internal
  */
 export class EventSystem {
+  /** Node.js EventEmitter used for the event distribution */
   private emitter: EventEmitter;
+  
+  /** Storage for wildcard pattern listeners that need special handling */
   private wildcardListeners: Array<{
     event: EventName;
     keyPattern: string;
     fn: EventFn;
   }>;
 
+  /**
+   * Creates a new EventSystem instance.
+   * 
+   * @param {Logger} logger - Logger instance for event-related logging
+   */
   constructor(private readonly logger: Logger) {
     this.emitter = new EventEmitter();
     this.emitter.setMaxListeners(0); // unlimited – safe for library code
@@ -21,7 +35,11 @@ export class EventSystem {
   }
 
   /**
-   * Emits an event to registered listeners
+   * Emits an event to registered listeners.
+   * This will trigger both global event listeners and key-specific listeners.
+   * 
+   * @param {EventName} event - The event type to emit
+   * @param {EmitParam} cache - The cache entry data to include with the event
    */
   emitEvent(event: EventName, cache: EmitParam): void {
     const eventParam: EventParam = {
@@ -43,7 +61,10 @@ export class EventSystem {
   }
 
   /**
-   * Registers a callback for global expire events
+   * Registers a callback for global expire events.
+   * The callback will be triggered whenever any cache entry expires.
+   * 
+   * @param {EventFn} callback - The function to call when any entry expires
    */
   onExpiry(callback: EventFn): void {
     this.logger.log('debug', `Registering global expiry listener`);
@@ -51,8 +72,12 @@ export class EventSystem {
   }
 
   /**
-   * Registers a callback for key-specific expire events
-   * Supports wildcard patterns in the key
+   * Registers a callback for key-specific expire events.
+   * Supports wildcard patterns in the key for matching multiple entries.
+   * 
+   * @param {string} key - The key or pattern for which to listen for expiry events
+   * @param {EventFn} callback - The function to call when matching entries expire
+   * @throws {Error} If the key is empty
    */
   onKeyExpiry(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
@@ -61,7 +86,10 @@ export class EventSystem {
   }
 
   /**
-   * Registers a callback for global refetch events
+   * Registers a callback for global refetch events.
+   * The callback will be triggered whenever any cache entry is refetched.
+   * 
+   * @param {EventFn} callback - The function to call when any entry is refetched
    */
   onRefetch(callback: EventFn): void {
     this.logger.log('debug', `Registering global refetch listener`);
@@ -69,8 +97,12 @@ export class EventSystem {
   }
 
   /**
-   * Registers a callback for key-specific refetch events
-   * Supports wildcard patterns in the key
+   * Registers a callback for key-specific refetch events.
+   * Supports wildcard patterns in the key for matching multiple entries.
+   * 
+   * @param {string} key - The key or pattern for which to listen for refetch events
+   * @param {EventFn} callback - The function to call when matching entries are refetched
+   * @throws {Error} If the key is empty
    */
   onKeyRefetch(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
@@ -79,7 +111,10 @@ export class EventSystem {
   }
 
   /**
-   * Registers a callback for global refetch failure events
+   * Registers a callback for global refetch failure events.
+   * The callback will be triggered whenever any refetch operation fails.
+   * 
+   * @param {EventFn} callback - The function to call when any refetch operation fails
    */
   onRefetchFailure(callback: EventFn): void {
     this.logger.log('debug', `Registering global refetch failure listener`);
@@ -87,8 +122,12 @@ export class EventSystem {
   }
 
   /**
-   * Registers a callback for key-specific refetch failure events
-   * Supports wildcard patterns in the key
+   * Registers a callback for key-specific refetch failure events.
+   * Supports wildcard patterns in the key for matching multiple entries.
+   * 
+   * @param {string} key - The key or pattern for which to listen for refetch failure events
+   * @param {EventFn} callback - The function to call when matching refetch operations fail
+   * @throws {Error} If the key is empty
    */
   onKeyRefetchFailure(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
@@ -97,7 +136,14 @@ export class EventSystem {
   }
 
   /**
-   * Clears event listeners based on the specified parameters
+   * Clears event listeners based on the specified parameters.
+   * Provides flexible options for removing listeners at different levels of granularity.
+   * 
+   * @param {Object} [params] - Optional parameters to specify which listeners to clear
+   * @param {EventName} [params.event] - The event type for which to clear listeners
+   * @param {string} [params.key] - The key pattern for which to clear listeners
+   * @returns {boolean} true if listeners were removed, false if no action was taken
+   * @throws {Error} If key is provided without an event
    */
   clearEventListeners(params?: {
     event?: EventName;
@@ -126,7 +172,13 @@ export class EventSystem {
   }
 
   /**
-   * Helper method to add a key-specific listener with wildcard support
+   * Helper method to add a key-specific listener with wildcard support.
+   * Handles the complexity of registering pattern-based listeners.
+   * 
+   * @param {EventName} event - The event type to listen for
+   * @param {string} key - The key or pattern to match
+   * @param {EventFn} callback - The function to call when matching events occur
+   * @private
    */
   private addKeyListener(event: EventName, key: string, callback: EventFn): void {
     if (key.includes("*")) {
@@ -155,7 +207,13 @@ export class EventSystem {
   }
 
   /**
-   * Clears all listeners for a specific event and key combination
+   * Clears all listeners for a specific event and key combination.
+   * Handles both exact key matches and wildcard pattern matches.
+   * 
+   * @param {EventName} event - The event type for which to clear listeners
+   * @param {string} key - The key or pattern for which to clear listeners
+   * @returns {boolean} true if listeners were removed, false otherwise
+   * @private
    */
   private clearKeyEventListeners(event: EventName, key: string): boolean {
     this.logger.log('debug', `Clearing listeners for event: ${event}, key: ${key}`);

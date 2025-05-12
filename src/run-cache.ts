@@ -6,7 +6,16 @@ import { SourceFn } from './types/cache-state';
 // Re-export needed types for backwards compatibility with tests
 export { EvictionPolicy, EVENT, EventParam };
 
-// Register shutdown handlers to properly clean up resources
+/**
+ * Registers shutdown handlers to properly clean up resources when the application is terminated.
+ * This ensures the cache is properly cleared to prevent memory leaks.
+ * 
+ * Handles the following scenarios:
+ * - Node.js environment: Registers handlers for SIGTERM and SIGINT signals
+ * - Browser environment: Registers handler for beforeunload event
+ * 
+ * @private
+ */
 function registerShutdownHandlers(): void {
   // Node.js environment
   if (typeof process !== 'undefined' && 
@@ -59,6 +68,29 @@ function registerShutdownHandlers(): void {
 /**
  * RunCache - A dependency-free, lightweight runtime caching library
  * with TTL support and automatic value regeneration.
+ * 
+ * Features:
+ * - Simple key-value storage with string values
+ * - TTL (time-to-live) support for automatic expiration
+ * - Automatic refetching of expired values using source functions
+ * - Event system for monitoring cache operations
+ * - Wildcard key pattern support for batch operations
+ * - Support for multiple eviction policies (NONE, LRU, LFU)
+ * - Compatible with both Node.js and browser environments
+ * 
+ * @example
+ * // Basic usage
+ * await RunCache.set({ key: "user:123", value: "John Doe", ttl: 60000 });
+ * const user = await RunCache.get("user:123");
+ * 
+ * @example
+ * // With auto-refetch
+ * await RunCache.set({
+ *   key: "user:123",
+ *   sourceFn: async () => getUserFromAPI(123),
+ *   ttl: 60000,
+ *   autoRefetch: true
+ * });
  */
 export class RunCache {
   private static instance: CacheStore = new CacheStore();
@@ -257,7 +289,17 @@ export class RunCache {
   /**
    * Configures RunCache settings.
    * 
-   * @param config Configuration options for RunCache.
+   * @param {RunCacheConfig} config - Configuration options for RunCache:
+   *   - maxSize: Maximum number of entries the cache can hold before eviction occurs (default: Infinity)
+   *   - evictionPolicy: The eviction policy to use when the cache exceeds its maximum size (default: EvictionPolicy.NONE)
+   *   - verbose: Enable verbose logging (default: false)
+   * 
+   * @example
+   * RunCache.configure({
+   *   maxSize: 1000,
+   *   evictionPolicy: EvictionPolicy.LRU,
+   *   verbose: true
+   * });
    */
   static configure(config: RunCacheConfig): void {
     RunCache.instance.configure(config);
@@ -266,7 +308,14 @@ export class RunCache {
   /**
    * Gets the current RunCache configuration.
    * 
-   * @returns Current configuration settings.
+   * @returns {RunCacheConfig} Current configuration settings with the following properties:
+   *   - maxSize: Maximum number of entries the cache can hold
+   *   - evictionPolicy: The current eviction policy
+   *   - verbose: Whether verbose logging is enabled
+   * 
+   * @example
+   * const config = RunCache.getConfig();
+   * console.log(`Max cache size: ${config.maxSize}`);
    */
   static getConfig(): RunCacheConfig {
     return RunCache.instance.getConfig();
@@ -279,6 +328,14 @@ export class RunCache {
    * - Resets the cache to its initial state
    * 
    * This method should be called when the application is shutting down to prevent memory leaks.
+   * Note: The RunCache automatically registers shutdown handlers for common termination signals.
+   * 
+   * @example
+   * // Manual shutdown in your application
+   * process.on('SIGTERM', () => {
+   *   RunCache.shutdown();
+   *   process.exit(0);
+   * });
    */
   static shutdown(): void {
     RunCache.instance.shutdown();
