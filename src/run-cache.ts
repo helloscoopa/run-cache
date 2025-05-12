@@ -132,7 +132,9 @@ class RunCache {
     }
 
     const matchingKeys: string[] = [];
-    for (const cacheKey of RunCache.cache.keys()) {
+    // Take a snapshot of all keys to avoid concurrent modification issues
+    const allKeys = Array.from(RunCache.cache.keys());
+    for (const cacheKey of allKeys) {
       if (RunCache.matchesPattern(pattern, cacheKey)) {
         matchingKeys.push(cacheKey);
       }
@@ -499,7 +501,10 @@ class RunCache {
     if (isWildcard) {
       const matchingValues: string[] = [];
 
-      for (const [cacheKey, cached] of RunCache.cache.entries()) {
+      // Take a snapshot first to avoid concurrent modification issues
+      // This prevents problems if enforceEvictionPolicy() is called during iteration
+      const snapshot = Array.from(RunCache.cache.entries());
+      for (const [cacheKey, cached] of snapshot) {
         if (RunCache.matchesPattern(key, cacheKey) && !RunCache.isExpired(cached)) {
           // Update access metadata for the matched key
           RunCache.updateAccessMetadata(cacheKey);
