@@ -14,6 +14,7 @@ RunCache is a dependency-free, lightweight runtime caching library for JavaScrip
 - **Sync/async source functions:** Fetch dynamic data from user-defined functions.
 - **Events:** Get to know when cache expires, refetched or refetch fails.
 - **Intuitive SDK:** Clean interface to access data.
+- **Wildcard key patterns:** Use pattern matching to operate on multiple related keys.
 
 ## Installation
 
@@ -83,6 +84,11 @@ RunCache.onKeyExpiry('Key', (cache: EventParam) => {
   console.log(`Specific key has been expired`);
 })
 
+// Event for keys matching a pattern
+RunCache.onKeyExpiry('user-*', (cache: EventParam) => {
+  console.log(`User cache key '${cache.key}' has expired`);
+})
+
 await RunCache.set({
   key: "Key",
   ttl: 10000
@@ -98,6 +104,11 @@ RunCache.onKeyRefetch('Key', (cache: EventParam) => {
   console.log(`Specific key has been refetched`);
 })
 
+// Event for keys matching a pattern
+RunCache.onKeyRefetch('user-*', (cache: EventParam) => {
+  console.log(`User cache key '${cache.key}' has been refetched`);
+})
+
 // Event of a key refetch failure
 RunCache.onRefetchFailure((cache: EventParam) => {
   console.log(`Cache of key '${cache.key}' has been refetched`);
@@ -106,6 +117,11 @@ RunCache.onRefetchFailure((cache: EventParam) => {
 // Event of a specific key refetch failure
 RunCache.onKeyRefetchFailure('Key', (cache: EventParam) => {
   console.log(`Specific key has been failed to refetch`);
+})
+
+// Event for keys matching a pattern
+RunCache.onKeyRefetchFailure('user-*', (cache: EventParam) => {
+  console.log(`User cache key '${cache.key}' failed to refetch`);
 })
 
 await RunCache.set({
@@ -120,6 +136,9 @@ await RunCache.set({
 ```ts
 // Refetch the cache value (Only works if the key is set with a sourceFn)
 await RunCache.refetch("Key");
+
+// Refetch all cache values matching the pattern
+await RunCache.refetch("user-*");
 ```
 
 #### Get cache
@@ -130,6 +149,9 @@ await RunCache.refetch("Key");
   if `sourceFn` is provided and `autoRefetch: true` 
 */
 const value = await RunCache.get("Key");
+
+// Get all values for keys matching a pattern (returns array of values)
+const userValues = await RunCache.get("user-*");
 ```
 
 #### Delete cache
@@ -137,6 +159,9 @@ const value = await RunCache.get("Key");
 ```ts
 // Delete a specific cache key
 RunCache.delete("Key");
+
+// Delete all keys matching a pattern
+RunCache.delete("user-*");
 
 // Delete all cache keys
 RunCache.flush();
@@ -146,7 +171,10 @@ RunCache.flush();
 
 ```ts
 // Returns a boolean, expired cache returns `false` even if they're refetchable
-const hasCache = RunCache.has("Key");
+const hasCache = await RunCache.has("Key");
+
+// Check if any keys matching the pattern exist
+const hasUserCache = await RunCache.has("user-*");
 ```
 
 #### Clear event listeners
@@ -165,4 +193,49 @@ RunCache.clearEventListeners({
   event: "expiry",
   key: "Key",
 });
+
+// Clear event listeners for keys matching a pattern
+RunCache.clearEventListeners({
+  event: "expiry",
+  key: "user-*",
+});
 ```
+
+## Wildcards
+
+RunCache supports wildcard pattern matching for keys. You can use the `*` character as a wildcard in your key patterns to operate on multiple related keys at once.
+
+### Examples
+
+```ts
+// Set multiple user-related cache entries
+await RunCache.set({ key: "user-1", value: "Alice" });
+await RunCache.set({ key: "user-2", value: "Bob" });
+await RunCache.set({ key: "user-3", value: "Charlie" });
+
+// Get all user values as an array
+const users = await RunCache.get("user-*");
+// Result: ["Alice", "Bob", "Charlie"]
+
+// Delete all user entries
+RunCache.delete("user-*");
+
+// Get event notifications for all user keys
+RunCache.onKeyExpiry("user-*", (cache) => {
+  console.log(`User cache ${cache.key} expired`);
+});
+
+// Clear all event listeners for user keys
+RunCache.clearEventListeners({
+  event: "expiry",
+  key: "user-*"
+});
+```
+
+Wildcard support is available for the following operations:
+- `get`: Returns an array of values for all matching keys
+- `delete`: Deletes all matching keys
+- `refetch`: Refetches all matching keys with source functions
+- `has`: Returns true if any matching key exists
+- Event listeners: Register callbacks for keys matching patterns
+- `clearEventListeners`: Clear listeners for keys matching patterns

@@ -2,8 +2,8 @@ import { EventEmitter } from "node:events";
 
 type CacheState = {
   value: string;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
   ttl?: number;
   autoRefetch?: boolean;
   fetching?: boolean;
@@ -15,11 +15,14 @@ export type EventParam = {
   key: string;
   value: string;
   ttl?: number;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
 };
 
-type EmitParam = Pick<CacheState, "value" | "ttl" | "createAt" | "updateAt"> & {
+type EmitParam = Pick<
+  CacheState,
+  "value" | "ttl" | "createdAt" | "updatedAt"
+> & {
   key: string;
 };
 
@@ -41,7 +44,41 @@ class RunCache {
   private static isExpired(cache: CacheState): boolean {
     if (!cache.ttl) return false;
 
-    return cache.updateAt + cache.ttl < Date.now();
+    return cache.updatedAt + cache.ttl < Date.now();
+  }
+
+  /**
+   * Utility function to check if a key matches a pattern (supporting wildcards)
+   * @param pattern The pattern to match against (can include * wildcard)
+   * @param key The key to check
+   * @returns boolean indicating if the key matches the pattern
+   */
+  private static matchesPattern(pattern: string, key: string): boolean {
+    if (!pattern.includes("*")) {
+      return pattern === key;
+    }
+    
+    const regexPattern = new RegExp("^" + pattern.replace(/\*/g, ".*") + "$");
+    return regexPattern.test(key);
+  }
+
+  /**
+   * Gets all keys that match a pattern
+   * @param pattern The pattern to match (can include * wildcard)
+   * @returns Array of matching keys
+   */
+  private static getMatchingKeys(pattern: string): string[] {
+    if (!pattern.includes("*")) {
+      return RunCache.cache.has(pattern) ? [pattern] : [];
+    }
+
+    const matchingKeys: string[] = [];
+    for (const cacheKey of RunCache.cache.keys()) {
+      if (RunCache.matchesPattern(pattern, cacheKey)) {
+        matchingKeys.push(cacheKey);
+      }
+    }
+    return matchingKeys;
   }
 
   /**
@@ -103,8 +140,8 @@ class RunCache {
           key,
           value: value ?? "undefined",
           ttl,
-          createAt: time,
-          updateAt: time,
+          createdAt: time,
+          updatedAt: time,
         });
 
         if (typeof sourceFn === "function" && autoRefetch) {
@@ -131,8 +168,8 @@ class RunCache {
       sourceFn,
       autoRefetch,
       interval: interval || undefined,
-      createAt: time,
-      updateAt: time,
+      createdAt: time,
+      updatedAt: time,
     });
 
     return true;
@@ -140,11 +177,46 @@ class RunCache {
 
   /**
    * Refetch the cached value using the stored source function and updates the cache with the new value.
+   * Supports wildcard patterns in the key.
    *
-   * @param {string} key - The cache key.
+   * @param {string} key - The cache key or pattern (with optional wildcard *).
    * @returns {Promise<boolean>} A promise that resolves to a boolean representing the execution state of the request.
+   * If a wildcard pattern is used, returns true if any key was successfully refetched.
    */
   static async refetch(key: string): Promise<boolean> {
+    // Handle wildcard patterns
+    if (key.includes("*")) {
+      const matchingKeys = RunCache.getMatchingKeys(key);
+      if (matchingKeys.length === 0) {
+        return false;
+      }
+
+      // Attempt to refetch all matching keys
+      const results = await Promise.all(
+        matchingKeys.map(async (matchedKey) => {
+          try {
+            return await RunCache.refetchSingle(matchedKey);
+          } catch (e) {
+            // If one key fails, we still want to try the others
+            return false;
+          }
+        })
+      );
+
+      // Return true if any refetch was successful
+      return results.some(result => result === true);
+    }
+
+    // Handle single key
+    return RunCache.refetchSingle(key);
+  }
+
+  /**
+   * Helper method to refetch a single key
+   * @param key The exact key to refetch
+   * @returns Promise<boolean> indicating success
+   */
+  private static async refetchSingle(key: string): Promise<boolean> {
     const cached = RunCache.cache.get(key);
 
     if (!cached) {
@@ -168,8 +240,8 @@ class RunCache {
         value: value,
         ttl: cached.ttl,
         sourceFn: cached.sourceFn,
-        createAt: cached.createAt,
-        updateAt: Date.now(),
+        createdAt: cached.createdAt,
+        updatedAt: Date.now(),
       };
 
       RunCache.cache.set(key, {
@@ -181,8 +253,8 @@ class RunCache {
         key,
         value: refetchedCache.value,
         ttl: refetchedCache.ttl,
-        createAt: refetchedCache.createAt,
-        updateAt: refetchedCache.updateAt,
+        createdAt: refetchedCache.createdAt,
+        updatedAt: refetchedCache.updatedAt,
       });
 
       return true;
@@ -196,8 +268,8 @@ class RunCache {
         key,
         value: cached.value,
         ttl: cached.ttl,
-        createAt: cached.createAt,
-        updateAt: cached.updateAt,
+        createdAt: cached.createdAt,
+        updatedAt: cached.updatedAt,
       });
 
       throw new Error(`Source function failed for key: '${key}'`);
@@ -207,16 +279,35 @@ class RunCache {
   /**
    * Retrieves a value from the cache by key. If the cached value has expired, it will be removed from the cache unless
    * `autoRefetch` is enabled with an associated `sourceFn`, in which case the value will be refetched automatically.
+   * Supports wildcard patterns in the key.
    *
    * @async
-   * @param {string} key - The key of the cache entry to retrieve.
-   * @returns {Promise<string | undefined>} A promise that resolves to the cached value if found and not expired, or `undefined` if the key is not found or the value has expired.
+   * @param {string} key - The key of the cache entry to retrieve, can include wildcards (*).
+   * @returns {Promise<string | string[] | undefined>} 
+   * - For exact keys: A string value or undefined if not found/expired
+   * - For wildcard keys: An array of matching values or undefined if no matches
    */
-  static async get(key: string): Promise<string | undefined> {
+  static async get(key: string): Promise<string | string[] | undefined> {
     if (!key) {
       return undefined;
     }
 
+    const isWildcard = key.includes("*");
+
+    // If wildcard is present, fetch all matching keys
+    if (isWildcard) {
+      const matchingValues: string[] = [];
+
+      for (const [cacheKey, cached] of RunCache.cache.entries()) {
+        if (RunCache.matchesPattern(key, cacheKey) && !RunCache.isExpired(cached)) {
+          matchingValues.push(cached.value);
+        }
+      }
+
+      return matchingValues.length > 0 ? matchingValues : undefined;
+    }
+
+    // Handle exact key match
     const cached = RunCache.cache.get(key);
 
     if (!cached) {
@@ -231,8 +322,8 @@ class RunCache {
       key: key,
       value: cached.value,
       ttl: cached.ttl,
-      createAt: cached.createAt,
-      updateAt: cached.updateAt,
+      createdAt: cached.createdAt,
+      updatedAt: cached.updatedAt,
     });
 
     if (typeof cached.sourceFn === "undefined" || !cached.autoRefetch) {
@@ -240,19 +331,44 @@ class RunCache {
       return undefined;
     }
 
-    await RunCache.refetch(key);
+    await RunCache.refetchSingle(key);
 
     return RunCache.cache.get(key)?.value ?? undefined;
   }
 
   /**
-   * Deletes a cache entry by its key. If the entry has an active interval (for TTL), it clears the interval.
+   * Deletes cache entries matching the specified key or pattern.
+   * If the entries have active intervals (for TTL), it clears them.
    *
-   * @param {string} key - The key of the cache entry to delete. Must be a non-empty string.
+   * @param {string} key - The key or pattern of cache entries to delete. Supports wildcards (*).
    *
-   * @returns {boolean} - Returns `true` if the cache entry was successfully deleted, `false` if no entry exists for the given key.
+   * @returns {boolean} - Returns `true` if at least one cache entry was successfully deleted, 
+   * `false` if no entries exist for the given key/pattern.
    */
   static delete(key: string): boolean {
+    if (key.includes("*")) {
+      const matchingKeys = RunCache.getMatchingKeys(key);
+      if (matchingKeys.length === 0) {
+        return false;
+      }
+
+      let anyDeleted = false;
+      for (const matchedKey of matchingKeys) {
+        const deleted = RunCache.deleteSingle(matchedKey);
+        anyDeleted = anyDeleted || deleted;
+      }
+      return anyDeleted;
+    }
+
+    return RunCache.deleteSingle(key);
+  }
+
+  /**
+   * Helper method to delete a single key
+   * @param key The exact key to delete
+   * @returns boolean indicating if deletion was successful
+   */
+  private static deleteSingle(key: string): boolean {
     const cache = RunCache.cache.get(key);
     if (!cache) return false;
 
@@ -282,15 +398,37 @@ class RunCache {
   }
 
   /**
-   * Checks if a cache entry exists for the given key and whether it has expired.
+   * Checks if cache entries exist for the given key/pattern and whether they have expired.
+   * Supports wildcard patterns in the key.
    *
-   * @param {string} key - The key of the cache entry to check.
-   * @returns {Promise<boolean>} - A promise that resolves to `true` if the cache entry exists and is not expired, otherwise `false`.
-   *
-   * This method retrieves the cache entry by key and checks if it is still valid.
-   * If the cache entry has expired, an "expire" event is emitted and the method returns `false`.
+   * @param {string} key - The key or pattern of the cache entries to check. Supports wildcards (*).
+   * @returns {Promise<boolean>} - A promise that resolves to:
+   *  - For exact keys: `true` if the cache entry exists and is not expired, otherwise `false`.
+   *  - For wildcard patterns: `true` if ANY matching entry exists and is not expired, otherwise `false`.
    */
   static async has(key: string): Promise<boolean> {
+    if (key.includes("*")) {
+      const matchingKeys = RunCache.getMatchingKeys(key);
+      
+      for (const matchedKey of matchingKeys) {
+        const exists = await RunCache.hasSingle(matchedKey);
+        if (exists) {
+          return true;
+        }
+      }
+      
+      return false;
+    }
+
+    return RunCache.hasSingle(key);
+  }
+
+  /**
+   * Helper method to check existence of a single key
+   * @param key The exact key to check
+   * @returns Promise<boolean> indicating if the key exists and is not expired
+   */
+  private static async hasSingle(key: string): Promise<boolean> {
     const cached = RunCache.cache.get(key);
 
     if (!cached) {
@@ -302,8 +440,8 @@ class RunCache {
         key: key,
         value: cached.value,
         ttl: cached.ttl,
-        createAt: cached.createAt,
-        updateAt: cached.updateAt,
+        createdAt: cached.createdAt,
+        updatedAt: cached.updatedAt,
       });
 
       return false;
@@ -318,8 +456,8 @@ class RunCache {
         key: cache.key,
         value: cache.value,
         ttl: cache.ttl,
-        createAt: cache.createAt,
-        updateAt: cache.updateAt,
+        createdAt: cache.createdAt,
+        updatedAt: cache.updatedAt,
       });
     });
   }
@@ -337,8 +475,9 @@ class RunCache {
 
   /**
    * Registers a callback function to be executed when the `expire` event for a specific key is triggered.
+   * Supports wildcard patterns in the key.
    *
-   * @param {string} key - The key for which the expiration event is being tracked.
+   * @param {string} key - The key for which the expiration event is being tracked. Supports wildcards (*).
    * @param {EventFn} callback - The function to be executed when the event is triggered.
    *
    * @returns {void}
@@ -348,7 +487,16 @@ class RunCache {
   static onKeyExpiry(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
 
-    RunCache.emitter.on(`${EVENT.EXPIRE}-${key}`, callback);
+    if (key.includes("*")) {
+      // For wildcard patterns, we need to listen to all expire events and filter
+      RunCache.emitter.on(EVENT.EXPIRE, (params: EventParam) => {
+        if (RunCache.matchesPattern(key, params.key)) {
+          callback(params);
+        }
+      });
+    } else {
+      RunCache.emitter.on(`${EVENT.EXPIRE}-${key}`, callback);
+    }
   }
 
   /**
@@ -364,8 +512,9 @@ class RunCache {
 
   /**
    * Registers a callback function to be executed when the `refetch` event for a specific key is triggered.
+   * Supports wildcard patterns in the key.
    *
-   * @param {string} key - The key for which the refetch event is being tracked.
+   * @param {string} key - The key for which the refetch event is being tracked. Supports wildcards (*).
    * @param {EventFn} callback - The function to be executed when the event is triggered.
    *
    * @returns {void}
@@ -375,7 +524,16 @@ class RunCache {
   static onKeyRefetch(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
 
-    RunCache.emitter.on(`${EVENT.REFETCH}-${key}`, callback);
+    if (key.includes("*")) {
+      // For wildcard patterns, we need to listen to all refetch events and filter
+      RunCache.emitter.on(EVENT.REFETCH, (params: EventParam) => {
+        if (RunCache.matchesPattern(key, params.key)) {
+          callback(params);
+        }
+      });
+    } else {
+      RunCache.emitter.on(`${EVENT.REFETCH}-${key}`, callback);
+    }
   }
 
   /**
@@ -389,8 +547,9 @@ class RunCache {
 
   /**
    * Registers a callback to be called when a refetch failure occurs for a specific key.
+   * Supports wildcard patterns in the key.
    *
-   * @param {string} key - The key for which to listen for refetch failures.
+   * @param {string} key - The key for which to listen for refetch failures. Supports wildcards (*).
    * @param {EventFn} callback - The function to be executed when a refetch failure event occurs for the specified key.
    *
    * @throws {Error} Throws an error if the key is empty.
@@ -398,7 +557,16 @@ class RunCache {
   static onKeyRefetchFailure(key: string, callback: EventFn): void {
     if (!key) throw Error("Empty key");
 
-    RunCache.emitter.on(`${EVENT.REFETCH_FAILURE}-${key}`, callback);
+    if (key.includes("*")) {
+      // For wildcard patterns, we need to listen to all refetch failure events and filter
+      RunCache.emitter.on(EVENT.REFETCH_FAILURE, (params: EventParam) => {
+        if (RunCache.matchesPattern(key, params.key)) {
+          callback(params);
+        }
+      });
+    } else {
+      RunCache.emitter.on(`${EVENT.REFETCH_FAILURE}-${key}`, callback);
+    }
   }
 
   /**
@@ -407,10 +575,11 @@ class RunCache {
    * - If no parameters are provided, all event listeners will be removed.
    * - If only an `event` is provided, all listeners for that event will be removed.
    * - If both `event` and `key` are provided, listeners for that specific event-key combination will be removed.
+   * - Supports wildcard patterns in the key.
    *
    * @param {Object} [params] - Optional parameters to specify which listeners to clear.
    * @param {EventName} [params.event] - The event type for which listeners should be removed.
-   * @param {string} [params.key] - The key associated with the event for which listeners should be removed. Must be provided if `event` is provided.
+   * @param {string} [params.key] - The key associated with the event for which listeners should be removed. Must be provided if `event` is provided. Supports wildcards (*).
    *
    * @returns {boolean} - Returns `true` if listeners were removed successfully or `false` if no action was taken.
    *
@@ -430,7 +599,21 @@ class RunCache {
     }
 
     if (params.event && params.key) {
-      RunCache.emitter.removeAllListeners(`${params.event}-${params.key}`);
+      if (params.key.includes("*")) {
+        const prefix = `${params.event}-`;
+        const eventNames = RunCache.emitter.eventNames();
+        
+        for (const eventName of eventNames) {
+          if (typeof eventName === "string" && eventName.startsWith(prefix)) {
+            const eventKey = eventName.slice(prefix.length);
+            if (RunCache.matchesPattern(params.key, eventKey)) {
+              RunCache.emitter.removeAllListeners(eventName);
+            }
+          }
+        }
+      } else {
+        RunCache.emitter.removeAllListeners(`${params.event}-${params.key}`);
+      }
       return true;
     }
 

@@ -77,6 +77,7 @@ describe("RunCache", () => {
         key,
         sourceFn,
       });
+
       await expect(RunCache.get(key)).resolves.toStrictEqual(value);
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
@@ -187,6 +188,42 @@ describe("RunCache", () => {
       await RunCache.set({ key, value });
       await expect(RunCache.get(key)).resolves.toStrictEqual(value);
     });
+
+    it("should return all matching values when using a wildcard key", async () => {
+      const prefix = "user-";
+      const keys = [
+        `${prefix}${uuid()}`,
+        `${prefix}${uuid()}`,
+        `${prefix}${uuid()}`,
+        `other-${uuid()}`
+      ];
+      const values = [uuid(), uuid(), uuid(), uuid()];
+
+      // Set all keys
+      for (let i = 0; i < keys.length; i++) {
+        await RunCache.set({ key: keys[i], value: values[i] });
+      }
+
+      // Get all user-* keys
+      const result = await RunCache.get(`${prefix}*`);
+      
+      expect(Array.isArray(result)).toBe(true);
+      expect((result as string[]).length).toBe(3);
+      
+      // Verify each user-* value is included
+      for (let i = 0; i < 3; i++) {
+        expect((result as string[]).includes(values[i])).toBe(true);
+      }
+      
+      // Make sure the other-* key value is not included
+      expect((result as string[]).includes(values[3])).toBe(false);
+    });
+
+    it("should return undefined when using a wildcard with no matches", async () => {
+      await RunCache.set({ key: "test-key", value: "test-value" });
+      
+      await expect(RunCache.get("nonexistent-*")).resolves.toBeUndefined();
+    });
   });
 
   describe("delete()", () => {
@@ -201,6 +238,36 @@ describe("RunCache", () => {
       await RunCache.set({ key, value });
       expect(RunCache.delete(key)).toStrictEqual(true);
       await expect(RunCache.get(key)).resolves.toBeUndefined();
+    });
+
+    it("should delete all keys matching a wildcard pattern", async () => {
+      const prefix = "test-";
+      const keys = [
+        `${prefix}1`,
+        `${prefix}2`,
+        `${prefix}3`,
+        `other-key`,
+      ];
+      
+      for (const key of keys) {
+        await RunCache.set({ key, value: uuid() });
+      }
+      
+      expect(RunCache.delete(`${prefix}*`)).toBe(true);
+      
+      // Check that all test-* keys are deleted
+      for (let i = 0; i < 3; i++) {
+        await expect(RunCache.get(keys[i])).resolves.toBeUndefined();
+      }
+      
+      // Check that other-key is still there
+      await expect(RunCache.get(keys[3])).resolves.not.toBeUndefined();
+    });
+    
+    it("should return false when deleting a wildcard with no matches", async () => {
+      await RunCache.set({ key: "test-key", value: "test-value" });
+      
+      expect(RunCache.delete("nonexistent-*")).toBe(false);
     });
   });
 
@@ -244,6 +311,20 @@ describe("RunCache", () => {
       jest.advanceTimersByTime(101);
 
       await expect(RunCache.has(key)).resolves.toStrictEqual(false);
+    });
+
+    it("should return true if any key matching the wildcard pattern exists", async () => {
+      const prefix = "user-";
+      await RunCache.set({ key: `${prefix}1`, value: "value1" });
+      await RunCache.set({ key: `${prefix}2`, value: "value2" });
+      
+      await expect(RunCache.has(`${prefix}*`)).resolves.toBe(true);
+    });
+    
+    it("should return false if no key matching the wildcard pattern exists", async () => {
+      await RunCache.set({ key: "test-key", value: "test-value" });
+      
+      await expect(RunCache.has("nonexistent-*")).resolves.toBe(false);
     });
   });
 
@@ -326,6 +407,46 @@ describe("RunCache", () => {
 
       await expect(RunCache.get(key)).resolves.toStrictEqual(dynamicValue);
     });
+
+    it("should refetch all keys matching a wildcard pattern", async () => {
+      const prefix = "test-";
+      let values = [uuid(), uuid(), uuid()];
+      const keys = [`${prefix}1`, `${prefix}2`, `${prefix}3`];
+      
+      const sourceFns = keys.map((_, i) => {
+        return jest.fn(() => values[i]);
+      });
+      
+      // Set up initial cache entries
+      for (let i = 0; i < keys.length; i++) {
+        await RunCache.set({ 
+          key: keys[i], 
+          sourceFn: sourceFns[i]
+        });
+      }
+      
+      // Verify each source function was called once during setup
+      sourceFns.forEach(fn => expect(fn).toHaveBeenCalledTimes(1));
+      
+      // Change the values that will be returned by the source functions
+      values = [uuid(), uuid(), uuid()];
+      
+      // Refetch all matching keys
+      const result = await RunCache.refetch(`${prefix}*`);
+      expect(result).toBe(true);
+      
+      // Verify each source function was called again
+      sourceFns.forEach(fn => expect(fn).toHaveBeenCalledTimes(2));
+      
+      // Verify the values were updated
+      for (let i = 0; i < keys.length; i++) {
+        await expect(RunCache.get(keys[i])).resolves.toBe(values[i]);
+      }
+    });
+    
+    it("should return false when refetching a wildcard with no matches", async () => {
+      await expect(RunCache.refetch("nonexistent-*")).resolves.toBe(false);
+    });
   });
 
   describe("onExpire() and onKeyExpiry()", () => {
@@ -354,6 +475,33 @@ describe("RunCache", () => {
       await Promise.resolve(); // Flush microtasks
 
       expect(funcToBeExecutedOnExpiry).toHaveBeenCalledTimes(2);
+    });
+
+    it("should trigger for wildcards when a matching key expires", async () => {
+      const prefix = "user-";
+      const keys = [`${prefix}1`, `${prefix}2`];
+      const values = ["value1", "value2"];
+      
+      const wildcardCallback = jest.fn();
+      
+      // Set up event listener with wildcard
+      RunCache.onKeyExpiry(`${prefix}*`, wildcardCallback);
+      
+      // Set cache entries with TTL
+      for (let i = 0; i < keys.length; i++) {
+        await RunCache.set({
+          key: keys[i],
+          value: values[i],
+          ttl: 100
+        });
+      }
+      
+      // Advance time to trigger expiry
+      jest.advanceTimersByTime(101);
+      await Promise.resolve(); // Flush microtasks
+      
+      // Check that the callback was triggered for both keys
+      expect(wildcardCallback).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -388,6 +536,42 @@ describe("RunCache", () => {
 
       expect(sourceFn).toHaveBeenCalledTimes(2);
       expect(funcToBeExecutedOnRefetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("should trigger for wildcards when a matching key is refetched", async () => {
+      const prefix = "user-";
+      const keys = [`${prefix}1`, `${prefix}2`];
+      let values = ["value1", "value2"];
+      
+      const wildcardCallback = jest.fn();
+      
+      // Set up event listener with wildcard
+      RunCache.onKeyRefetch(`${prefix}*`, wildcardCallback);
+      
+      // Create source functions that update values on refetch
+      const sourceFns = keys.map((_, i) => {
+        return jest.fn(() => values[i]);
+      });
+      
+      // Set cache entries with auto-refetch
+      for (let i = 0; i < keys.length; i++) {
+        await RunCache.set({
+          key: keys[i],
+          sourceFn: sourceFns[i],
+          ttl: 100,
+          autoRefetch: true
+        });
+      }
+      
+      // Update values to be returned on refetch
+      values = ["newValue1", "newValue2"];
+      
+      // Advance time to trigger auto-refetch
+      jest.advanceTimersByTime(101);
+      await Promise.resolve(); // Flush microtasks
+      
+      // Check that the callback was triggered for both keys
+      expect(wildcardCallback).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -433,6 +617,45 @@ describe("RunCache", () => {
 
       expect(sourceFn).toHaveBeenCalledTimes(1);
       expect(funcToBeExecutedOnRefetchFailure).toHaveBeenCalledTimes(2);
+    });
+
+    it("should trigger for wildcards when a matching key fails to refetch", async () => {
+      const prefix = "user-";
+      const keys = [`${prefix}1`, `${prefix}2`];
+      
+      const wildcardCallback = jest.fn();
+      
+      // Set up event listener with wildcard
+      RunCache.onKeyRefetchFailure(`${prefix}*`, wildcardCallback);
+      
+      // Create source functions that will fail on refetch
+      const sourceFns = keys.map((key) => {
+        let firstCall = true;
+        return jest.fn(() => {
+          if (firstCall) {
+            firstCall = false;
+            return `initial-${key}`;
+          }
+          throw new Error("Simulated source function failure");
+        });
+      });
+      
+      // Set cache entries with auto-refetch
+      for (let i = 0; i < keys.length; i++) {
+        await RunCache.set({
+          key: keys[i],
+          sourceFn: sourceFns[i],
+          ttl: 100,
+          autoRefetch: true
+        });
+      }
+      
+      // Advance time to trigger auto-refetch failures
+      jest.advanceTimersByTime(101);
+      await Promise.resolve(); // Flush microtasks
+      
+      // Check that the callback was triggered for both keys
+      expect(wildcardCallback).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -536,6 +759,49 @@ describe("RunCache", () => {
       expect(sourceFn).toHaveBeenCalledTimes(2);
       expect(funcToBeExecutedOnExpiry).toHaveBeenCalledTimes(1);
       expect(funcToBeExecutedOnRefetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("should clear event listeners using wildcard patterns", async () => {
+      const prefix = "user-";
+      const keys = [`${prefix}1`, `${prefix}2`, `${prefix}3`];
+      
+      const callback1 = jest.fn();
+      const callback2 = jest.fn();
+      
+      // Set up event listeners for each key
+      for (const key of keys) {
+        RunCache.onKeyExpiry(key, callback1);
+        RunCache.onKeyRefetch(key, callback2);
+      }
+      
+      // Set cache entries with TTL
+      for (const key of keys) {
+        await RunCache.set({
+          key,
+          value: `value-${key}`,
+          ttl: 100,
+          sourceFn: () => `refetched-${key}`,
+          autoRefetch: true
+        });
+      }
+      
+      // Clear all expire events for user-* keys
+      const eventsCleared = RunCache.clearEventListeners({
+        event: EVENT.EXPIRE,
+        key: `${prefix}*`
+      });
+      
+      expect(eventsCleared).toBeTruthy();
+      
+      // Advance time to trigger events
+      jest.advanceTimersByTime(101);
+      await Promise.resolve(); // Flush microtasks
+      
+      // Expire callbacks should not be called
+      expect(callback1).toHaveBeenCalledTimes(0);
+      
+      // Refetch callbacks should still be called
+      expect(callback2).toHaveBeenCalledTimes(3);
     });
   });
 });
