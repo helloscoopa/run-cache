@@ -918,7 +918,20 @@ export class CacheStore {
   shutdown(): void {
     this.logger.log('info', `Shutting down cache`);
     
-    // Clear all cache entries and their intervals
+    // Clear all cache entries and their intervals with explicit cleanup
+    // First, get all intervals that need to be cleared
+    const activeIntervals = Array.from(this.cache.values())
+      .filter(entry => entry.interval)
+      .map(entry => entry.interval);
+    
+    // Clear each interval explicitly
+    activeIntervals.forEach(interval => {
+      if (interval) {
+        clearTimeout(interval);
+      }
+    });
+    
+    // Now flush the cache
     this.flush();
     
     // Remove all event listeners
