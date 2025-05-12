@@ -156,4 +156,26 @@ export const validateCacheState = (state: CacheState, keyForLogging?: string): v
       throw new Error("`autoRefetch` requires sourceFn to be set");
     }
   }
-}; 
+};
+
+/**
+ * Normalizes a tag string for consistent comparison
+ * In the current implementation, we simply trim and convert to lowercase,
+ * but this could be extended with more complex normalization if needed.
+ * 
+ * @param {string} tag - The tag to normalize
+ * @returns {string} - The normalized tag
+ */
+export function normalizeTag(tag: string): string {
+  return tag.trim().toLowerCase();
+}
+
+/**
+ * Normalizes an array of tags for consistent comparison
+ * 
+ * @param {string[]} tags - The tags to normalize
+ * @returns {string[]} - The array of normalized tags
+ */
+export function normalizeTags(tags: string[]): string[] {
+  return tags.map(normalizeTag);
+} 

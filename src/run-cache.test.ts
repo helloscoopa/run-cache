@@ -8,11 +8,20 @@ describe("RunCache", () => {
     RunCache.flush();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // First, ensure that RunCache is properly shut down
+    RunCache.shutdown();
+    
+    // Clear all fake timers
     jest.clearAllTimers();
     jest.useRealTimers();
 
+    // Clear all event listeners
     RunCache.clearEventListeners();
+    
+    // Allow any pending microtasks to resolve
+    await Promise.resolve();
+    await Promise.resolve();
   });
 
   describe("set()", () => {
@@ -102,15 +111,24 @@ describe("RunCache", () => {
 
       // First expiry and auto-refetch
       jest.advanceTimersByTime(101);
-      await Promise.resolve();
       
-      // Force another Promise resolution to ensure timer callbacks complete
+      // Ensure all promises are resolved
       await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve(); // Additional resolution for any nested promises
       
       expect(sourceFn).toHaveBeenCalledTimes(2);
 
       // Try direct refetch to verify the third call
       await RunCache.refetch(key);
+      
+      // Reset the interval by clearing timer-related state
+      const cached = await RunCache.get(key);
+      expect(cached).toBeTruthy();
+      
+      // Explicitly shut down this test's cache state
+      RunCache.delete(key);
+      
       expect(sourceFn).toHaveBeenCalledTimes(3);
     });
 

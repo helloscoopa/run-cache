@@ -34,6 +34,8 @@ export type SourceFn = () => Promise<string> | string;
  * @property {ReturnType<typeof setTimeout>} [interval] - Timer reference for TTL expiration
  * @property {number} accessCount - Number of times the entry has been accessed (for LFU policy)
  * @property {number} lastAccessed - Timestamp when the entry was last accessed (for LRU policy)
+ * @property {string[]} [tags] - Array of tag strings for the cache entry (for tag-based invalidation)
+ * @property {string[]} [dependencies] - Array of keys this entry depends on (for dependency invalidation)
  */
 export type CacheState = {
   value: string;
@@ -47,4 +49,7 @@ export type CacheState = {
   // LRU/LFU metadata
   accessCount: number;
   lastAccessed: number;
+  // Tag and dependency support
+  tags?: string[];
+  dependencies?: string[];
 }; 
