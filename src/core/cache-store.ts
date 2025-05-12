@@ -891,7 +891,7 @@ export class CacheStore {
     this.logger.updateConfig(this.config);
     
     // Update storage adapter if provided
-    if (config.storageAdapter !== undefined) {
+    if ('storageAdapter' in config) {
       // If we're replacing the storage adapter, save current data first
       if (this.storageAdapter) {
         try {
@@ -901,15 +901,18 @@ export class CacheStore {
         }
       }
       
-      this.storageAdapter = config.storageAdapter;
+      this.storageAdapter = config.storageAdapter ?? null;
       
-      // Load from new storage if it's not null
-      if (this.storageAdapter) {
-        try {
-          await this.loadFromStorage();
-        } catch (error) {
-          this.logger.log('error', 'Failed to load cache data from new storage adapter', error);
-        }
+      // If the new adapter is null/undefined we're done
+      if (!this.storageAdapter) {
+        return;
+      }
+      
+      // Load from new storage
+      try {
+        await this.loadFromStorage();
+      } catch (error) {
+        this.logger.log('error', 'Failed to load cache data from new storage adapter', error);
       }
     }
   }
@@ -1474,5 +1477,14 @@ export class CacheStore {
     
     // Clear all event listeners
     this.clearEventListeners();
+    
+    // Detach persistence
+    this.storageAdapter = null;
+    
+    // Defensive: ensure auto-save interval is cleared
+    if (this.autoSaveInterval) {
+      clearInterval(this.autoSaveInterval);
+      this.autoSaveInterval = null;
+    }
   }
 } 

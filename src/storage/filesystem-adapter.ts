@@ -98,7 +98,7 @@ export class FilesystemAdapter implements StorageAdapter {
       try {
         await this.fs.access(this.filePath);
         await this.fs.unlink(this.filePath);
-      } catch {
+      } catch (error) {
         // File doesn't exist, nothing to do
       }
     } catch (error) {
