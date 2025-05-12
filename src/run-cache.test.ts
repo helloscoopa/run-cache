@@ -968,5 +968,47 @@ describe("RunCache", () => {
       // This is the current behavior - we can't distinguish between 
       // literal * and wildcards in the current implementation
     });
+
+    it("should properly escape regex metacharacters in patterns", async () => {
+      // Set up keys with regex special characters
+      await RunCache.set({ key: "user.profile", value: "User profile" });
+      await RunCache.set({ key: "user+settings", value: "User settings" });
+      await RunCache.set({ key: "user(admin)", value: "Admin user" });
+      await RunCache.set({ key: "user[test]", value: "Test user" });
+      
+      // Test with literal dot in pattern
+      const dotPattern = await RunCache.get("user.*");
+      expect(Array.isArray(dotPattern)).toBe(true);
+      expect((dotPattern as string[]).length).toBe(1);
+      expect((dotPattern as string[]).includes("User profile")).toBe(true);
+      
+      // Test with literal plus in pattern
+      const plusPattern = await RunCache.get("user+*");
+      expect(Array.isArray(plusPattern)).toBe(true);
+      expect((plusPattern as string[]).length).toBe(1);
+      expect((plusPattern as string[]).includes("User settings")).toBe(true);
+      
+      // Test with literal parentheses in pattern
+      const parenPattern = await RunCache.get("user(*");
+      expect(Array.isArray(parenPattern)).toBe(true);
+      expect((parenPattern as string[]).length).toBe(1);
+      expect((parenPattern as string[]).includes("Admin user")).toBe(true);
+      
+      // Test with literal brackets in pattern
+      const bracketPattern = await RunCache.get("user[*");
+      expect(Array.isArray(bracketPattern)).toBe(true);
+      expect((bracketPattern as string[]).length).toBe(1);
+      expect((bracketPattern as string[]).includes("Test user")).toBe(true);
+    });
+
+    it("should handle multiple metacharacters and wildcards together", async () => {
+      // Set up a key with multiple special characters
+      await RunCache.set({ key: "complex.key[with](special)+chars", value: "Complex key value" });
+      
+      // Test with a complex pattern containing both wildcards and special characters
+      const result = await RunCache.get("complex.key[with]*chars");
+      expect(Array.isArray(result)).toBe(true);
+      expect((result as string[]).includes("Complex key value")).toBe(true);
+    });
   });
 });

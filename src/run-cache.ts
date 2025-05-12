@@ -58,7 +58,13 @@ class RunCache {
       return pattern === key;
     }
     
-    const regexPattern = new RegExp("^" + pattern.replace(/\*/g, ".*") + "$");
+    // Escape all RegExp metacharacters **except** the wildcard `*`
+    const escaped = pattern
+      .replace(/[.+?^${}()|[\]\\]/g, "\\$&")   // escape meta
+      .replace(/\\\*/g, "*");                  // unescape *
+    
+    // Replace * with .* for wildcard matching
+    const regexPattern = new RegExp("^" + escaped.replace(/\*/g, ".*") + "$");
     return regexPattern.test(key);
   }
 
