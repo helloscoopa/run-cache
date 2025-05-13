@@ -1,6 +1,6 @@
 {
   "name": "run-cache",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "A dependency-free, lightweight runtime caching library with TTL support and automatic value regeneration",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
