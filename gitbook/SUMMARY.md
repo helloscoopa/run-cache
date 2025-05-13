@@ -33,7 +33,6 @@
 * [Best Practices](guides/best-practices.md)
 * [Performance Optimization](guides/performance.md)
 * [Debugging and Logging](guides/debugging.md)
-* [Migration Guide](guides/migration.md)
 
 ## Resources
 * [FAQ](resources/faq.md)

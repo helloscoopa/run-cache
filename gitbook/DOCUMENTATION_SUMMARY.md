@@ -37,7 +37,6 @@ This GitBook documentation provides comprehensive information about the RunCache
 - **Best Practices**: Recommendations for effective cache usage
 - **Performance Optimization**: Tips for maximizing performance
 - **Debugging and Logging**: Troubleshooting and monitoring
-- **Migration Guide**: Upgrading from previous versions
 
 ### Resources
 - **FAQ**: Frequently asked questions

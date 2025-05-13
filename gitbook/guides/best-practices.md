@@ -821,5 +821,4 @@ Now that you understand the best practices for using RunCache, explore these rel
 
 - [Performance Optimization](./performance.md) - Learn more about optimizing cache performance
 - [Debugging and Logging](./debugging.md) - Understand how to troubleshoot cache issues
-- [Migration Guide](./migration.md) - Learn how to upgrade from previous versions
 - [API Reference](../api/run-cache.md) - Explore the complete RunCache API 
