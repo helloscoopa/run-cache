@@ -104,7 +104,7 @@ export class EventSystem {
    */
   onExpiry(callback: EventFn): void {
     this.logger.log('debug', 'Registering global expiry listener');
-    const normalizedEvent = this.normalizeEventName(EVENT._EXPIRE);
+    const normalizedEvent = this.normalizeEventName(EVENT.EXPIRE);
     this.emitter.on(normalizedEvent, callback);
   }
 
@@ -119,7 +119,7 @@ export class EventSystem {
   onKeyExpiry(key: string, callback: EventFn): void {
     if (!key) throw Error('Empty key');
     this.logger.log('debug', `Registering key-specific expiry listener for: ${key}`);
-    this.addKeyListener(EVENT._EXPIRE, key, callback);
+    this.addKeyListener(EVENT.EXPIRE, key, callback);
   }
 
   /**
@@ -130,7 +130,7 @@ export class EventSystem {
    */
   onRefetch(callback: EventFn): void {
     this.logger.log('debug', 'Registering global refetch listener');
-    const normalizedEvent = this.normalizeEventName(EVENT._REFETCH);
+    const normalizedEvent = this.normalizeEventName(EVENT.REFETCH);
     this.emitter.on(normalizedEvent, callback);
   }
 
@@ -145,7 +145,7 @@ export class EventSystem {
   onKeyRefetch(key: string, callback: EventFn): void {
     if (!key) throw Error('Empty key');
     this.logger.log('debug', `Registering key-specific refetch listener for: ${key}`);
-    this.addKeyListener(EVENT._REFETCH, key, callback);
+    this.addKeyListener(EVENT.REFETCH, key, callback);
   }
 
   /**
@@ -156,7 +156,7 @@ export class EventSystem {
    */
   onRefetchFailure(callback: EventFn): void {
     this.logger.log('debug', 'Registering global refetch failure listener');
-    const normalizedEvent = this.normalizeEventName(EVENT._REFETCH_FAILURE);
+    const normalizedEvent = this.normalizeEventName(EVENT.REFETCH_FAILURE);
     this.emitter.on(normalizedEvent, callback);
   }
 
@@ -171,7 +171,7 @@ export class EventSystem {
   onKeyRefetchFailure(key: string, callback: EventFn): void {
     if (!key) throw Error('Empty key');
     this.logger.log('debug', `Registering key-specific refetch failure listener for: ${key}`);
-    this.addKeyListener(EVENT._REFETCH_FAILURE, key, callback);
+    this.addKeyListener(EVENT.REFETCH_FAILURE, key, callback);
   }
 
   /**
@@ -182,7 +182,7 @@ export class EventSystem {
    */
   onTagInvalidation(callback: EventFn): void {
     this.logger.log('debug', 'Registering global tag invalidation listener');
-    const normalizedEvent = this.normalizeEventName(EVENT._TAG_INVALIDATION);
+    const normalizedEvent = this.normalizeEventName(EVENT.TAG_INVALIDATION);
     this.emitter.on(normalizedEvent, callback);
   }
 
@@ -197,7 +197,7 @@ export class EventSystem {
   onKeyTagInvalidation(key: string, callback: EventFn): void {
     if (!key) throw Error('Empty key');
     this.logger.log('debug', `Registering key-specific tag invalidation listener for: ${key}`);
-    this.addKeyListener(EVENT._TAG_INVALIDATION, key, callback);
+    this.addKeyListener(EVENT.TAG_INVALIDATION, key, callback);
   }
 
   /**
@@ -208,7 +208,7 @@ export class EventSystem {
    */
   onDependencyInvalidation(callback: EventFn): void {
     this.logger.log('debug', 'Registering global dependency invalidation listener');
-    const normalizedEvent = this.normalizeEventName(EVENT._DEPENDENCY_INVALIDATION);
+    const normalizedEvent = this.normalizeEventName(EVENT.DEPENDENCY_INVALIDATION);
     this.emitter.on(normalizedEvent, callback);
   }
 
@@ -223,7 +223,7 @@ export class EventSystem {
   onKeyDependencyInvalidation(key: string, callback: EventFn): void {
     if (!key) throw Error('Empty key');
     this.logger.log('debug', `Registering key-specific dependency invalidation listener for: ${key}`);
-    this.addKeyListener(EVENT._DEPENDENCY_INVALIDATION, key, callback);
+    this.addKeyListener(EVENT.DEPENDENCY_INVALIDATION, key, callback);
   }
 
   /**

@@ -8,19 +8,19 @@
  */
 export const EVENT = {
   /** Emitted when a cache entry expires */
-  _EXPIRE: 'expire',
+  EXPIRE: 'expire',
 
   /** Emitted when a cache entry is refetched */
-  _REFETCH: 'refetch',
+  REFETCH: 'refetch',
 
   /** Emitted when a refetch operation fails */
-  _REFETCH_FAILURE: 'refetch_failure',
+  REFETCH_FAILURE: 'refetch_failure',
 
   /** Emitted when a tag is invalidated */
-  _TAG_INVALIDATION: 'tag_invalidation',
+  TAG_INVALIDATION: 'tag_invalidation',
 
   /** Emitted when a dependency is invalidated */
-  _DEPENDENCY_INVALIDATION: 'dependency_invalidation',
+  DEPENDENCY_INVALIDATION: 'dependency_invalidation',
 } as const;
 
 // Support both enum keys (EXPIRE) and enum values ("expire")

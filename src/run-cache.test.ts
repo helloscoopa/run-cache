@@ -782,7 +782,7 @@ describe("RunCache", () => {
       });
       
       // Clear only expiry listeners
-      await RunCache.clearEventListeners({ event: EVENT._EXPIRE });
+      await RunCache.clearEventListeners({ event: EVENT.EXPIRE });
       
       // Trigger events
       jest.advanceTimersByTime(1500); // Trigger expiry
@@ -816,7 +816,7 @@ describe("RunCache", () => {
 
       // Clear only key1 expiry listeners
       await RunCache.clearEventListeners({
-        event: EVENT._EXPIRE,
+        event: EVENT.EXPIRE,
         key: "key1",
       });
 
@@ -842,7 +842,7 @@ describe("RunCache", () => {
       await RunCache.set({ key: "user:3", value: "value3", ttl: 100, sourceFn: jest.fn().mockResolvedValue("new3") });
       
       // Clear expiry listeners for user:* pattern
-      await RunCache.clearEventListeners({ event: EVENT._EXPIRE, key: "user:*" });
+      await RunCache.clearEventListeners({ event: EVENT.EXPIRE, key: "user:*" });
       
       // Trigger expiry and refetch
       jest.advanceTimersByTime(150);

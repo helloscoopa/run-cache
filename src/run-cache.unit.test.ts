@@ -109,7 +109,7 @@ describe('RunCache', () => {
       
       // We can't easily test the event firing in a unit test without creating complex mocks
       // So we'll just verify the event was registered
-      expect(await RunCache.clearEventListeners({ event: EVENT._EXPIRE })).toBe(true);
+      expect(await RunCache.clearEventListeners({ event: EVENT.EXPIRE })).toBe(true);
     });
     
     it('should register key-specific event listeners', async () => {
@@ -120,7 +120,7 @@ describe('RunCache', () => {
       
       // Verify the event was registered by attempting to clear it
       expect(await RunCache.clearEventListeners({ 
-        event: EVENT._EXPIRE,
+        event: EVENT.EXPIRE,
         key: specificKey
       })).toBe(true);
     });

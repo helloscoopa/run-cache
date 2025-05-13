@@ -272,7 +272,7 @@ export class CacheStore {
       interval = setTimeout(() => {
         this.logger.log('debug', `TTL expired for key: ${key}`);
         this.eventSystem.emitEvent(
-          EVENT._EXPIRE,
+          EVENT.EXPIRE,
           {
             key,
             value: value ?? 'undefined',
@@ -670,7 +670,7 @@ export class CacheStore {
 
         // Emit event
         await this.eventSystem.emitEvent(
-          EVENT._REFETCH_FAILURE,
+          EVENT.REFETCH_FAILURE,
           {
             key,
             value: cached.value,
@@ -692,7 +692,7 @@ export class CacheStore {
 
       // Emit event
       await this.eventSystem.emitEvent(
-        EVENT._REFETCH,
+        EVENT.REFETCH,
         {
           key,
           value: newValue,
@@ -730,7 +730,7 @@ export class CacheStore {
         newInterval = setTimeout(() => {
           this.logger.log('debug', `TTL expired for refetched key: ${key}`);
           this.eventSystem.emitEvent(
-            EVENT._EXPIRE,
+            EVENT.EXPIRE,
             {
               key,
               value: newValue,
@@ -873,7 +873,7 @@ export class CacheStore {
 
     if (cached.ttl && isExpired(cached.updatedAt, cached.ttl)) {
       this.eventSystem.emitEvent(
-        EVENT._EXPIRE,
+        EVENT.EXPIRE,
         {
           key,
           value: cached.value,
@@ -1159,7 +1159,7 @@ export class CacheStore {
     this.logger.log('debug', `TTL expired for key: ${key}`);
 
     this.eventSystem.emitEvent(
-      EVENT._EXPIRE,
+      EVENT.EXPIRE,
       {
         key,
         value: state.value,
@@ -1291,7 +1291,7 @@ export class CacheStore {
 
         // Emit event before deleting
         this.eventSystem.emitEvent(
-          EVENT._TAG_INVALIDATION,
+          EVENT.TAG_INVALIDATION,
           {
             key,
             value: cacheState.value,
@@ -1375,7 +1375,7 @@ export class CacheStore {
       if (cacheState) {
         // Emit event before deleting
         this.eventSystem.emitEvent(
-          EVENT._DEPENDENCY_INVALIDATION,
+          EVENT.DEPENDENCY_INVALIDATION,
           {
             key: invalidKey,
             value: cacheState.value,
