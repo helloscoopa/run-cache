@@ -23,31 +23,32 @@ describe('LocalStorageAdapter', () => {
   });
 
   describe('constructor', () => {
-    it('should use default storage key if not provided', () => {
+    it('should use default storage key if not provided', async () => {
       const defaultAdapter = new LocalStorageAdapter();
-      expect(defaultAdapter['storageKey']).toBe('run-cache-data');
+      await defaultAdapter.save('test-data');
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('run-cache-data', 'test-data');
     });
 
-    it('should use custom storage key if provided', () => {
+    it('should use custom storage key if provided', async () => {
       const customAdapter = new LocalStorageAdapter({ storageKey: 'custom-key' });
-      expect(customAdapter['storageKey']).toBe('custom-key');
+      await customAdapter.save('test-data');
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('custom-key', 'test-data');
     });
   });
 
-  describe('verifyEnvironment', () => {
+  describe('environment verification', () => {
     it('should throw error if localStorage is not available', () => {
-      Object.defineProperty(window, 'localStorage', {
-        value: undefined,
-        writable: true,
-      });
-
-      expect(() => adapter['verifyEnvironment']()).toThrow(
-        'LocalStorageAdapter can only be used in browser environments with localStorage support'
+      // First delete the localStorage property
+      delete (window as any).localStorage;
+      
+      // Then try to create the adapter
+      expect(() => new LocalStorageAdapter()).toThrow(
+        'LocalStorageAdapter can only be used in browser environments with localStorage support',
       );
     });
 
     it('should not throw error if localStorage is available', () => {
-      expect(() => adapter['verifyEnvironment']()).not.toThrow();
+      expect(() => new LocalStorageAdapter()).not.toThrow();
     });
   });
 
@@ -109,4 +110,4 @@ describe('LocalStorageAdapter', () => {
       await expect(adapter.clear()).rejects.toThrow('Clear error');
     });
   });
-}); 
+});

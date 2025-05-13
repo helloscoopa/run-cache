@@ -13,6 +13,7 @@ export class LocalStorageAdapter implements StorageAdapter {
    */
   constructor(config?: Partial<StorageAdapterConfig>) {
     this.storageKey = config?.storageKey || 'run-cache-data';
+    this.verifyEnvironment();
   }
 
   /**

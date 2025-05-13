@@ -50,74 +50,99 @@ describe('IndexedDBAdapter', () => {
 
     // Create a new adapter instance
     adapter = new IndexedDBAdapter();
-
-    // Immediately trigger success for the initial database connection
-    setTimeout(() => {
-      mockIDBRequest.onsuccess?.(new Event('success'));
-    }, 0);
   });
 
   describe('constructor', () => {
-    it('should use default storage key if not provided', () => {
-      expect(adapter['storageKey']).toBe('run-cache-data');
+    it('should use default storage key for operations if not provided', async () => {
+      const defaultAdapter = new IndexedDBAdapter();
+      const putRequest = { onsuccess: null as ((event: Event) => void) | null };
+      mockIDBObjectStore.put.mockReturnValue(putRequest);
+
+      const savePromise = defaultAdapter.save('test-data');
+      mockIDBRequest.onsuccess?.(new Event('success'));
+      setTimeout(() => putRequest.onsuccess?.(new Event('success')), 0);
+      await savePromise;
+
+      expect(mockIDBObjectStore.put).toHaveBeenCalledWith({
+        id: 'run-cache-data',
+        data: 'test-data',
+      });
     });
 
-    it('should use custom storage key if provided', () => {
+    it('should use custom storage key for operations if provided', async () => {
       const customAdapter = new IndexedDBAdapter({ storageKey: 'custom-key' });
-      expect(customAdapter['storageKey']).toBe('custom-key');
+      const putRequest = { onsuccess: null as ((event: Event) => void) | null };
+      mockIDBObjectStore.put.mockReturnValue(putRequest);
+
+      const savePromise = customAdapter.save('test-data');
+      mockIDBRequest.onsuccess?.(new Event('success'));
+      setTimeout(() => putRequest.onsuccess?.(new Event('success')), 0);
+      await savePromise;
+
+      expect(mockIDBObjectStore.put).toHaveBeenCalledWith({
+        id: 'custom-key',
+        data: 'test-data',
+      });
     });
   });
 
-  describe('verifyEnvironment', () => {
+  describe('environment verification', () => {
     it('should throw error if IndexedDB is not available', () => {
       Object.defineProperty(window, 'indexedDB', {
         value: undefined,
         writable: true,
       });
 
-      expect(() => adapter['verifyEnvironment']()).toThrow(
-        'IndexedDBAdapter can only be used in browser environments with IndexedDB support'
+      expect(() => new IndexedDBAdapter()).toThrow(
+        'IndexedDBAdapter can only be used in browser environments with IndexedDB support',
       );
     });
 
     it('should not throw error if IndexedDB is available', () => {
-      expect(() => adapter['verifyEnvironment']()).not.toThrow();
+      expect(() => new IndexedDBAdapter()).not.toThrow();
     });
   });
 
-  describe('initDB', () => {
+  describe('database initialization', () => {
     it('should initialize database successfully', async () => {
-      const initPromise = adapter['initDB']();
+      const putRequest = { onsuccess: null as ((event: Event) => void) | null };
+      mockIDBObjectStore.put.mockReturnValue(putRequest);
+
+      const savePromise = adapter.save('test-data');
       mockIDBRequest.onsuccess?.(new Event('success'));
-      
-      const db = await initPromise;
-      expect(db).toBe(mockIDBDatabase);
+      setTimeout(() => putRequest.onsuccess?.(new Event('success')), 0);
+      await savePromise;
+
       expect(mockIndexedDB.open).toHaveBeenCalledWith('run-cache-db', 1);
     });
 
     it('should handle upgrade needed event', async () => {
       mockIDBDatabase.objectStoreNames.contains.mockReturnValue(false);
-      const initPromise = adapter['initDB']();
+      const putRequest = { onsuccess: null as ((event: Event) => void) | null };
+      mockIDBObjectStore.put.mockReturnValue(putRequest);
+
+      const savePromise = adapter.save('test-data');
       mockIDBRequest.onupgradeneeded?.(new Event('upgradeneeded'));
       mockIDBRequest.onsuccess?.(new Event('success'));
+      setTimeout(() => putRequest.onsuccess?.(new Event('success')), 0);
+      await savePromise;
 
-      await initPromise;
       expect(mockIDBDatabase.createObjectStore).toHaveBeenCalledWith('cache-store', { keyPath: 'id' });
     });
 
     it('should handle connection error', async () => {
       mockIDBRequest.error = new Error('Connection failed');
-      const initPromise = adapter['initDB']();
+      const savePromise = adapter.save('test-data');
       mockIDBRequest.onerror?.(new Event('error'));
 
-      await expect(initPromise).rejects.toThrow('Failed to open IndexedDB: Connection failed');
+      await expect(savePromise).rejects.toThrow('Failed to open IndexedDB: Connection failed');
     });
 
     it('should handle blocked event', async () => {
-      const initPromise = adapter['initDB']();
+      const savePromise = adapter.save('test-data');
       mockIDBRequest.onblocked?.(new Event('blocked'));
 
-      await expect(initPromise).rejects.toThrow('IndexedDB connection blocked');
+      await expect(savePromise).rejects.toThrow('IndexedDB connection blocked');
     });
   });
 
@@ -126,24 +151,24 @@ describe('IndexedDBAdapter', () => {
       const testData = 'test-data';
       const putRequest = {
         onsuccess: null as ((event: Event) => void) | null,
-        onerror: null as ((event: Event) => void) | null
+        onerror: null as ((event: Event) => void) | null,
       };
       mockIDBObjectStore.put.mockReturnValue(putRequest);
 
       const savePromise = adapter.save(testData);
-      
+
       // Trigger success for the database connection first
       mockIDBRequest.onsuccess?.(new Event('success'));
-      
+
       // Then trigger success for the put request
       setTimeout(() => {
         putRequest.onsuccess?.(new Event('success'));
       }, 0);
 
       await savePromise;
-      expect(mockIDBObjectStore.put).toHaveBeenCalledWith({ 
-        id: 'run-cache-data', 
-        data: testData 
+      expect(mockIDBObjectStore.put).toHaveBeenCalledWith({
+        id: 'run-cache-data',
+        data: testData,
       });
     });
 
@@ -151,15 +176,15 @@ describe('IndexedDBAdapter', () => {
       const putRequest = {
         onsuccess: null as ((event: Event) => void) | null,
         onerror: null as ((event: Event) => void) | null,
-        error: new Error('Save failed')
+        error: new Error('Save failed'),
       };
       mockIDBObjectStore.put.mockReturnValue(putRequest);
 
       const savePromise = adapter.save('test-data');
-      
+
       // Trigger success for the database connection first
       mockIDBRequest.onsuccess?.(new Event('success'));
-      
+
       // Then trigger error for the put request
       setTimeout(() => {
         putRequest.onerror?.(new Event('error'));
@@ -175,15 +200,15 @@ describe('IndexedDBAdapter', () => {
       const getRequest = {
         onsuccess: null as ((event: Event) => void) | null,
         onerror: null as ((event: Event) => void) | null,
-        result: { data: testData }
+        result: { data: testData },
       };
       mockIDBObjectStore.get.mockReturnValue(getRequest);
 
       const loadPromise = adapter.load();
-      
+
       // Trigger success for the database connection first
       mockIDBRequest.onsuccess?.(new Event('success'));
-      
+
       // Then trigger success for the get request
       setTimeout(() => {
         getRequest.onsuccess?.(new Event('success'));
@@ -198,15 +223,15 @@ describe('IndexedDBAdapter', () => {
       const getRequest = {
         onsuccess: null as ((event: Event) => void) | null,
         onerror: null as ((event: Event) => void) | null,
-        result: null
+        result: null,
       };
       mockIDBObjectStore.get.mockReturnValue(getRequest);
 
       const loadPromise = adapter.load();
-      
+
       // Trigger success for the database connection first
       mockIDBRequest.onsuccess?.(new Event('success'));
-      
+
       // Then trigger success for the get request
       setTimeout(() => {
         getRequest.onsuccess?.(new Event('success'));
@@ -220,15 +245,15 @@ describe('IndexedDBAdapter', () => {
       const getRequest = {
         onsuccess: null as ((event: Event) => void) | null,
         onerror: null as ((event: Event) => void) | null,
-        error: new Error('Load failed')
+        error: new Error('Load failed'),
       };
       mockIDBObjectStore.get.mockReturnValue(getRequest);
 
       const loadPromise = adapter.load();
-      
+
       // Trigger success for the database connection first
       mockIDBRequest.onsuccess?.(new Event('success'));
-      
+
       // Then trigger error for the get request
       setTimeout(() => {
         getRequest.onerror?.(new Event('error'));
@@ -242,15 +267,15 @@ describe('IndexedDBAdapter', () => {
     it('should clear data successfully', async () => {
       const deleteRequest = {
         onsuccess: null as ((event: Event) => void) | null,
-        onerror: null as ((event: Event) => void) | null
+        onerror: null as ((event: Event) => void) | null,
       };
       mockIDBObjectStore.delete.mockReturnValue(deleteRequest);
 
       const clearPromise = adapter.clear();
-      
+
       // Trigger success for the database connection first
       mockIDBRequest.onsuccess?.(new Event('success'));
-      
+
       // Then trigger success for the delete request
       setTimeout(() => {
         deleteRequest.onsuccess?.(new Event('success'));
@@ -264,15 +289,15 @@ describe('IndexedDBAdapter', () => {
       const deleteRequest = {
         onsuccess: null as ((event: Event) => void) | null,
         onerror: null as ((event: Event) => void) | null,
-        error: new Error('Clear failed')
+        error: new Error('Clear failed'),
       };
       mockIDBObjectStore.delete.mockReturnValue(deleteRequest);
 
       const clearPromise = adapter.clear();
-      
+
       // Trigger success for the database connection first
       mockIDBRequest.onsuccess?.(new Event('success'));
-      
+
       // Then trigger error for the delete request
       setTimeout(() => {
         deleteRequest.onerror?.(new Event('error'));
@@ -284,18 +309,34 @@ describe('IndexedDBAdapter', () => {
 
   describe('close', () => {
     it('should close database connection', async () => {
-      await adapter['initDB']();
+      // First do an operation to ensure DB is initialized
+      const putRequest = { onsuccess: null as ((event: Event) => void) | null };
+      mockIDBObjectStore.put.mockReturnValue(putRequest);
+      
+      const savePromise = adapter.save('test-data');
       mockIDBRequest.onsuccess?.(new Event('success'));
+      setTimeout(() => putRequest.onsuccess?.(new Event('success')), 0);
+      await savePromise;
 
+      // Now close the connection
       await adapter.close();
       expect(mockIDBDatabase.close).toHaveBeenCalled();
-      expect(adapter['db']).toBeNull();
-      expect(adapter['dbPromise']).toBeNull();
+
+      // Verify DB is closed by checking if next operation initializes new connection
+      const secondPutRequest = { onsuccess: null as ((event: Event) => void) | null };
+      mockIDBObjectStore.put.mockReturnValue(secondPutRequest);
+      
+      const secondSavePromise = adapter.save('test-data');
+      expect(mockIndexedDB.open).toHaveBeenCalledTimes(2); // Called again after close
+      
+      mockIDBRequest.onsuccess?.(new Event('success'));
+      setTimeout(() => secondPutRequest.onsuccess?.(new Event('success')), 0);
+      await secondSavePromise;
     });
 
-    it('should handle no active connection', async () => {
+    it('should handle no active connection during close', async () => {
       await adapter.close();
       expect(mockIDBDatabase.close).not.toHaveBeenCalled();
     });
   });
-}); 
+});

@@ -41,20 +41,35 @@ describe('FilesystemAdapter', () => {
   });
 
   describe('constructor', () => {
-    it('should use default file path if not provided', () => {
+    it('should use default file path if not provided', async () => {
       const defaultAdapter = new FilesystemAdapter();
-      expect(defaultAdapter['filePath']).toBe(path.join(process.cwd(), 'run-cache-data.json'));
+      const defaultPath = path.join(process.cwd(), 'run-cache-data.json');
+      
+      // Save some data to verify the path
+      await defaultAdapter.save('test');
+      const exists = await fs.access(defaultPath).then(() => true).catch(() => false);
+      expect(exists).toBe(true);
+      
+      // Clean up
+      await fs.unlink(defaultPath);
     });
 
-    it('should use custom file path if provided', () => {
+    it('should use custom file path if provided', async () => {
       const customPath = path.join(process.cwd(), 'custom-cache.json');
       const customAdapter = new FilesystemAdapter({ filePath: customPath });
-      expect(customAdapter['filePath']).toBe(customPath);
+      
+      // Save some data to verify the path
+      await customAdapter.save('test');
+      const exists = await fs.access(customPath).then(() => true).catch(() => false);
+      expect(exists).toBe(true);
+      
+      // Clean up
+      await fs.unlink(customPath);
     });
 
     it('should throw error if not in Node.js environment', () => {
       // Temporarily remove process.versions.node
-      const versions = process.versions;
+      const { versions } = process;
       Object.defineProperty(process, 'versions', { value: undefined });
 
       expect(() => new FilesystemAdapter()).toThrow('FilesystemAdapter can only be used in Node.js environments');
@@ -77,10 +92,10 @@ describe('FilesystemAdapter', () => {
       // Create adapter with invalid path (using a file as directory)
       const invalidPath = path.join(testPath, 'invalid.json');
       await fs.writeFile(testPath, ''); // Create a file instead of directory
-      
+
       const invalidAdapter = new FilesystemAdapter({ filePath: invalidPath });
       const testData = JSON.stringify({ test: 'data' });
-      
+
       await expect(invalidAdapter.save(testData)).rejects.toThrow('Failed to save cache data to filesystem');
     });
 
@@ -139,7 +154,7 @@ describe('FilesystemAdapter', () => {
     it('should handle clear errors gracefully', async () => {
       // Create a directory at the file path to cause a delete error
       await fs.mkdir(testPath, { recursive: true });
-      
+
       // Create a file inside the directory to make it non-empty
       const filePath = path.join(testPath, 'file.txt');
       await fs.writeFile(filePath, 'test');
@@ -147,4 +162,4 @@ describe('FilesystemAdapter', () => {
       await expect(adapter.clear()).rejects.toThrow('Failed to clear cache data from filesystem');
     });
   });
-}); 
+});
