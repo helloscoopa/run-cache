@@ -386,7 +386,7 @@ export class RunCache {
   /**
    * Gets the current RunCache configuration.
    * 
-   * @returns {RunCacheConfig} Current configuration settings with the following properties:
+   * @returns {CacheConfig} Current configuration settings with the following properties:
    *   - maxEntries: Maximum number of entries the cache can hold
    *   - evictionPolicy: The current eviction policy
    *   - debug: Whether debug logging is enabled

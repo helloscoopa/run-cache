@@ -4,12 +4,12 @@ RunCache is built with TypeScript and provides comprehensive type definitions to
 
 ## Core Types
 
-### RunCacheConfig
+### CacheConfig
 
 Configuration options for RunCache.
 
 ```typescript
-interface RunCacheConfig {
+interface CacheConfig {
   /**
    * Maximum number of entries before eviction
    */
@@ -473,7 +473,7 @@ interface CacheState {
   /**
    * Cache configuration
    */
-  config: RunCacheConfig;
+  config: CacheConfig;
 }
 ```
 
@@ -486,7 +486,7 @@ import {
   RunCache,
   EvictionPolicy,
   EVENT,
-  type RunCacheConfig,
+  type CacheConfig,
   type SetOptions,
   type StorageAdapter,
   type MiddlewareFunction
@@ -496,9 +496,9 @@ import {
 ### Example: Configuring RunCache with Types
 
 ```typescript
-import { RunCache, EvictionPolicy, type RunCacheConfig } from 'run-cache';
+import { RunCache, EvictionPolicy, type CacheConfig } from 'run-cache';
 
-const config: RunCacheConfig = {
+const config: CacheConfig = {
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU,
   debug: true

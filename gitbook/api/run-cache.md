@@ -14,7 +14,7 @@ Configures the cache with global settings.
 
 **Parameters:**
 
-- `config`: `RunCacheConfig` - Configuration object with the following properties:
+- `config`: `CacheConfig` - Configuration object with the following properties:
   - `maxEntries?`: `number` - Maximum number of entries before eviction (default: unlimited)
   - `evictionPolicy?`: `EvictionPolicy` - Eviction policy to use (default: NONE)
   - `debug?`: `boolean` - Enable debug logging (default: false)
@@ -38,7 +38,7 @@ RunCache.configure({
 
 Gets the current cache configuration.
 
-**Returns:** `RunCacheConfig` - The current configuration object
+**Returns:** `CacheConfig` - The current configuration object
 
 **Example:**
 
@@ -646,12 +646,12 @@ RunCache.clearEventListeners({
 
 ## Type Definitions
 
-### `RunCacheConfig`
+### `CacheConfig`
 
 Configuration options for RunCache:
 
 ```typescript
-interface RunCacheConfig {
+interface CacheConfig {
   maxEntries?: number;
   evictionPolicy?: EvictionPolicy;
   debug?: boolean;

@@ -303,9 +303,9 @@ TypeScript types are now stricter, requiring explicit type annotations in some c
 RunCache.configure({ maxEntries: 1000 });
 
 // 3.0 (may require explicit types)
-import { RunCacheConfig, EvictionPolicy } from 'run-cache';
+import { CacheConfig, EvictionPolicy } from 'run-cache';
 
-const config: RunCacheConfig = {
+const config: CacheConfig = {
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU
 };

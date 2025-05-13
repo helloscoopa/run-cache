@@ -19,7 +19,7 @@
 
 import { RunCache } from './run-cache';
 import { EvictionPolicy, EVENT } from './run-cache';
-import type { RunCacheConfig } from './types/cache-config';
+import type { CacheConfig } from './types/cache-config';
 import type { EventParam, EventName } from './types/events';
 import type { MiddlewareFunction, MiddlewareContext } from './types/middleware';
 import type { StorageAdapter, StorageAdapterConfig } from './types/storage-adapter';
@@ -36,7 +36,7 @@ export * from './storage/index';
 
 // Re-export types for TypeScript users
 export type {
-  RunCacheConfig,
+  CacheConfig,
   EventParam,
   EventName,
   MiddlewareFunction,
