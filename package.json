@@ -9,9 +9,8 @@
     "test": "jest",
     "test:debug": "jest --detectOpenHandles --forceExit",
     "lint": "eslint src/**/*.ts",
-    "prepare": "npm run build && npm run lint && npm run format",
-    "lint:fix": "eslint src/**/*.ts --fix",
-    "format": "prettier --write src/**/*.ts"
+    "prepare": "npm run build && npm run lint",
+    "lint:fix": "eslint src/**/*.ts --fix"
   },
   "repository": {
     "type": "git",
