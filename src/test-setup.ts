@@ -29,3 +29,65 @@ global.console.info = jest.fn();
 global.console.debug = jest.fn();
 
 // Add any other global test configuration here 
+
+// Mock IndexedDB
+const mockIDBRequest = {
+  result: null as any,
+  error: null as any,
+  onupgradeneeded: null as ((event: Event) => void) | null,
+  onsuccess: null as ((event: Event) => void) | null,
+  onerror: null as ((event: Event) => void) | null,
+  onblocked: null as ((event: Event) => void) | null,
+};
+
+const mockIDBObjectStore = {
+  put: jest.fn(),
+  get: jest.fn(),
+  delete: jest.fn(),
+};
+
+const mockIDBTransaction = {
+  objectStore: jest.fn().mockReturnValue(mockIDBObjectStore),
+  onerror: null as ((event: Event) => void) | null,
+  onabort: null as ((event: Event) => void) | null,
+};
+
+const mockIDBDatabase = {
+  createObjectStore: jest.fn(),
+  transaction: jest.fn().mockReturnValue(mockIDBTransaction),
+  objectStoreNames: { contains: jest.fn() },
+  close: jest.fn(),
+  onclose: null as ((event: Event) => void) | null,
+  onversionchange: null as ((event: Event) => void) | null,
+};
+
+const mockIndexedDB = {
+  open: jest.fn().mockReturnValue(mockIDBRequest),
+};
+
+// Setup global mocks
+Object.defineProperty(window, 'indexedDB', {
+  value: mockIndexedDB,
+  writable: true,
+});
+
+// Reset mocks before each test
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockIDBRequest.result = mockIDBDatabase;
+  mockIDBRequest.error = null;
+
+  // Auto-trigger success for database connection
+  setTimeout(() => {
+    mockIDBRequest.onsuccess?.(new Event('success'));
+  }, 0);
+});
+
+// Export mocks for use in tests
+export {
+  mockIDBRequest,
+  mockIDBObjectStore,
+  mockIDBTransaction,
+  mockIDBDatabase,
+  mockIndexedDB,
+}; 

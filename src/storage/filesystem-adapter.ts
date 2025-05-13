@@ -53,6 +53,23 @@ export class FilesystemAdapter implements StorageAdapter {
   }
 
   /**
+   * Ensures the directory exists for the file path
+   * @throws Error if directory creation fails
+   */
+  private async ensureDirectory(): Promise<void> {
+    const directory = this.path.dirname(this.filePath);
+    try {
+      await this.fs.mkdir(directory, { recursive: true });
+    } catch (error) {
+      throw new Error(
+        `Failed to create directory: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
+
+  /**
    * Store cache data to the filesystem
    * @param data The serialized cache data to store
    */
@@ -60,6 +77,10 @@ export class FilesystemAdapter implements StorageAdapter {
     this.verifyInitialization();
 
     try {
+      // Ensure directory exists
+      await this.ensureDirectory();
+
+      // Write the file
       await this.fs.writeFile(this.filePath, data, 'utf8');
     } catch (error) {
       throw new Error(
@@ -90,6 +111,9 @@ export class FilesystemAdapter implements StorageAdapter {
       const data = await this.fs.readFile(this.filePath, 'utf8');
       return data;
     } catch (error) {
+      if (error instanceof Error && error.message.includes('EISDIR')) {
+        throw new Error('Failed to load cache data from filesystem: Path is a directory');
+      }
       throw new Error(
         `Failed to load cache data from filesystem: ${
           error instanceof Error ? error.message : 'unknown error'
@@ -108,11 +132,24 @@ export class FilesystemAdapter implements StorageAdapter {
       // Check if the file exists before trying to delete it
       try {
         await this.fs.access(this.filePath);
+        const stats = await this.fs.stat(this.filePath);
+        if (stats.isDirectory()) {
+          throw new Error('Path is a directory');
+        }
         await this.fs.unlink(this.filePath);
       } catch (error) {
-        // File doesn't exist, nothing to do
+        if (error instanceof Error && error.message === 'Path is a directory') {
+          throw new Error('Failed to clear cache data from filesystem: Path is a directory');
+        }
+        // File doesn't exist or other error occurred during access check
+        if (error instanceof Error && !error.message.includes('ENOENT')) {
+          throw error;
+        }
       }
     } catch (error) {
+      if (error instanceof Error && error.message.includes('Failed to clear')) {
+        throw error;
+      }
       throw new Error(
         `Failed to clear cache data from filesystem: ${
           error instanceof Error ? error.message : 'unknown error'
