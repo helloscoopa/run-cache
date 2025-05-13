@@ -23,24 +23,24 @@ describe('RunCache', () => {
     it('should update and retrieve configuration', async () => {
       // Default config
       expect(await RunCache.getConfig()).toEqual({
-        maxSize: Number.POSITIVE_INFINITY,
+        maxEntries: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE,
-        verbose: false,
-        allowUnsafeSourceFnDeserialization: false
+        debug: false,
+        
       });
       
       // Update config
       await RunCache.configure({
-        maxSize: 100,
+        maxEntries: 100,
         evictionPolicy: EvictionPolicy.LRU,
-        verbose: false
+        debug: false
       });
       
       expect(await RunCache.getConfig()).toEqual({
-        maxSize: 100,
+        maxEntries: 100,
         evictionPolicy: EvictionPolicy.LRU,
-        verbose: false,
-        allowUnsafeSourceFnDeserialization: false
+        debug: false,
+        
       });
     });
   });

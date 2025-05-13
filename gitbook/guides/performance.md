@@ -25,7 +25,7 @@ import { RunCache, EvictionPolicy } from 'run-cache';
 
 // For most applications
 RunCache.configure({
-  maxSize: 1000, // Limit to 1000 entries
+  maxEntries: 1000, // Limit to 1000 entries
   evictionPolicy: EvictionPolicy.LRU
 });
 ```

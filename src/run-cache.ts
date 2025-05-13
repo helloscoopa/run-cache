@@ -1,5 +1,5 @@
 import { CacheStore } from './core/cache-store';
-import { RunCacheConfig, EvictionPolicy } from './types/cache-config';
+import { CacheConfig, EvictionPolicy } from './types/cache-config';
 import { EventParam, EventName, EVENT } from './types/events';
 import { SourceFn } from './types/cache-state';
 import { MiddlewareFunction } from './types/middleware';
@@ -9,7 +9,7 @@ import { StorageAdapter, StorageAdapterConfig } from './types/storage-adapter';
 export { EvictionPolicy, EVENT, EventParam };
 
 // Re-export storage adapters
-export * from './storage';
+export * from './storage/index';
 
 /**
  * Registers shutdown handlers to properly clean up resources when the application is terminated.
@@ -372,13 +372,13 @@ export class RunCache {
   /**
    * Configures RunCache settings.
    * 
-   * @param {RunCacheConfig} config - Configuration options for RunCache:
-   *   - maxSize: Maximum number of entries the cache can hold before eviction occurs (default: Infinity)
+   * @param {CacheConfig} config - Configuration options for RunCache:
+   *   - maxEntries: Maximum number of entries the cache can hold before eviction occurs (default: Infinity)
    *   - evictionPolicy: The eviction policy to use when the cache exceeds its maximum size (default: EvictionPolicy.NONE)
-   *   - verbose: Enable verbose logging (default: false)
+   *   - debug: Enable debug logging (default: false)
    *   - storageAdapter: Optional adapter for persisting cache data (default: undefined)
    */
-  static async configure(config: RunCacheConfig): Promise<void> {
+  static async configure(config: CacheConfig): Promise<void> {
     await RunCache.ensureInitialized();
     await RunCache.instance.configure(config);
   }
@@ -386,12 +386,12 @@ export class RunCache {
   /**
    * Gets the current RunCache configuration.
    * 
-   * @returns {RunCacheConfig} Current configuration settings with the following properties:
-   *   - maxSize: Maximum number of entries the cache can hold
+   * @returns {CacheConfig} Current configuration settings with the following properties:
+   *   - maxEntries: Maximum number of entries the cache can hold
    *   - evictionPolicy: The current eviction policy
-   *   - verbose: Whether verbose logging is enabled
+   *   - debug: Whether debug logging is enabled
    */
-  static async getConfig(): Promise<RunCacheConfig> {
+  static async getConfig(): Promise<CacheConfig> {
     await RunCache.ensureInitialized();
     return RunCache.instance.getConfig();
   }
@@ -408,9 +408,9 @@ export class RunCache {
       
       // Reset configuration to default values
       await RunCache.configure({
-        maxSize: Number.POSITIVE_INFINITY,
+        maxEntries: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE,
-        verbose: false,
+        debug: false,
         storageAdapter: undefined
       });
     }

@@ -94,7 +94,7 @@ import { RunCache, EvictionPolicy } from 'run-cache';
 
 // Configure cache settings
 RunCache.configure({
-  maxSize: 1000,
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU
 });
 ```

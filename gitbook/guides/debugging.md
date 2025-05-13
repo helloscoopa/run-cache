@@ -4,22 +4,22 @@ This guide provides techniques and strategies for debugging issues in RunCache a
 
 ## Built-in Logging
 
-RunCache includes built-in logging capabilities through its verbose mode.
+RunCache includes built-in logging capabilities through its debug mode.
 
-### Enabling Verbose Mode
+### Enabling debug Mode
 
-To enable verbose logging:
+To enable debug logging:
 
 ```typescript
 import { RunCache } from 'run-cache';
 
-// Enable verbose logging
+// Enable debug logging
 RunCache.configure({
-  verbose: true
+  debug: true
 });
 ```
 
-When verbose mode is enabled, RunCache logs detailed information about:
+When debug mode is enabled, RunCache logs detailed information about:
 - Cache operations (set, get, delete, etc.)
 - Entry expiration and eviction
 - Refetch operations and failures
@@ -27,14 +27,14 @@ When verbose mode is enabled, RunCache logs detailed information about:
 
 All logs include timestamps and operation details.
 
-### Disabling Verbose Mode
+### Disabling debug Mode
 
-To disable verbose logging when you're done debugging:
+To disable debug logging when you're done debugging:
 
 ```typescript
-// Disable verbose logging
+// Disable debug logging
 RunCache.configure({
-  verbose: false
+  debug: false
 });
 ```
 
@@ -532,7 +532,7 @@ For browser environments:
 
 ```typescript
 // Enable detailed console output
-RunCache.configure({ verbose: true });
+RunCache.configure({ debug: true });
 
 // Use browser dev tools
 // 1. Set breakpoints in source functions
@@ -725,7 +725,7 @@ export class CachePerformanceMonitor {
 
 ## Best Practices for Debugging
 
-1. **Start with Verbose Mode**: Enable verbose mode as your first step when debugging.
+1. **Start with debug Mode**: Enable debug mode as your first step when debugging.
 
 2. **Isolate the Problem**: Focus on specific keys or operations rather than the entire cache.
 
@@ -743,7 +743,7 @@ export class CachePerformanceMonitor {
 
 9. **Look for Race Conditions**: Concurrent operations can cause unexpected behavior.
 
-10. **Clean Up Debugging Tools**: Remove or disable verbose logging and debugging tools in production to avoid performance impacts.
+10. **Clean Up Debugging Tools**: Remove or disable debug logging and debugging tools in production to avoid performance impacts.
 
 ## Next Steps
 

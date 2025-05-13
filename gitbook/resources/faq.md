@@ -84,7 +84,7 @@ RunCache's memory usage depends on:
 - Metadata associated with entries (TTL, tags, etc.)
 
 To control memory usage:
-1. Configure an appropriate `maxSize` limit
+1. Configure an appropriate `maxEntries` limit
 2. Set eviction policies (LRU or LFU)
 3. Use appropriate TTL values
 4. Optimize value serialization
@@ -263,8 +263,8 @@ Common issues include:
 
 Solution:
 ```typescript
-// Enable verbose logging
-RunCache.configure({ verbose: true });
+// Enable debug logging
+RunCache.configure({ debug: true });
 
 // Check for errors in source function
 try {

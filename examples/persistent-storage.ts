@@ -6,7 +6,7 @@ async function localStorageExample() {
   
   // Configure RunCache with localStorage adapter
   RunCache.configure({
-    maxSize: 100,
+    maxEntries: 100,
     evictionPolicy: EvictionPolicy.LRU,
     storageAdapter: new LocalStorageAdapter({
       storageKey: 'run-cache-example'
@@ -38,7 +38,7 @@ async function indexedDBExample() {
   
   // Configure RunCache with IndexedDB adapter
   RunCache.configure({
-    maxSize: 1000,
+    maxEntries: 1000,
     evictionPolicy: EvictionPolicy.LFU,
     storageAdapter: new IndexedDBAdapter({
       storageKey: 'run-cache-example'
@@ -70,7 +70,7 @@ async function filesystemExample() {
   
   // Configure RunCache with filesystem adapter
   RunCache.configure({
-    maxSize: 500,
+    maxEntries: 500,
     evictionPolicy: EvictionPolicy.LRU,
     storageAdapter: new FilesystemAdapter({
       filePath: './cache-data.json'

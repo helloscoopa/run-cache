@@ -1,65 +1,48 @@
 import { StorageAdapter } from './storage-adapter';
 
 /**
- * Cache eviction policy types.
+ * Eviction policy for the cache
  */
 export enum EvictionPolicy {
-  /**
-   * No automatic eviction policy. Cache entries are removed only via TTL or manual deletion.
-   */
-  NONE = "none",
-  
-  /**
-   * Least Recently Used policy. Removes the least recently accessed entries when the cache exceeds its maximum size.
-   */
-  LRU = "lru",
-  
-  /**
-   * Least Frequently Used policy. Removes the least frequently accessed entries when the cache exceeds its maximum size.
-   */
-  LFU = "lfu",
+  /** No eviction policy - cache will grow indefinitely */
+  NONE = 'NONE',
+  /** Least Recently Used - evict least recently used entries first */
+  LRU = 'LRU',
+  /** Least Frequently Used - evict least frequently used entries first */
+  LFU = 'LFU',
 }
 
 /**
- * Configuration options for RunCache.
+ * Configuration options for the cache
  */
-export interface RunCacheConfig {
+export interface CacheConfig {
   /**
-   * The maximum number of entries the cache can hold before eviction occurs.
-   * @default Infinity (no limit)
+   * Maximum number of entries to store in the cache
+   * @default Infinity
    */
-  maxSize?: number;
-  
+  maxEntries?: number;
+
   /**
-   * The eviction policy to use when the cache exceeds its maximum size.
+   * Default time-to-live in milliseconds for cache entries
+   * @default Infinity
+   */
+  defaultTTL?: number;
+
+  /**
+   * Eviction policy to use when cache is full
    * @default EvictionPolicy.NONE
    */
   evictionPolicy?: EvictionPolicy;
-  
+
   /**
-   * Enable verbose logging to print all cache operations to the console.
-   * @default false
-   */
-  verbose?: boolean;
-  
-  /**
-   * Storage adapter for persisting cache data.
-   * If provided, cache data will be persisted using this adapter.
-   * @default undefined (no persistence)
+   * Storage adapter for persistence
+   * @default null (no persistence)
    */
   storageAdapter?: StorageAdapter;
-  
+
   /**
-   * SECURITY WARNING: Enables deserializing source functions with eval-like operations.
-   * 
-   * This is a potentially dangerous setting as it allows execution of arbitrary code 
-   * when deserializing cache data. If an attacker can tamper with persisted data
-   * (e.g., modify a storage file or use XSS to inject into localStorage), this could
-   * lead to remote code execution.
-   * 
-   * Only enable this if you fully trust your storage medium and understand the risks.
-   * 
+   * Whether to enable debug logging
    * @default false
    */
-  allowUnsafeSourceFnDeserialization?: boolean;
-} 
+  debug?: boolean;
+}

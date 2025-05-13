@@ -8,7 +8,7 @@
  * import { RunCache, EvictionPolicy } from 'run-cache';
  * 
  * // Configure the cache
- * RunCache.configure({ maxSize: 1000, evictionPolicy: EvictionPolicy.LRU });
+ * RunCache.configure({ maxEntries: 1000, evictionPolicy: EvictionPolicy.LRU });
  * 
  * // Set a cache entry
  * await RunCache.set({ key: 'user:123', value: 'John Doe', ttl: 60000 });
@@ -19,7 +19,7 @@
 
 import { RunCache } from './run-cache';
 import { EvictionPolicy, EVENT } from './run-cache';
-import type { RunCacheConfig } from './types/cache-config';
+import type { CacheConfig } from './types/cache-config';
 import type { EventParam, EventName } from './types/events';
 import type { MiddlewareFunction, MiddlewareContext } from './types/middleware';
 import type { StorageAdapter, StorageAdapterConfig } from './types/storage-adapter';
@@ -32,11 +32,11 @@ export { RunCache };
 export { EvictionPolicy, EVENT };
 
 // Re-export storage adapters
-export * from './storage';
+export * from './storage/index';
 
 // Re-export types for TypeScript users
 export type {
-  RunCacheConfig,
+  CacheConfig,
   EventParam,
   EventName,
   MiddlewareFunction,

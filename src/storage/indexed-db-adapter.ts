@@ -6,10 +6,15 @@ import { StorageAdapter, StorageAdapterConfig } from '../types/storage-adapter';
  */
 export class IndexedDBAdapter implements StorageAdapter {
   private storageKey: string;
+
   private dbName: string = 'run-cache-db';
+
   private storeName: string = 'cache-store';
+
   private dbVersion: number = 1;
+
   private db: IDBDatabase | null = null;
+
   private dbPromise: Promise<IDBDatabase> | null = null;
 
   /**
@@ -18,7 +23,7 @@ export class IndexedDBAdapter implements StorageAdapter {
    */
   constructor(config?: Partial<StorageAdapterConfig>) {
     this.storageKey = config?.storageKey || 'run-cache-data';
-    
+
     // Initialize the database connection
     this.initDB();
   }
@@ -52,16 +57,16 @@ export class IndexedDBAdapter implements StorageAdapter {
     // Create a new connection promise
     this.dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
       const request = window.indexedDB.open(this.dbName, this.dbVersion);
-      
+
       // Set a timeout for the connection request
       const timeoutId = setTimeout(() => {
         reject(new Error('IndexedDB connection timed out'));
       }, 5000);
 
       // Handle upgrade needed (first time or version change)
-      request.onupgradeneeded = (event) => {
+      request.onupgradeneeded = (_event: IDBVersionChangeEvent) => {
         const db = request.result;
-        
+
         // Create the object store if it doesn't exist
         if (!db.objectStoreNames.contains(this.storeName)) {
           db.createObjectStore(this.storeName, { keyPath: 'id' });
@@ -75,16 +80,16 @@ export class IndexedDBAdapter implements StorageAdapter {
       };
 
       // Handle success
-      request.onsuccess = (event) => {
+      request.onsuccess = (_event: Event) => {
         clearTimeout(timeoutId);
         this.db = request.result;
-        
+
         // Listen for close events
         this.db.onclose = () => {
           this.db = null;
           this.dbPromise = null;
         };
-        
+
         // Listen for version change events
         this.db.onversionchange = () => {
           if (this.db) {
@@ -93,14 +98,16 @@ export class IndexedDBAdapter implements StorageAdapter {
             this.dbPromise = null;
           }
         };
-        
+
         resolve(this.db);
       };
 
       // Handle error
-      request.onerror = (event) => {
+      request.onerror = () => {
         clearTimeout(timeoutId);
-        reject(new Error(`Failed to open IndexedDB: ${request.error?.message || 'unknown error'}`));
+        const errorMsg = request.error?.message || 'unknown error';
+        const message = `Failed to open IndexedDB: ${errorMsg}`;
+        reject(new Error(message));
       };
     });
 
@@ -114,25 +121,33 @@ export class IndexedDBAdapter implements StorageAdapter {
   async save(data: string): Promise<void> {
     try {
       const db = await this.initDB();
-      
+
       return new Promise<void>((resolve, reject) => {
         const transaction = db.transaction(this.storeName, 'readwrite');
         const store = transaction.objectStore(this.storeName);
-        
+
         // Store the data with the storage key as the ID
         const request = store.put({ id: this.storageKey, data });
-        
+
         request.onsuccess = () => resolve();
-        request.onerror = () => reject(new Error(`Failed to save to IndexedDB: ${request.error?.message || 'unknown error'}`));
-        
+        request.onerror = () => {
+          const errorMsg = request.error?.message || 'unknown error';
+          const message = `Failed to save to IndexedDB: ${errorMsg}`;
+          reject(new Error(message));
+        };
+
         // Handle transaction errors
         transaction.onerror = () => {
-          reject(new Error(`Transaction failed: ${transaction.error?.message || 'unknown error'}`));
+          const errorMsg = transaction.error?.message || 'unknown error';
+          const message = `Transaction failed: ${errorMsg}`;
+          reject(new Error(message));
         };
-        
+
         // Handle transaction aborts
         transaction.onabort = () => {
-          reject(new Error(`Transaction aborted: ${transaction.error?.message || 'unknown error'}`));
+          const errorMsg = transaction.error?.message || 'unknown error';
+          const message = `Transaction aborted: ${errorMsg}`;
+          reject(new Error(message));
         };
       });
     } catch (error) {
@@ -147,14 +162,14 @@ export class IndexedDBAdapter implements StorageAdapter {
   async load(): Promise<string | null> {
     try {
       const db = await this.initDB();
-      
+
       return new Promise<string | null>((resolve, reject) => {
         const transaction = db.transaction(this.storeName, 'readonly');
         const store = transaction.objectStore(this.storeName);
-        
+
         // Get the data with the storage key
         const request = store.get(this.storageKey);
-        
+
         request.onsuccess = () => {
           // If the data exists, return it, otherwise return null
           if (request.result) {
@@ -163,14 +178,14 @@ export class IndexedDBAdapter implements StorageAdapter {
             resolve(null);
           }
         };
-        
+
         request.onerror = () => reject(new Error(`Failed to load from IndexedDB: ${request.error?.message || 'unknown error'}`));
-        
+
         // Handle transaction errors
         transaction.onerror = () => {
           reject(new Error(`Transaction failed: ${transaction.error?.message || 'unknown error'}`));
         };
-        
+
         // Handle transaction aborts
         transaction.onabort = () => {
           reject(new Error(`Transaction aborted: ${transaction.error?.message || 'unknown error'}`));
@@ -187,22 +202,22 @@ export class IndexedDBAdapter implements StorageAdapter {
   async clear(): Promise<void> {
     try {
       const db = await this.initDB();
-      
+
       return new Promise<void>((resolve, reject) => {
         const transaction = db.transaction(this.storeName, 'readwrite');
         const store = transaction.objectStore(this.storeName);
-        
+
         // Delete the data with the storage key
         const request = store.delete(this.storageKey);
-        
+
         request.onsuccess = () => resolve();
         request.onerror = () => reject(new Error(`Failed to clear from IndexedDB: ${request.error?.message || 'unknown error'}`));
-        
+
         // Handle transaction errors
         transaction.onerror = () => {
           reject(new Error(`Transaction failed: ${transaction.error?.message || 'unknown error'}`));
         };
-        
+
         // Handle transaction aborts
         transaction.onabort = () => {
           reject(new Error(`Transaction aborted: ${transaction.error?.message || 'unknown error'}`));
@@ -224,4 +239,16 @@ export class IndexedDBAdapter implements StorageAdapter {
       this.dbPromise = null;
     }
   }
-} 
+
+  private handleUpgradeNeeded(_event: IDBVersionChangeEvent): void {
+    // Implementation needed
+  }
+
+  private handleSuccess(_event: Event): void {
+    // Implementation needed
+  }
+
+  private handleError(_event: Event): void {
+    // Implementation needed
+  }
+}

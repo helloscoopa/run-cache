@@ -572,7 +572,7 @@ Be mindful of storage limits, especially in browsers:
 ```typescript
 // Configure cache with size limits
 RunCache.configure({
-  maxSize: 1000, // Limit to 1000 entries
+  maxEntries: 1000, // Limit to 1000 entries
   evictionPolicy: EvictionPolicy.LRU,
   storageAdapter: new LocalStorageAdapter()
 });
@@ -676,7 +676,7 @@ async function initializeCache() {
   const cacheDir = path.join(process.cwd(), 'cache');
   
   RunCache.configure({
-    maxSize: 10000,
+    maxEntries: 10000,
     evictionPolicy: EvictionPolicy.LRU,
     storageAdapter: new FilesystemAdapter({
       storageKey: 'app-cache',

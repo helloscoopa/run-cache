@@ -379,7 +379,7 @@ Configure maximum cache size based on your application's memory constraints:
 ```typescript
 // Configure cache with size limits
 RunCache.configure({
-  maxSize: 1000, // Limit to 1000 entries
+  maxEntries: 1000, // Limit to 1000 entries
   evictionPolicy: EvictionPolicy.LRU
 });
 ```
@@ -395,13 +395,13 @@ Select an eviction policy that matches your access patterns:
 ```typescript
 // For most applications
 RunCache.configure({
-  maxSize: 1000,
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU
 });
 
 // For frequency-based patterns
 RunCache.configure({
-  maxSize: 1000,
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LFU
 });
 ```

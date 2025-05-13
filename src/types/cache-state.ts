@@ -5,13 +5,13 @@
 /**
  * Function type for cache source functions that can refresh cache values.
  * These functions are used for auto-refetching and initial value generation.
- * 
+ *
  * @returns {Promise<string> | string} The string value to be stored in the cache
- * 
+ *
  * @example
  * // Synchronous source function
  * const syncSource: SourceFn = () => "cached value";
- * 
+ *
  * // Asynchronous source function
  * const asyncSource: SourceFn = async () => {
  *   const response = await fetch('/api/data');
@@ -23,7 +23,7 @@ export type SourceFn = () => Promise<string> | string;
 /**
  * Internal cache state representation for a cache entry.
  * This defines the structure of each entry stored in the cache.
- * 
+ *
  * @property {string} value - The cached value
  * @property {number} createdAt - Timestamp (milliseconds) when the entry was first created
  * @property {number} updatedAt - Timestamp (milliseconds) when the entry was last updated
@@ -52,4 +52,4 @@ export type CacheState = {
   // Tag and dependency support
   tags?: string[];
   dependencies?: string[];
-}; 
+};

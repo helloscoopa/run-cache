@@ -13,6 +13,7 @@ export class LocalStorageAdapter implements StorageAdapter {
    */
   constructor(config?: Partial<StorageAdapterConfig>) {
     this.storageKey = config?.storageKey || 'run-cache-data';
+    this.verifyEnvironment();
   }
 
   /**
@@ -21,7 +22,9 @@ export class LocalStorageAdapter implements StorageAdapter {
    */
   private verifyEnvironment(): void {
     if (typeof window === 'undefined' || !window.localStorage) {
-      throw new Error('LocalStorageAdapter can only be used in browser environments with localStorage support');
+      throw new Error(
+        'LocalStorageAdapter can only be used in browser environments with localStorage support',
+      );
     }
   }
 
@@ -36,7 +39,11 @@ export class LocalStorageAdapter implements StorageAdapter {
       window.localStorage.setItem(this.storageKey, data);
     } catch (error) {
       // Handle localStorage errors (e.g., quota exceeded)
-      throw new Error(`Failed to save cache data to localStorage: ${error instanceof Error ? error.message : 'unknown error'}`);
+      throw new Error(
+        `Failed to save cache data to localStorage: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
     }
   }
 
@@ -46,7 +53,7 @@ export class LocalStorageAdapter implements StorageAdapter {
    */
   async load(): Promise<string | null> {
     this.verifyEnvironment();
-    
+
     return window.localStorage.getItem(this.storageKey);
   }
 
@@ -55,7 +62,7 @@ export class LocalStorageAdapter implements StorageAdapter {
    */
   async clear(): Promise<void> {
     this.verifyEnvironment();
-    
+
     window.localStorage.removeItem(this.storageKey);
   }
-} 
+}

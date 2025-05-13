@@ -37,24 +37,24 @@ import { RunCache, EvictionPolicy } from 'run-cache';
 
 // Configure the cache with a max size of 100 entries and LRU eviction policy
 await RunCache.configure({
-  maxSize: 100,
+  maxEntries: 100,
   evictionPolicy: EvictionPolicy.LRU
 });
 ```
 
 ### Setting Maximum Size
 
-The `maxSize` parameter determines how many entries the cache can hold before eviction occurs:
+The `maxEntries` parameter determines how many entries the cache can hold before eviction occurs:
 
 ```typescript
 // Allow up to 500 entries
 await RunCache.configure({
-  maxSize: 500,
+  maxEntries: 500,
   evictionPolicy: EvictionPolicy.LFU
 });
 ```
 
-If you don't specify a `maxSize`, it defaults to `Infinity`, meaning the cache will grow without bounds (unless you set a policy other than `NONE`).
+If you don't specify a `maxEntries`, it defaults to `Infinity`, meaning the cache will grow without bounds (unless you set a policy other than `NONE`).
 
 ### Changing Policies at Runtime
 
@@ -63,7 +63,7 @@ You can change the eviction policy at any time:
 ```typescript
 // Start with LRU
 await RunCache.configure({
-  maxSize: 1000,
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU
 });
 
@@ -82,19 +82,19 @@ You can retrieve the current configuration using the `getConfig()` method:
 ```typescript
 const config = await RunCache.getConfig();
 console.log(config);
-// Output: { maxSize: 100, evictionPolicy: "lru", verbose: false, ... }
+// Output: { maxEntries: 100, evictionPolicy: "lru", debug: false, ... }
 ```
 
 ## How Eviction Works
 
-When a new entry is added to the cache and the cache size exceeds `maxSize`:
+When a new entry is added to the cache and the cache size exceeds `maxEntries`:
 
 1. The eviction policy determines which entries to remove
 2. Selected entries are removed from the cache
 3. Any intervals associated with those entries are cleared
 4. The new entry is added to the cache
 
-Eviction is also checked after configuration changes if the new `maxSize` is smaller than the current cache size.
+Eviction is also checked after configuration changes if the new `maxEntries` is smaller than the current cache size.
 
 ## Best Practices
 
@@ -103,14 +103,14 @@ Eviction is also checked after configuration changes if the new `maxSize` is sma
   - Use LFU when frequency of access is more important than recency
   - Use NONE when you want full manual control or rely on TTL
 
-- **Set a reasonable `maxSize`:** Too small and you'll have frequent evictions, too large and you may consume too much memory.
+- **Set a reasonable `maxEntries`:** Too small and you'll have frequent evictions, too large and you may consume too much memory.
 
-- **Monitor evictions:** Enable verbose logging to see when entries are being evicted, which can help tune your cache size.
+- **Monitor evictions:** Enable debug logging to see when entries are being evicted, which can help tune your cache size.
 
 ```typescript
 await RunCache.configure({
-  verbose: true,
-  maxSize: 1000,
+  debug: true,
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU
 });
 ```

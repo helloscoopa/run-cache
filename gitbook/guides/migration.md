@@ -57,6 +57,7 @@ Configuration is now done through the `configure` method:
 // Pre-1.0
 const cache = runCache({
   maxSize: 1000,
+  verbose: true,
   policy: 'lru'
 });
 
@@ -64,8 +65,9 @@ const cache = runCache({
 import { RunCache, EvictionPolicy } from 'run-cache';
 
 RunCache.configure({
-  maxSize: 1000,
-  evictionPolicy: EvictionPolicy.LRU
+  maxEntries: 1000,
+  evictionPolicy: EvictionPolicy.LRU,
+  debug: true
 });
 ```
 
@@ -87,15 +89,16 @@ import { RunCache, EvictionPolicy, EVENT } from 'run-cache';
 // Before
 const cache = runCache({
   maxSize: 1000,
+  verbose: true,
   policy: 'lru',
   logger: customLogger
 });
 
 // After
 RunCache.configure({
-  maxSize: 1000,
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU,
-  verbose: true // Replace custom logger with built-in verbose mode
+  debug: true // Replace custom logger with built-in debug mode
 });
 ```
 
@@ -300,13 +303,13 @@ TypeScript types are now stricter, requiring explicit type annotations in some c
 
 ```typescript
 // 2.x (implicit types)
-RunCache.configure({ maxSize: 1000 });
+RunCache.configure({ maxEntries: 1000 });
 
 // 3.0 (may require explicit types)
-import { RunCacheConfig, EvictionPolicy } from 'run-cache';
+import { CacheConfig, EvictionPolicy } from 'run-cache';
 
-const config: RunCacheConfig = {
-  maxSize: 1000,
+const config: CacheConfig = {
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU
 };
 

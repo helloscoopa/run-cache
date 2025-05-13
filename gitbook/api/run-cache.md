@@ -14,10 +14,10 @@ Configures the cache with global settings.
 
 **Parameters:**
 
-- `config`: `RunCacheConfig` - Configuration object with the following properties:
-  - `maxSize?`: `number` - Maximum number of entries before eviction (default: unlimited)
+- `config`: `CacheConfig` - Configuration object with the following properties:
+  - `maxEntries?`: `number` - Maximum number of entries before eviction (default: unlimited)
   - `evictionPolicy?`: `EvictionPolicy` - Eviction policy to use (default: NONE)
-  - `verbose?`: `boolean` - Enable verbose logging (default: false)
+  - `debug?`: `boolean` - Enable debug logging (default: false)
   - `storageAdapter?`: `StorageAdapter` - Storage adapter for persistence (default: none)
 
 **Returns:** `void`
@@ -28,9 +28,9 @@ Configures the cache with global settings.
 import { RunCache, EvictionPolicy } from 'run-cache';
 
 RunCache.configure({
-  maxSize: 1000,
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU,
-  verbose: true
+  debug: true
 });
 ```
 
@@ -38,13 +38,13 @@ RunCache.configure({
 
 Gets the current cache configuration.
 
-**Returns:** `RunCacheConfig` - The current configuration object
+**Returns:** `CacheConfig` - The current configuration object
 
 **Example:**
 
 ```typescript
 const config = RunCache.getConfig();
-console.log(config); // { maxSize: 1000, evictionPolicy: "lru", verbose: true }
+console.log(config); // { maxEntries: 1000, evictionPolicy: "lru", debug: true }
 ```
 
 ## Cache Operations
@@ -646,15 +646,15 @@ RunCache.clearEventListeners({
 
 ## Type Definitions
 
-### `RunCacheConfig`
+### `CacheConfig`
 
 Configuration options for RunCache:
 
 ```typescript
-interface RunCacheConfig {
-  maxSize?: number;
+interface CacheConfig {
+  maxEntries?: number;
   evictionPolicy?: EvictionPolicy;
-  verbose?: boolean;
+  debug?: boolean;
   storageAdapter?: StorageAdapter;
 }
 ```

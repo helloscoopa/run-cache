@@ -316,7 +316,7 @@ Be mindful of storage limits, especially in browsers:
 ```typescript
 // Configure cache with size limits
 RunCache.configure({
-  maxSize: 1000, // Limit to 1000 entries
+  maxEntries: 1000, // Limit to 1000 entries
   evictionPolicy: EvictionPolicy.LRU,
   storageAdapter: new LocalStorageAdapter()
 });
