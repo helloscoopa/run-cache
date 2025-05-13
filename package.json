@@ -8,6 +8,8 @@
     "build": "tsc",
     "test": "jest",
     "test:debug": "jest --detectOpenHandles --forceExit",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "lint": "eslint src/**/*.ts",
     "prepare": "npm run build && npm run lint",
     "lint:fix": "eslint src/**/*.ts --fix"
