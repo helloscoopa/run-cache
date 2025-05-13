@@ -433,7 +433,6 @@ export class CacheStore {
           entriesToEvict,
         );
         break;
-      case EvictionPolicy.NONE:
       default:
         // No automatic eviction
         this.logger.log('debug', 'Skipping eviction as policy is set to NONE');
