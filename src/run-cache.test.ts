@@ -782,7 +782,7 @@ describe("RunCache", () => {
       });
       
       // Clear only expiry listeners
-      await RunCache.clearEventListeners({ event: EVENT.EXPIRE });
+      await RunCache.clearEventListeners({ event: EVENT._EXPIRE });
       
       // Trigger events
       jest.advanceTimersByTime(1500); // Trigger expiry
@@ -816,7 +816,7 @@ describe("RunCache", () => {
 
       // Clear only key1 expiry listeners
       await RunCache.clearEventListeners({
-        event: EVENT.EXPIRE,
+        event: EVENT._EXPIRE,
         key: "key1",
       });
 
@@ -842,7 +842,7 @@ describe("RunCache", () => {
       await RunCache.set({ key: "user:3", value: "value3", ttl: 100, sourceFn: jest.fn().mockResolvedValue("new3") });
       
       // Clear expiry listeners for user:* pattern
-      await RunCache.clearEventListeners({ event: EVENT.EXPIRE, key: "user:*" });
+      await RunCache.clearEventListeners({ event: EVENT._EXPIRE, key: "user:*" });
       
       // Trigger expiry and refetch
       jest.advanceTimersByTime(150);
@@ -1057,7 +1057,7 @@ describe("RunCache", () => {
     beforeEach(() => {
       // Reset configuration to default before each test
       RunCache.configure({
-        maxSize: Number.POSITIVE_INFINITY,
+        maxEntries: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE
       });
       RunCache.flush();
@@ -1066,7 +1066,7 @@ describe("RunCache", () => {
     it("should not evict entries when max size isn't reached", async () => {
       // Configure cache with LRU policy and max size of 5
       RunCache.configure({
-        maxSize: 5,
+        maxEntries: 5,
         evictionPolicy: EvictionPolicy.LRU
       });
 
@@ -1084,7 +1084,7 @@ describe("RunCache", () => {
     it("should evict LRU entries when max size is reached", async () => {
       // Configure cache with LRU policy and max size of 3
       RunCache.configure({
-        maxSize: 3,
+        maxEntries: 3,
         evictionPolicy: EvictionPolicy.LRU
       });
 
@@ -1112,7 +1112,7 @@ describe("RunCache", () => {
     it("should evict LFU entries when max size is reached", async () => {
       // Configure cache with LFU policy and max size of 3
       RunCache.configure({
-        maxSize: 3,
+        maxEntries: 3,
         evictionPolicy: EvictionPolicy.LFU
       });
 
@@ -1145,7 +1145,7 @@ describe("RunCache", () => {
       // for entries with same access frequency
       
       RunCache.configure({
-        maxSize: 3,
+        maxEntries: 3,
         evictionPolicy: EvictionPolicy.LFU
       });
 
@@ -1182,7 +1182,7 @@ describe("RunCache", () => {
     it("should not evict anything with eviction policy set to NONE", async () => {
       // Configure cache with no eviction policy and max size of 3
       RunCache.configure({
-        maxSize: 3,
+        maxEntries: 3,
         evictionPolicy: EvictionPolicy.NONE
       });
 
@@ -1204,32 +1204,31 @@ describe("RunCache", () => {
     it("should correctly update configuration", async () => {
       // Check initial configuration
       expect(await RunCache.getConfig()).toEqual({
-        maxSize: Number.POSITIVE_INFINITY,
+        maxEntries: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE,
-        verbose: false,
-        allowUnsafeSourceFnDeserialization: false
+        debug: false,
+        
       });
       
       // Update configuration
       await RunCache.configure({
-        maxSize: 100,
+        maxEntries: 100,
         evictionPolicy: EvictionPolicy.LRU,
-        verbose: false
+        debug: false
       });
       
       expect(await RunCache.getConfig()).toEqual({
-        maxSize: 100,
+        maxEntries: 100,
         evictionPolicy: EvictionPolicy.LRU,
-        verbose: false,
-        allowUnsafeSourceFnDeserialization: false
+        debug: false,
+        
       });
       
       // Reset for other tests
       await RunCache.configure({
-        maxSize: Number.POSITIVE_INFINITY,
+        maxEntries: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE,
-        verbose: false,
-        allowUnsafeSourceFnDeserialization: false
+        debug: false,
       });
     });
   });
@@ -1290,10 +1289,10 @@ describe("RunCache", () => {
       
       // Check that configuration is reset
       expect(await RunCache.getConfig()).toEqual({
-        maxSize: Number.POSITIVE_INFINITY,
+        maxEntries: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE,
-        verbose: false,
-        allowUnsafeSourceFnDeserialization: false
+        debug: false,
+        
       });
     });
     
@@ -1303,7 +1302,7 @@ describe("RunCache", () => {
     });
   });
 
-  describe("verbose logging", () => {
+  describe("debug logging", () => {
     let originalConsoleInfo: typeof console.info;
     let originalConsoleDebug: typeof console.debug;
     let originalConsoleWarn: typeof console.warn;
@@ -1330,11 +1329,11 @@ describe("RunCache", () => {
       RunCache.flush();
       RunCache.clearEventListeners();
       
-      // Reset configuration with verbose off by default
+      // Reset configuration with debug off by default
       RunCache.configure({
-        maxSize: Number.POSITIVE_INFINITY,
+        maxEntries: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE,
-        verbose: false
+        debug: false
       });
     });
     
@@ -1345,12 +1344,12 @@ describe("RunCache", () => {
       console.warn = originalConsoleWarn;
       console.error = originalConsoleError;
       
-      // Turn off verbose logging
-      RunCache.configure({ verbose: false });
+      // Turn off debug logging
+      RunCache.configure({ debug: false });
     });
     
-    it("should not log when verbose is disabled", async () => {
-      // Set a cache entry with verbose disabled
+    it("should not log when debug is disabled", async () => {
+      // Set a cache entry with debug disabled
       await RunCache.set({ key: "test-key", value: "test-value" });
       
       // Get the cache entry
@@ -1360,9 +1359,9 @@ describe("RunCache", () => {
       expect(logSpy).not.toHaveBeenCalled();
     });
     
-    it("should log when verbose is enabled", async () => {
-      // Enable verbose logging
-      RunCache.configure({ verbose: true });
+    it("should log when debug is enabled", async () => {
+      // Enable debug logging
+      RunCache.configure({ debug: true });
       
       // Set a cache entry
       await RunCache.set({ key: "test-key", value: "test-value" });
@@ -1391,11 +1390,11 @@ describe("RunCache", () => {
       expect(getLogs.length).toBeGreaterThan(0);
     });
     
-    it("should log cache eviction when verbose is enabled", async () => {
-      // Enable verbose logging and configure cache with eviction policy
+    it("should log cache eviction when debug is enabled", async () => {
+      // Enable debug logging and configure cache with eviction policy
       RunCache.configure({
-        verbose: true,
-        maxSize: 2,
+        debug: true,
+        maxEntries: 2,
         evictionPolicy: EvictionPolicy.LRU
       });
       
@@ -1418,9 +1417,9 @@ describe("RunCache", () => {
       expect(evictionLogs.length).toBeGreaterThan(0);
     });
     
-    it("should respect verbose setting changes during runtime", async () => {
-      // Start with verbose enabled
-      RunCache.configure({ verbose: true });
+    it("should respect debug setting changes during runtime", async () => {
+      // Start with debug enabled
+      RunCache.configure({ debug: true });
       
       // Set a cache entry
       await RunCache.set({ key: "test-key-1", value: "test-value-1" });
@@ -1431,17 +1430,17 @@ describe("RunCache", () => {
       // Reset log spy
       logSpy.mockClear();
       
-      // Disable verbose logging
-      RunCache.configure({ verbose: false });
+      // Disable debug logging
+      RunCache.configure({ debug: false });
       
       // Set another cache entry
       await RunCache.set({ key: "test-key-2", value: "test-value-2" });
       
-      // Verify no logs were generated after disabling verbose
+      // Verify no logs were generated after disabling debug
       expect(logSpy).not.toHaveBeenCalled();
       
-      // Re-enable verbose logging
-      RunCache.configure({ verbose: true });
+      // Re-enable debug logging
+      RunCache.configure({ debug: true });
       
       // Set another cache entry
       await RunCache.set({ key: "test-key-3", value: "test-value-3" });

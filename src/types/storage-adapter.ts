@@ -5,10 +5,10 @@
 export interface StorageAdapter {
   /**
    * Store cache data to persistent storage
-   * @param data The serialized cache data to store
+   * @param _data The serialized cache data to store
    * @returns Promise that resolves when the data is successfully stored
    */
-  save(data: string): Promise<void>;
+  save(_data: string): Promise<void>;
 
   /**
    * Load cache data from persistent storage
@@ -32,17 +32,17 @@ export interface StorageAdapterConfig {
    * @default "run-cache-data"
    */
   storageKey?: string;
-  
+
   /**
    * Auto-save interval in milliseconds. If provided, cache will automatically
    * save at this interval. Set to 0 to disable auto-saving.
    * @default 0 (disabled)
    */
   autoSaveInterval?: number;
-  
+
   /**
    * Whether to load cache data automatically when the adapter is initialized
    * @default true
    */
   autoLoadOnInit?: boolean;
-} 
+}

@@ -6,8 +6,11 @@ import { StorageAdapter, StorageAdapterConfig } from '../types/storage-adapter';
  */
 export class FilesystemAdapter implements StorageAdapter {
   private storageKey: string;
+
   private fs: any = null;
+
   private path: any = null;
+
   private filePath: string = '';
 
   /**
@@ -16,17 +19,17 @@ export class FilesystemAdapter implements StorageAdapter {
    */
   constructor(config?: Partial<StorageAdapterConfig & { filePath?: string }>) {
     this.storageKey = config?.storageKey || 'run-cache-data';
-    
+
     // Check if we're in a Node.js environment
     if (typeof process === 'undefined' || !process.versions || !process.versions.node) {
       throw new Error('FilesystemAdapter can only be used in Node.js environments');
     }
-    
+
     try {
       // Dynamic import for Node.js modules to avoid issues in browser environments
       this.fs = require('fs/promises');
       this.path = require('path');
-      
+
       // Set the file path
       if (config?.filePath) {
         this.filePath = config.filePath;
@@ -59,7 +62,11 @@ export class FilesystemAdapter implements StorageAdapter {
     try {
       await this.fs.writeFile(this.filePath, data, 'utf8');
     } catch (error) {
-      throw new Error(`Failed to save cache data to filesystem: ${error instanceof Error ? error.message : 'unknown error'}`);
+      throw new Error(
+        `Failed to save cache data to filesystem: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
     }
   }
 
@@ -78,12 +85,16 @@ export class FilesystemAdapter implements StorageAdapter {
         // File doesn't exist
         return null;
       }
-      
+
       // Read the file
       const data = await this.fs.readFile(this.filePath, 'utf8');
       return data;
     } catch (error) {
-      throw new Error(`Failed to load cache data from filesystem: ${error instanceof Error ? error.message : 'unknown error'}`);
+      throw new Error(
+        `Failed to load cache data from filesystem: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
     }
   }
 
@@ -102,7 +113,11 @@ export class FilesystemAdapter implements StorageAdapter {
         // File doesn't exist, nothing to do
       }
     } catch (error) {
-      throw new Error(`Failed to clear cache data from filesystem: ${error instanceof Error ? error.message : 'unknown error'}`);
+      throw new Error(
+        `Failed to clear cache data from filesystem: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
     }
   }
-} 
+}

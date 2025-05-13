@@ -13,4 +13,19 @@ afterAll(() => {
   
   // Add a small delay to allow any pending promises to resolve
   return new Promise(resolve => setTimeout(resolve, 100));
-}); 
+});
+
+// Jest test setup file
+// Add any global test setup configuration here
+
+// Increase timeout for all tests
+jest.setTimeout(10000);
+
+// Suppress console output during tests
+global.console.log = jest.fn();
+global.console.error = jest.fn();
+global.console.warn = jest.fn();
+global.console.info = jest.fn();
+global.console.debug = jest.fn();
+
+// Add any other global test configuration here 

@@ -23,24 +23,24 @@ describe('RunCache', () => {
     it('should update and retrieve configuration', async () => {
       // Default config
       expect(await RunCache.getConfig()).toEqual({
-        maxSize: Number.POSITIVE_INFINITY,
+        maxEntries: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE,
-        verbose: false,
-        allowUnsafeSourceFnDeserialization: false
+        debug: false,
+        
       });
       
       // Update config
       await RunCache.configure({
-        maxSize: 100,
+        maxEntries: 100,
         evictionPolicy: EvictionPolicy.LRU,
-        verbose: false
+        debug: false
       });
       
       expect(await RunCache.getConfig()).toEqual({
-        maxSize: 100,
+        maxEntries: 100,
         evictionPolicy: EvictionPolicy.LRU,
-        verbose: false,
-        allowUnsafeSourceFnDeserialization: false
+        debug: false,
+        
       });
     });
   });
@@ -109,7 +109,7 @@ describe('RunCache', () => {
       
       // We can't easily test the event firing in a unit test without creating complex mocks
       // So we'll just verify the event was registered
-      expect(await RunCache.clearEventListeners({ event: EVENT.EXPIRE })).toBe(true);
+      expect(await RunCache.clearEventListeners({ event: EVENT._EXPIRE })).toBe(true);
     });
     
     it('should register key-specific event listeners', async () => {
@@ -120,7 +120,7 @@ describe('RunCache', () => {
       
       // Verify the event was registered by attempting to clear it
       expect(await RunCache.clearEventListeners({ 
-        event: EVENT.EXPIRE,
+        event: EVENT._EXPIRE,
         key: specificKey
       })).toBe(true);
     });

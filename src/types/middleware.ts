@@ -22,20 +22,15 @@ export interface MiddlewareContext {
 }
 
 /**
- * Middleware function type.
+ * Base middleware function type.
  * Each middleware can transform the value or pass it through.
  * Middleware can be synchronous or asynchronous.
- * 
- * @param value - The current value being processed
- * @param context - Context information about the operation
- * @param next - Function to call the next middleware in the chain
- * @returns The processed value (possibly transformed)
  */
-export type MiddlewareFunction = (
-  value: string | undefined,
-  context: MiddlewareContext,
-  next: (value: string | undefined) => Promise<string | undefined>
-) => Promise<string | undefined>;
+export type MiddlewareFunction<T = string | undefined> = (
+  _value: T,
+  _context: MiddlewareContext,
+  _next: (_nextValue: T) => Promise<T>
+) => Promise<T>;
 
 /**
  * Interface for registering and managing middleware.
@@ -44,25 +39,38 @@ export interface MiddlewareManager {
   /**
    * Adds a middleware function to the chain.
    * Middleware functions are executed in the order they are added.
-   * 
-   * @param middleware - The middleware function to add
+   *
+   * @param _middleware - The middleware function to add
    * @returns The middleware manager (for chaining)
    */
-  use(middleware: MiddlewareFunction): MiddlewareManager;
+  use(_middleware: MiddlewareFunction): MiddlewareManager;
 
   /**
    * Clears all middleware functions.
-   * 
+   *
    * @returns The middleware manager (for chaining)
    */
   clear(): MiddlewareManager;
 
   /**
    * Executes the middleware chain for a given operation.
-   * 
-   * @param value - The initial value
-   * @param context - Context information about the operation
+   *
+   * @param _value - The initial value
+   * @param _context - Context information about the operation
    * @returns The final processed value after all middleware execution
    */
-  execute(value: string | undefined, context: MiddlewareContext): Promise<string | undefined>;
-} 
+  execute(_value: string | undefined, _context: MiddlewareContext): Promise<string | undefined>;
+}
+
+export type BeforeMiddleware<T = any> = (_value: T, _context: MiddlewareContext) => Promise<void>;
+export type AfterMiddleware<T = any> = (_value: T, _context: MiddlewareContext) => Promise<void>;
+export type ErrorMiddleware<T = any> = (
+  _error: Error,
+  _value: T,
+  _context: MiddlewareContext,
+  _next: () => Promise<void>
+) => Promise<void>;
+
+export type MiddlewareConfig = {
+  middleware: MiddlewareFunction[];
+};

@@ -31,7 +31,7 @@ RunCache works in both Node.js and browser environments. For browser usage, you 
 
 ```html
 <script type="module">
-  import { RunCache } from 'https://unpkg.com/run-cache/dist/esm/index.js';
+  import { RunCache } from 'https://unpkg.com/run-cache/dist/esm/index';
   
   // Now you can use RunCache in your code
   RunCache.set({ key: 'example', value: 'Hello, world!' });
@@ -48,7 +48,7 @@ import { RunCache, EvictionPolicy } from 'run-cache';
 
 // Configure with proper type checking
 RunCache.configure({
-  maxSize: 100,
+  maxEntries: 100,
   evictionPolicy: EvictionPolicy.LRU
 });
 ```

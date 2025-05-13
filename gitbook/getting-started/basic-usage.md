@@ -215,9 +215,9 @@ import { RunCache, EvictionPolicy } from 'run-cache';
 
 // Configure cache settings
 RunCache.configure({
-  maxSize: 1000, // Maximum number of entries
+  maxEntries: 1000, // Maximum number of entries
   evictionPolicy: EvictionPolicy.LRU, // Least Recently Used eviction policy
-  verbose: true // Enable verbose logging for debugging
+  debug: true // Enable debug logging for debugging
 });
 
 // Get current configuration
@@ -226,9 +226,9 @@ console.log(config);
 ```
 
 Configuration options include:
-- `maxSize`: Maximum number of entries before eviction
-- `evictionPolicy`: Strategy for removing entries when maxSize is reached
-- `verbose`: Enable detailed logging for debugging
+- `maxEntries`: Maximum number of entries before eviction
+- `evictionPolicy`: Strategy for removing entries when maxEntries is reached
+- `debug`: Enable detailed logging for debugging
 - `storageAdapter`: Configure persistent storage
 
 ## Practical Example: API Caching

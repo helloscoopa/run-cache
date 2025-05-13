@@ -13,7 +13,7 @@ interface RunCacheConfig {
   /**
    * Maximum number of entries before eviction
    */
-  maxSize?: number;
+  maxEntries?: number;
   
   /**
    * Eviction policy to use
@@ -21,9 +21,9 @@ interface RunCacheConfig {
   evictionPolicy?: EvictionPolicy;
   
   /**
-   * Enable verbose logging
+   * Enable debug logging
    */
-  verbose?: boolean;
+  debug?: boolean;
   
   /**
    * Storage adapter for persistence
@@ -499,9 +499,9 @@ import {
 import { RunCache, EvictionPolicy, type RunCacheConfig } from 'run-cache';
 
 const config: RunCacheConfig = {
-  maxSize: 1000,
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU,
-  verbose: true
+  debug: true
 };
 
 RunCache.configure(config);

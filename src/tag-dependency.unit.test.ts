@@ -87,7 +87,7 @@ describe("Tag and Dependency Invalidation", () => {
         expect.objectContaining({
           key,
           value,
-          tag
+          tag: 'user:123'
         })
       );
       
@@ -227,7 +227,7 @@ describe("Tag and Dependency Invalidation", () => {
       expect(depInvalidationCallback).toHaveBeenCalledWith(
         expect.objectContaining({
           key: dependentKey,
-          value: "dependent-value",
+          value: 'dependent-value',
           dependencyKey
         })
       );

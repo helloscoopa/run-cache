@@ -1,25 +1,26 @@
-import { RunCacheConfig, EvictionPolicy } from '../types/cache-config';
+import { CacheConfig, EvictionPolicy } from '../types/cache-config';
 import { CacheState, SourceFn } from '../types/cache-state';
-import { EVENT, EmitParam, EventName, EventParam } from '../types/events';
+import { EVENT, EventName, EventParam } from '../types/events';
 import { Logger } from '../logging/logger';
 import { EventSystem } from './event-system';
 import { LFUPolicy, LRUPolicy } from '../policies/eviction-policies';
-import { isExpired as originalIsExpired, matchesPattern, validateTTL, normalizeTag, normalizeTags } from './utils';
+import {
+  isExpired as originalIsExpired, matchesPattern, validateTTL, normalizeTag, normalizeTags,
+} from './utils';
 import { DefaultMiddlewareManager } from './middleware-manager';
 import { MiddlewareContext, MiddlewareFunction, MiddlewareManager } from '../types/middleware';
 import { StorageAdapter } from '../types/storage-adapter';
 
 // Use the original isExpired function but add a custom wrapper for the simpler case
-function isExpired(cache: CacheState): boolean;
-function isExpired(updatedAt: number, ttl: number): boolean;
+function isExpired(_cache: CacheState): boolean;
+function isExpired(_updatedAt: number, _ttl: number): boolean;
 function isExpired(cacheOrUpdatedAt: CacheState | number, ttl?: number): boolean {
   if (typeof cacheOrUpdatedAt === 'number' && ttl !== undefined) {
     // Handle the simple case with just timestamp and TTL
     return cacheOrUpdatedAt + ttl < Date.now();
-  } else {
-    // Use the original implementation for CacheState objects
-    return originalIsExpired(cacheOrUpdatedAt as CacheState);
   }
+  // Use the original implementation for CacheState objects
+  return originalIsExpired(cacheOrUpdatedAt as CacheState);
 }
 
 /**
@@ -30,12 +31,12 @@ interface SerializedCacheData {
    * Version of the serialized data format
    */
   version: number;
-  
+
   /**
    * Timestamp when the data was serialized
    */
   timestamp: number;
-  
+
   /**
    * Serialized cache entries
    */
@@ -53,12 +54,12 @@ interface SerializedCacheData {
       sourceFn?: string; // Serialized as string if available
     };
   };
-  
+
   /**
    * Cache configuration
    */
   config: {
-    maxSize?: number;
+    maxEntries?: number;
     evictionPolicy?: string;
   };
 }
@@ -68,14 +69,22 @@ interface SerializedCacheData {
  */
 export class CacheStore {
   private cache: Map<string, CacheState>;
-  private config: RunCacheConfig;
+
+  private config: CacheConfig;
+
   private logger: Logger;
+
   private eventSystem: EventSystem;
+
   private lruPolicy: LRUPolicy;
+
   private lfuPolicy: LFUPolicy;
+
   private middlewareManager: MiddlewareManager;
+
   private storageAdapter: StorageAdapter | null = null;
-  private autoSaveInterval: NodeJS.Timeout | null = null;
+
+  private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Creates a new CacheStore instance.
@@ -83,24 +92,23 @@ export class CacheStore {
    * @param config Configuration options
    * @private
    */
-  private constructor(config: RunCacheConfig = {}) {
+  private constructor(config: CacheConfig = {}) {
     this.config = {
-      maxSize: Number.POSITIVE_INFINITY,
+      maxEntries: Number.POSITIVE_INFINITY,
       evictionPolicy: EvictionPolicy.NONE,
-      verbose: false,
-      allowUnsafeSourceFnDeserialization: false,
-      ...config
+      debug: false,
+      ...config,
     };
-    
+
     this.cache = new Map<string, CacheState>();
     this.logger = new Logger(this.config);
     this.eventSystem = new EventSystem(this.logger);
     this.middlewareManager = new DefaultMiddlewareManager(this.logger);
-    
+
     // Initialize policies
     this.lruPolicy = new LRUPolicy(this.logger);
     this.lfuPolicy = new LFUPolicy(this.logger);
-    
+
     // Initialize storage adapter if provided, but defer loading until create() method
     if (this.config.storageAdapter) {
       this.storageAdapter = this.config.storageAdapter;
@@ -110,13 +118,13 @@ export class CacheStore {
   /**
    * Creates and initializes a new CacheStore instance with proper async storage loading.
    * This is the recommended way to create a CacheStore to ensure all data is loaded before use.
-   * 
+   *
    * @param config Configuration options
    * @returns A fully initialized CacheStore instance with data loaded from storage
    */
-  static async create(config: RunCacheConfig = {}): Promise<CacheStore> {
+  static async create(config: CacheConfig = {}): Promise<CacheStore> {
     const store = new CacheStore(config);
-    
+
     // Load from storage if a storage adapter is provided
     if (store.storageAdapter) {
       try {
@@ -125,7 +133,7 @@ export class CacheStore {
         store.logger.log('error', 'Failed to load cache data from storage', error);
       }
     }
-    
+
     return store;
   }
 
@@ -150,8 +158,8 @@ export class CacheStore {
     dependencies?: string[];
   }): Promise<boolean> {
     if (!key?.length) {
-      this.logger.log('error', `Empty key provided to set() method`);
-      throw new Error("Empty key");
+      this.logger.log('error', 'Empty key provided to set() method');
+      throw new Error('Empty key');
     }
 
     if (sourceFn === undefined && (value === undefined || !value.length)) {
@@ -161,7 +169,7 @@ export class CacheStore {
 
     if (autoRefetch && !ttl) {
       this.logger.log('error', `autoRefetch enabled without ttl for key: ${key}`);
-      throw new Error("`autoRefetch` is not allowed without a `ttl`");
+      throw new Error('`autoRefetch` is not allowed without a `ttl`');
     }
 
     // Validate that TTL is positive if provided
@@ -176,75 +184,78 @@ export class CacheStore {
     if (tags) {
       if (!Array.isArray(tags)) {
         this.logger.log('error', `Invalid tags provided for key: ${key}, must be an array`);
-        throw new Error("`tags` must be an array");
+        throw new Error('`tags` must be an array');
       }
-      
+
       // Create a set to check for duplicates
       const tagSet = new Set<string>();
-      
+
       for (const tag of tags) {
         // Check if tag is a non-empty string
         if (typeof tag !== 'string' || !tag.trim().length) {
           this.logger.log('error', `Invalid tag provided for key: ${key}, each tag must be a non-empty string`);
-          throw new Error("Each tag must be a non-empty string");
+          throw new Error('Each tag must be a non-empty string');
         }
-        
+
         // Normalize tag
         const normalizedTag = normalizeTag(tag);
-        
+
         // Check for duplicates
         if (tagSet.has(normalizedTag)) {
           this.logger.log('error', `Duplicate tag "${tag}" provided for key: ${key}`);
           throw new Error(`Duplicate tag "${tag}" detected`);
         }
-        
+
         tagSet.add(normalizedTag);
       }
     }
-    
+
     // Validate dependencies array
     if (dependencies) {
       if (!Array.isArray(dependencies)) {
         this.logger.log('error', `Invalid dependencies provided for key: ${key}, must be an array`);
-        throw new Error("`dependencies` must be an array");
+        throw new Error('`dependencies` must be an array');
       }
-      
+
       // Create a set to check for duplicates
       const depSet = new Set<string>();
-      
+
       for (const dep of dependencies) {
         // Check if dependency is a non-empty string
         if (typeof dep !== 'string' || !dep.trim().length) {
           this.logger.log('error', `Invalid dependency provided for key: ${key}, each dependency must be a non-empty string`);
-          throw new Error("Each dependency must be a non-empty string");
+          throw new Error('Each dependency must be a non-empty string');
         }
-        
+
         // Check for duplicates
         if (depSet.has(dep)) {
           this.logger.log('error', `Duplicate dependency "${dep}" provided for key: ${key}`);
           throw new Error(`Duplicate dependency "${dep}" detected`);
         }
-        
+
         depSet.add(dep);
       }
-      
+
       // Check if a dependency references the key itself (creates a self-loop)
       if (dependencies.includes(key)) {
-        this.logger.log('error', `Self-referential dependency detected for key: ${key}`);
-        throw new Error("A key cannot depend on itself");
+        this.logger.log(
+          'error',
+          `Self-referential dependency detected for key: ${key}`,
+        );
+        throw new Error('A key cannot depend on itself');
       }
     }
 
     const time = Date.now();
-    
-    this.logger.log('info', `Setting cache for key: ${key}`, { 
+
+    this.logger.log('info', `Setting cache for key: ${key}`, {
       hasTtl: ttl !== undefined,
       ttl,
       hasValue: value !== undefined,
       hasSourceFn: sourceFn !== undefined,
       autoRefetch,
       hasTags: tags !== undefined && tags.length > 0,
-      hasDependencies: dependencies !== undefined && dependencies.length > 0
+      hasDependencies: dependencies !== undefined && dependencies.length > 0,
     });
 
     // Clear existing interval if the key already exists
@@ -260,15 +271,18 @@ export class CacheStore {
       this.logger.log('debug', `Setting expiry interval for key: ${key}, ttl: ${ttl}ms`);
       interval = setTimeout(() => {
         this.logger.log('debug', `TTL expired for key: ${key}`);
-        this.eventSystem.emitEvent(EVENT.EXPIRE, {
-          key,
-          value: value ?? "undefined",
-          ttl,
-          createdAt: time,
-          updatedAt: time,
-        });
+        this.eventSystem.emitEvent(
+          EVENT._EXPIRE,
+          {
+            key,
+            value: value ?? 'undefined',
+            createdAt: time,
+            updatedAt: time,
+            _params: { ttl },
+          },
+        );
 
-        if (typeof sourceFn === "function" && autoRefetch) {
+        if (typeof sourceFn === 'function' && autoRefetch) {
           this.logger.log('debug', `Auto-refetching key: ${key}`);
           this.refetchSingle(key).catch((e) => {
             this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
@@ -280,7 +294,7 @@ export class CacheStore {
 
     let cacheValue = value;
 
-    if (value === undefined && typeof sourceFn === "function") {
+    if (value === undefined && typeof sourceFn === 'function') {
       try {
         this.logger.log('debug', `Fetching value using sourceFn for key: ${key}`);
         cacheValue = await sourceFn();
@@ -299,9 +313,9 @@ export class CacheStore {
         value: cacheValue,
         ttl,
         autoRefetch,
-        timestamp: time
+        timestamp: time,
       };
-      
+
       const processed = await this.middlewareManager.execute(cacheValue, context);
       if (processed === undefined) {
         this.logger.log('error', `Middleware returned undefined for key: ${key}`);
@@ -316,9 +330,10 @@ export class CacheStore {
 
     // Check if adding this entry will exceed max size and enforce eviction if needed
     // Do this check BEFORE adding the new entry to ensure proper eviction
-    if (this.cache.size >= (this.config.maxSize ?? Number.POSITIVE_INFINITY) &&
-        !this.cache.has(key) &&
-        this.config.evictionPolicy !== EvictionPolicy.NONE) {
+    const maxEntries = this.config.maxEntries ?? Number.POSITIVE_INFINITY;
+    if (this.cache.size >= maxEntries
+        && !this.cache.has(key)
+        && this.config.evictionPolicy !== EvictionPolicy.NONE) {
       // We're adding a new key and we're already at max size, so evict one
       this.logger.log('info', `Cache at capacity, evicting one entry before adding key: ${key}`);
       this.enforceEvictionPolicy(1);
@@ -333,7 +348,7 @@ export class CacheStore {
     const finalDependencies = dependencies ? [...dependencies] : (existingCache?.dependencies || []);
 
     this.cache.set(key, {
-      value: cacheValue ?? "undefined",
+      value: cacheValue ?? 'undefined',
       ttl,
       sourceFn,
       autoRefetch,
@@ -347,12 +362,12 @@ export class CacheStore {
       tags: finalTags,
       dependencies: finalDependencies,
     });
-    
-    this.logger.log('debug', `Cache entry set successfully for key: ${key}`, { 
+
+    this.logger.log('debug', `Cache entry set successfully for key: ${key}`, {
       newSize: this.cache.size,
-      maxSize: this.config.maxSize,
+      maxEntries: this.config.maxEntries,
       tags: finalTags,
-      dependencies: finalDependencies
+      dependencies: finalDependencies,
     });
 
     // Double-check after adding to ensure we're not over the limit
@@ -373,10 +388,10 @@ export class CacheStore {
       cached.lastAccessed = now;
       cached.accessCount += 1;
       this.cache.set(key, cached);
-      
-      this.logger.log('debug', `Updated access metadata for key: ${key}`, { 
+
+      this.logger.log('debug', `Updated access metadata for key: ${key}`, {
         before: previousAccess,
-        after: { lastAccessed: cached.lastAccessed, accessCount: cached.accessCount }
+        after: { lastAccessed: cached.lastAccessed, accessCount: cached.accessCount },
       });
     }
     this.enforceEvictionPolicy();
@@ -387,45 +402,44 @@ export class CacheStore {
    */
   private enforceEvictionPolicy(forcedCount?: number): void {
     // Skip if the cache isn't full yet and there's no forced count
-    if (!forcedCount && 
-        this.cache.size <= (this.config.maxSize ?? Number.POSITIVE_INFINITY)) {
+    const maxEntries = this.config.maxEntries ?? Number.POSITIVE_INFINITY;
+    if (!forcedCount && this.cache.size <= maxEntries) {
       return;
     }
 
     // Number of entries to evict
-    const entriesToEvict = 
-      forcedCount ?? 
-      Math.max(0, this.cache.size - (this.config.maxSize ?? Number.POSITIVE_INFINITY));
-    
+    const entriesToEvict = forcedCount ?? Math.max(0, this.cache.size - maxEntries);
+
     if (entriesToEvict <= 0) {
       return;
     }
 
-    this.logger.log('info', `Cache size (${this.cache.size}) exceeds max size (${this.config.maxSize}), evicting ${entriesToEvict} entries using ${this.config.evictionPolicy} policy`);
+    this.logger.log('info', `Cache size (${this.cache.size}) exceeds max size (${maxEntries}), `
+      + `evicting ${entriesToEvict} entries using ${this.config.evictionPolicy} policy`);
 
     // Choose eviction strategy based on configuration
     let keysToEvict: string[] = [];
-    
+
     switch (this.config.evictionPolicy) {
       case EvictionPolicy.LRU:
         keysToEvict = this.lruPolicy.getEntriesToEvict(
           Array.from(this.cache.entries()),
-          entriesToEvict
+          entriesToEvict,
         );
         break;
       case EvictionPolicy.LFU:
         keysToEvict = this.lfuPolicy.getEntriesToEvict(
           Array.from(this.cache.entries()),
-          entriesToEvict
+          entriesToEvict,
         );
         break;
       case EvictionPolicy.NONE:
       default:
         // No automatic eviction
-        this.logger.log('debug', `Skipping eviction as policy is set to NONE`);
+        this.logger.log('debug', 'Skipping eviction as policy is set to NONE');
         break;
     }
-    
+
     // Evict the selected keys
     for (const key of keysToEvict) {
       this.deleteSingle(key);
@@ -436,20 +450,20 @@ export class CacheStore {
    * Gets matching keys from the cache
    */
   private getMatchingKeys(pattern: string): string[] {
-    if (!pattern.includes("*")) {
+    if (!pattern.includes('*')) {
       return this.cache.has(pattern) ? [pattern] : [];
     }
 
     const matchingKeys: string[] = [];
     // Take a snapshot of all keys to avoid concurrent modification issues
     const allKeys = Array.from(this.cache.keys());
-    
+
     for (const key of allKeys) {
       if (matchesPattern(pattern, key)) {
         matchingKeys.push(key);
       }
     }
-    
+
     this.logger.log('debug', `Found ${matchingKeys.length} keys matching pattern: ${pattern}`);
     return matchingKeys;
   }
@@ -459,14 +473,14 @@ export class CacheStore {
    */
   async get(key: string): Promise<string | string[] | undefined> {
     if (!key?.length) {
-      this.logger.log('debug', `Empty key provided to get() method`);
+      this.logger.log('debug', 'Empty key provided to get() method');
       return undefined;
     }
 
     this.logger.log('info', `Getting cache for key: ${key}`);
 
-    const isPattern = key.includes("*");
-    
+    const isPattern = key.includes('*');
+
     if (isPattern) {
       const matchingKeys = this.getMatchingKeys(key);
       if (!matchingKeys.length) {
@@ -483,15 +497,15 @@ export class CacheStore {
             this.logger.log('error', `Error getting cache for key: ${matchedKey}`, error);
             return undefined;
           }
-        })
+        }),
       );
 
       // Filter out undefined values from expired or errored keys
       const validResults = results.filter((result): result is string => result !== undefined);
-      
+
       return validResults.length > 0 ? validResults : undefined;
     }
-    
+
     // For single keys, just get the value directly
     return this.getSingle(key);
   }
@@ -501,7 +515,7 @@ export class CacheStore {
    */
   private async getSingle(key: string): Promise<string | undefined> {
     const cached = this.cache.get(key);
-    
+
     if (!cached) {
       this.logger.log('debug', `Cache miss for key: ${key}`);
       return undefined;
@@ -510,26 +524,24 @@ export class CacheStore {
     // Check if the entry has expired
     if (cached.ttl && isExpired(cached.updatedAt, cached.ttl)) {
       this.logger.log('debug', `Cache expired for key: ${key}`);
-      
+
       // For entries with autoRefetch, generate a new value in the background
       if (cached.autoRefetch && cached.sourceFn) {
         // Only initiate refetch if not already in progress
         if (!cached.fetching) {
           this.logger.log('debug', `Auto-refetching expired key: ${key}`);
-          
+
           // Use Promise.resolve() to ensure proper microtask queue behavior for tests
-          Promise.resolve().then(() => {
-            return this.refetchSingle(key).catch(e => {
-              this.logger.log('error', `Background refetch failed for key: ${key}`, e);
-            });
-          });
+          Promise.resolve().then(() => this.refetchSingle(key).catch((e) => {
+            this.logger.log('error', `Background refetch failed for key: ${key}`, e);
+          }));
         } else {
           this.logger.log('debug', `Refetch already in progress for key: ${key}`);
         }
-        
+
         // Return the stale value while refetching
-        const value = cached.value;
-        
+        const { value } = cached;
+
         // Apply middleware
         const context: MiddlewareContext = {
           key,
@@ -537,9 +549,9 @@ export class CacheStore {
           value,
           ttl: cached.ttl,
           autoRefetch: cached.autoRefetch,
-          timestamp: Date.now()
+          timestamp: Date.now(),
         };
-        
+
         const processed = await this.middlewareManager.execute(value, context);
         if (processed === undefined) {
           this.logger.log('error', `Middleware returned undefined for stale key: ${key}`);
@@ -547,7 +559,7 @@ export class CacheStore {
         }
         return processed;
       }
-      
+
       // For non-autoRefetch entries, remove the entry and return undefined
       this.logger.log('debug', `Removing expired entry for key: ${key}`);
       this.deleteSingle(key);
@@ -557,8 +569,8 @@ export class CacheStore {
     // Cache hit - only update access metadata for non-expired entries
     this.updateAccessMetadata(key);
     this.logger.log('debug', `Cache hit for key: ${key}`);
-    const value = cached.value;
-    
+    const { value } = cached;
+
     // Apply middleware
     const context: MiddlewareContext = {
       key,
@@ -566,9 +578,9 @@ export class CacheStore {
       value,
       ttl: cached.ttl,
       autoRefetch: cached.autoRefetch,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
-    
+
     const processed = await this.middlewareManager.execute(value, context);
     if (processed === undefined) {
       this.logger.log('error', `Middleware returned undefined for key: ${key}`);
@@ -582,7 +594,7 @@ export class CacheStore {
    */
   async refetch(key: string): Promise<boolean> {
     // Handle wildcard patterns
-    if (key.includes("*")) {
+    if (key.includes('*')) {
       this.logger.log('info', `Refetching multiple keys matching pattern: ${key}`);
       const matchingKeys = this.getMatchingKeys(key);
       if (matchingKeys.length === 0) {
@@ -603,11 +615,11 @@ export class CacheStore {
               // If one key fails, we still want to try the others
               return false;
             }
-          })
+          }),
         );
 
         // Return true if any refetch was successful
-        const anySuccessful = results.some(result => result === true);
+        const anySuccessful = results.some((result) => result === true);
         this.logger.log('info', `Refetch of pattern ${key} ${anySuccessful ? 'succeeded' : 'failed'}`);
         return anySuccessful;
       } catch (e) {
@@ -625,65 +637,70 @@ export class CacheStore {
    */
   private async refetchSingle(key: string): Promise<boolean> {
     const cached = this.cache.get(key);
-    
+
     if (!cached) {
       this.logger.log('debug', `Key not found during refetch: ${key}`);
       return false;
     }
-    
+
     if (!cached.sourceFn) {
       this.logger.log('debug', `No source function for key: ${key}`);
       return false;
     }
-    
+
     // Skip if already fetching
     if (cached.fetching) {
       this.logger.log('debug', `Refetch already in progress for key: ${key}`);
       return false;
     }
-    
+
     // Set the fetching flag to prevent concurrent refetches
     cached.fetching = true;
     this.cache.set(key, cached);
-    
+
     try {
       this.logger.log('debug', `Refetching key: ${key}`);
-      
+
       // Execute the source function
       let newValue: string;
       try {
         newValue = await cached.sourceFn();
       } catch (e) {
         this.logger.log('error', `Source function failed during refetch for key: ${key}`, e);
-        
-        // Emit the refetch failure event - IMPORTANT: Do this before throwing
-        this.eventSystem.emitEvent(EVENT.REFETCH_FAILURE, {
-          key,
-          value: cached.value,
-          createdAt: cached.createdAt,
-          updatedAt: cached.updatedAt
-        });
-        
+
+        // Emit event
+        await this.eventSystem.emitEvent(
+          EVENT._REFETCH_FAILURE,
+          {
+            key,
+            value: cached.value,
+            createdAt: cached.createdAt,
+            updatedAt: cached.updatedAt,
+          },
+        );
+
         // Reset the fetching flag before propagating the error
         cached.fetching = false;
         this.cache.set(key, cached);
-        
+
         // Rethrow with more context
         throw new Error(`Source function failed for key: '${key}'`);
       }
-      
+
       // Update timestamps before applying middleware
       const now = Date.now();
-      
-      // Emit the successful refetch event BEFORE applying middleware
-      // This ensures tests can observe the event even if middleware fails
-      this.eventSystem.emitEvent(EVENT.REFETCH, {
-        key,
-        value: newValue,
-        createdAt: cached.createdAt,
-        updatedAt: now
-      });
-      
+
+      // Emit event
+      await this.eventSystem.emitEvent(
+        EVENT._REFETCH,
+        {
+          key,
+          value: newValue,
+          createdAt: now,
+          updatedAt: now,
+        },
+      );
+
       // Apply middleware
       const context: MiddlewareContext = {
         key,
@@ -691,44 +708,46 @@ export class CacheStore {
         value: newValue,
         ttl: cached.ttl,
         autoRefetch: cached.autoRefetch,
-        timestamp: now
+        timestamp: now,
       };
-      
+
       const processed = await this.middlewareManager.execute(newValue, context);
       if (processed === undefined) {
         this.logger.log('error', `Middleware returned undefined during refetch for key: ${key}`);
         throw new Error(`Middleware returned undefined during refetch for key: '${key}'`);
       }
       newValue = processed;
-      
+
       // Clear the existing interval if present
       if (cached.interval) {
         clearTimeout(cached.interval);
       }
-      
+
       // Create a new interval if TTL is specified
-      let newInterval: ReturnType<typeof setTimeout> | undefined = undefined;
-      
+      let newInterval: ReturnType<typeof setTimeout> | undefined;
+
       if (cached.ttl) {
         newInterval = setTimeout(() => {
           this.logger.log('debug', `TTL expired for refetched key: ${key}`);
-          this.eventSystem.emitEvent(EVENT.EXPIRE, {
-            key,
-            value: newValue,
-            ttl: cached.ttl,
-            createdAt: cached.createdAt,
-            updatedAt: now,
-          });
-          
+          this.eventSystem.emitEvent(
+            EVENT._EXPIRE,
+            {
+              key,
+              value: newValue,
+              createdAt: now,
+              updatedAt: now,
+            },
+          );
+
           if (cached.autoRefetch) {
             this.logger.log('debug', `Auto-refetching key after expiry: ${key}`);
-            this.refetchSingle(key).catch(e => {
+            this.refetchSingle(key).catch((e) => {
               this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
             });
           }
         }, cached.ttl);
       }
-      
+
       // Update the cache entry
       this.cache.set(key, {
         ...cached,
@@ -737,20 +756,20 @@ export class CacheStore {
         interval: newInterval,
         fetching: false,
       });
-      
+
       this.logger.log('debug', `Successfully refetched key: ${key}`);
-      
+
       return true;
     } catch (e) {
       // If it's not a source function error that we've already handled, reset the fetching flag
       if (!(e instanceof Error && e.message.startsWith(`Source function failed for key: '${key}'`))) {
         this.logger.log('error', `Refetch failed for key: ${key}`, e);
-        
+
         // Reset the fetching flag
         cached.fetching = false;
         this.cache.set(key, cached);
       }
-      
+
       // Propagate the error
       throw e;
     }
@@ -760,7 +779,7 @@ export class CacheStore {
    * Deletes cache entries matching the specified key
    */
   delete(key: string): boolean {
-    if (key.includes("*")) {
+    if (key.includes('*')) {
       this.logger.log('info', `Deleting keys matching pattern: ${key}`);
       const matchingKeys = this.getMatchingKeys(key);
       if (matchingKeys.length === 0) {
@@ -823,10 +842,10 @@ export class CacheStore {
    * Checks if cache entries exist for the given key
    */
   async has(key: string): Promise<boolean> {
-    if (key.includes("*")) {
+    if (key.includes('*')) {
       this.logger.log('debug', `Checking existence for pattern: ${key}`);
       const matchingKeys = this.getMatchingKeys(key);
-      
+
       for (const matchedKey of matchingKeys) {
         const exists = await this.hasSingle(matchedKey);
         if (exists) {
@@ -834,7 +853,7 @@ export class CacheStore {
           return true;
         }
       }
-      
+
       this.logger.log('debug', `No valid keys found for pattern: ${key}`);
       return false;
     }
@@ -853,13 +872,15 @@ export class CacheStore {
     }
 
     if (cached.ttl && isExpired(cached.updatedAt, cached.ttl)) {
-      this.eventSystem.emitEvent(EVENT.EXPIRE, {
-        key: key,
-        value: cached.value,
-        ttl: cached.ttl,
-        createdAt: cached.createdAt,
-        updatedAt: cached.updatedAt,
-      });
+      this.eventSystem.emitEvent(
+        EVENT._EXPIRE,
+        {
+          key,
+          value: cached.value,
+          createdAt: cached.createdAt,
+          updatedAt: cached.updatedAt,
+        },
+      );
 
       // Clean up expired entry to prevent memory leaks
       if (cached.interval) {
@@ -868,10 +889,10 @@ export class CacheStore {
       }
       this.logger.log('debug', `Removing expired key during has() check: ${key}`);
       this.cache.delete(key);
-      
+
       return false;
     }
-    
+
     // Update access metadata for LRU/LFU - only for non-expired entries
     this.updateAccessMetadata(key);
     return true;
@@ -880,18 +901,18 @@ export class CacheStore {
   /**
    * Configures the cache store
    */
-  async configure(config: RunCacheConfig): Promise<void> {
+  async configure(config: CacheConfig): Promise<void> {
     // Update configuration
     this.config = {
       ...this.config,
-      ...config
+      ...config,
     };
-    
+
     // Update logger
     this.logger.updateConfig(this.config);
-    
+
     // Update storage adapter if provided
-    if ('storageAdapter' in config) {
+    if ('storage' in config) {
       // If we're replacing the storage adapter, save current data first
       if (this.storageAdapter) {
         try {
@@ -900,14 +921,14 @@ export class CacheStore {
           this.logger.log('error', 'Failed to save cache data before changing storage adapter', error);
         }
       }
-      
+
       this.storageAdapter = config.storageAdapter ?? null;
-      
+
       // If the new adapter is null/undefined we're done
       if (!this.storageAdapter) {
         return;
       }
-      
+
       // Load from new storage
       try {
         await this.loadFromStorage();
@@ -920,24 +941,24 @@ export class CacheStore {
   /**
    * Gets the current configuration
    */
-  getConfig(): RunCacheConfig {
+  getConfig(): CacheConfig {
     return { ...this.config };
   }
 
   /**
    * Registers a callback function to be called when a global expiry event occurs.
    */
-  onExpiry(callback: (event: EventParam) => void | Promise<void>): void {
+  onExpiry(callback: (_event: EventParam) => void | Promise<void>): void {
     this.eventSystem.onExpiry(callback);
   }
 
   /**
    * Registers a callback function to be called when an expiry event occurs for a specific key.
    */
-  onKeyExpiry(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+  onKeyExpiry(key: string, callback: (_event: EventParam) => void | Promise<void>): void {
     if (!key?.length) {
-      this.logger.log('error', `Empty key provided to onKeyExpiry() method`);
-      throw Error("Empty key");
+      this.logger.log('error', 'Empty key provided to onKeyExpiry() method');
+      throw Error('Empty key');
     }
     this.eventSystem.onKeyExpiry(key, callback);
   }
@@ -945,17 +966,17 @@ export class CacheStore {
   /**
    * Registers a callback function to be called when a global refetch event occurs.
    */
-  onRefetch(callback: (event: EventParam) => void | Promise<void>): void {
+  onRefetch(callback: (_event: EventParam) => void | Promise<void>): void {
     this.eventSystem.onRefetch(callback);
   }
 
   /**
    * Registers a callback function to be called when a refetch event occurs for a specific key.
    */
-  onKeyRefetch(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+  onKeyRefetch(key: string, callback: (_event: EventParam) => void | Promise<void>): void {
     if (!key?.length) {
-      this.logger.log('error', `Empty key provided to onKeyRefetch() method`);
-      throw Error("Empty key");
+      this.logger.log('error', 'Empty key provided to onKeyRefetch() method');
+      throw Error('Empty key');
     }
     this.eventSystem.onKeyRefetch(key, callback);
   }
@@ -963,17 +984,17 @@ export class CacheStore {
   /**
    * Registers a callback function to be called when a global refetch failure event occurs.
    */
-  onRefetchFailure(callback: (event: EventParam) => void | Promise<void>): void {
+  onRefetchFailure(callback: (_event: EventParam) => void | Promise<void>): void {
     this.eventSystem.onRefetchFailure(callback);
   }
 
   /**
    * Registers a callback function to be called when a refetch failure event occurs for a specific key.
    */
-  onKeyRefetchFailure(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+  onKeyRefetchFailure(key: string, callback: (_event: EventParam) => void | Promise<void>): void {
     if (!key?.length) {
-      this.logger.log('error', `Empty key provided to onKeyRefetchFailure() method`);
-      throw Error("Empty key");
+      this.logger.log('error', 'Empty key provided to onKeyRefetchFailure() method');
+      throw Error('Empty key');
     }
     this.eventSystem.onKeyRefetchFailure(key, callback);
   }
@@ -981,17 +1002,17 @@ export class CacheStore {
   /**
    * Registers a callback function to be called when a global tag invalidation event occurs.
    */
-  onTagInvalidation(callback: (event: EventParam) => void | Promise<void>): void {
+  onTagInvalidation(callback: (_event: EventParam) => void | Promise<void>): void {
     this.eventSystem.onTagInvalidation(callback);
   }
 
   /**
    * Registers a callback function to be called when a tag invalidation event occurs for a specific key.
    */
-  onKeyTagInvalidation(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+  onKeyTagInvalidation(key: string, callback: (_event: EventParam) => void | Promise<void>): void {
     if (!key?.length) {
-      this.logger.log('error', `Empty key provided to onKeyTagInvalidation() method`);
-      throw Error("Empty key");
+      this.logger.log('error', 'Empty key provided to onKeyTagInvalidation() method');
+      throw Error('Empty key');
     }
     this.eventSystem.onKeyTagInvalidation(key, callback);
   }
@@ -999,17 +1020,17 @@ export class CacheStore {
   /**
    * Registers a callback function to be called when a global dependency invalidation event occurs.
    */
-  onDependencyInvalidation(callback: (event: EventParam) => void | Promise<void>): void {
+  onDependencyInvalidation(callback: (_event: EventParam) => void | Promise<void>): void {
     this.eventSystem.onDependencyInvalidation(callback);
   }
 
   /**
    * Registers a callback function to be called when a dependency invalidation event occurs for a specific key.
    */
-  onKeyDependencyInvalidation(key: string, callback: (event: EventParam) => void | Promise<void>): void {
+  onKeyDependencyInvalidation(key: string, callback: (_event: EventParam) => void | Promise<void>): void {
     if (!key?.length) {
-      this.logger.log('error', `Empty key provided to onKeyDependencyInvalidation() method`);
-      throw Error("Empty key");
+      this.logger.log('error', 'Empty key provided to onKeyDependencyInvalidation() method');
+      throw Error('Empty key');
     }
     this.eventSystem.onKeyDependencyInvalidation(key, callback);
   }
@@ -1025,31 +1046,35 @@ export class CacheStore {
    * Serializes the current cache state for storage
    */
   private serializeCache(): string {
-    const serialized: SerializedCacheData = {
-      version: 1,
-      timestamp: Date.now(),
-      entries: {},
-      config: {
-        maxSize: this.config.maxSize,
-        evictionPolicy: this.config.evictionPolicy
-      }
-    };
-    
-    // Serialize each cache entry
-    for (const [key, entry] of this.cache.entries()) {
-      const { interval, sourceFn, fetching, ...serializableData } = entry;
-      
-      // Store the serializable data
-      serialized.entries[key] = {
-        ...serializableData,
-        // Convert source function to string if it exists
-        sourceFn: sourceFn ? sourceFn.toString() : undefined
+    const entries: { [key: string]: any } = {};
+    for (const [key, state] of this.cache.entries()) {
+      entries[key] = {
+        value: state.value,
+        createdAt: state.createdAt,
+        updatedAt: state.updatedAt,
+        ttl: state.ttl,
+        autoRefetch: state.autoRefetch,
+        accessCount: state.accessCount,
+        lastAccessed: state.lastAccessed,
+        tags: state.tags,
+        dependencies: state.dependencies,
+        sourceFn: state.sourceFn ? state.sourceFn.toString() : undefined,
       };
     }
-    
-    return JSON.stringify(serialized);
+
+    const data: SerializedCacheData = {
+      version: 1,
+      timestamp: Date.now(),
+      entries,
+      config: {
+        maxEntries: this.config.maxEntries,
+        evictionPolicy: this.config.evictionPolicy,
+      },
+    };
+
+    return JSON.stringify(data);
   }
-  
+
   /**
    * Deserializes the cached data from storage
    * @param data The serialized cache data
@@ -1057,74 +1082,51 @@ export class CacheStore {
   private deserializeCache(data: string): void {
     try {
       const parsed: SerializedCacheData = JSON.parse(data);
-      
+
       // Check data version
       if (parsed.version !== 1) {
         throw new Error(`Unsupported cache data version: ${parsed.version}`);
       }
-      
+
       // Clear existing cache
       this.flush();
-      
+
       // Restore config
       if (parsed.config) {
-        if (parsed.config.maxSize !== undefined) {
-          this.config.maxSize = parsed.config.maxSize;
+        if (parsed.config.maxEntries !== undefined) {
+          this.config.maxEntries = parsed.config.maxEntries;
         }
-        
+
         if (parsed.config.evictionPolicy) {
           this.config.evictionPolicy = parsed.config.evictionPolicy as EvictionPolicy;
         }
       }
-      
+
       // Restore entries
       if (parsed.entries) {
         for (const [key, entry] of Object.entries(parsed.entries)) {
-          const { sourceFn: sourceFnString, ...entryData } = entry;
-          
-          // Skip entries that have expired
-          if (entryData.ttl && isExpired(entryData.updatedAt, entryData.ttl)) {
-            continue;
-          }
-          
-          // Try to reconstruct source function if it exists
-          let sourceFn: SourceFn | undefined = undefined;
-          if (sourceFnString) {
-            if (this.config.allowUnsafeSourceFnDeserialization) {
-              try {
-                // This is a potential security risk, but explicitly allowed by configuration
-                sourceFn = new Function(`return ${sourceFnString}`)() as SourceFn;
-              } catch (error) {
-                this.logger.log('error', `Failed to reconstruct source function for key: ${key}`);
-              }
-            } else {
-              this.logger.log('warn', `Skipped deserializing sourceFn for key: ${key} due to security policy. Enable 'allowUnsafeSourceFnDeserialization' config option to allow this operation.`);
-            }
-          }
-          
-          // Store in cache
-          const cacheState: CacheState = {
-            ...entryData,
-            sourceFn,
-            accessCount: entryData.accessCount || 0,
-            lastAccessed: entryData.lastAccessed || Date.now()
+          const state: CacheState = {
+            value: entry.value,
+            createdAt: entry.createdAt,
+            updatedAt: entry.updatedAt,
+            ttl: entry.ttl,
+            autoRefetch: entry.autoRefetch,
+            accessCount: entry.accessCount,
+            lastAccessed: entry.lastAccessed,
+            tags: entry.tags,
+            dependencies: entry.dependencies,
           };
-          
-          this.cache.set(key, cacheState);
-          
-          // Reset TTL interval if needed
-          if (entryData.ttl) {
-            this.setExpiryInterval(key, cacheState);
-          }
+
+          this.cache.set(key, state);
         }
       }
-      
+
       this.logger.log('info', `Restored ${this.cache.size} cache entries from storage`);
     } catch (error) {
       throw new Error(`Failed to deserialize cache data: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
   }
-  
+
   /**
    * Sets up an expiry interval for a cache entry
    */
@@ -1133,38 +1135,40 @@ export class CacheStore {
     if (!state.ttl) {
       return;
     }
-    
+
     // Calculate remaining time based on last update
     const elapsed = Date.now() - state.updatedAt;
     const remainingTime = state.ttl - elapsed;
-    
+
     // If already expired, handle expiration immediately
     if (remainingTime <= 0) {
       this.handleExpiry(key, state);
       return;
     }
-    
+
     // Otherwise set timeout for remaining time
     state.interval = setTimeout(() => {
       this.handleExpiry(key, state);
     }, remainingTime);
   }
-  
+
   /**
    * Handles expiry of a cache entry
    */
   private handleExpiry(key: string, state: CacheState): void {
     this.logger.log('debug', `TTL expired for key: ${key}`);
-    
-    this.eventSystem.emitEvent(EVENT.EXPIRE, {
-      key,
-      value: state.value,
-      ttl: state.ttl,
-      createdAt: state.createdAt,
-      updatedAt: state.updatedAt,
-    });
-    
-    if (typeof state.sourceFn === "function" && state.autoRefetch) {
+
+    this.eventSystem.emitEvent(
+      EVENT._EXPIRE,
+      {
+        key,
+        value: state.value,
+        createdAt: state.createdAt,
+        updatedAt: state.updatedAt,
+      },
+    );
+
+    if (typeof state.sourceFn === 'function' && state.autoRefetch) {
       this.logger.log('debug', `Auto-refetching key: ${key}`);
       this.refetchSingle(key).catch((e) => {
         this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
@@ -1172,7 +1176,7 @@ export class CacheStore {
       });
     }
   }
-  
+
   /**
    * Saves the current cache state to storage if a storage adapter is configured
    */
@@ -1180,11 +1184,11 @@ export class CacheStore {
     if (!this.storageAdapter) {
       return false;
     }
-    
+
     try {
       // Serialize the cache data
       const serializedData = this.serializeCache();
-      
+
       // Save to storage
       await this.storageAdapter.save(serializedData);
       this.logger.log('debug', `Cache data saved to storage (${serializedData.length} bytes)`);
@@ -1194,7 +1198,7 @@ export class CacheStore {
       return false;
     }
   }
-  
+
   /**
    * Loads cache state from storage if a storage adapter is configured
    */
@@ -1202,16 +1206,16 @@ export class CacheStore {
     if (!this.storageAdapter) {
       return false;
     }
-    
+
     try {
       // Load from storage
       const data = await this.storageAdapter.load();
-      
+
       if (!data) {
         this.logger.log('info', 'No cached data found in storage');
         return false;
       }
-      
+
       // Deserialize and restore cache
       this.deserializeCache(data);
       return true;
@@ -1220,7 +1224,7 @@ export class CacheStore {
       return false;
     }
   }
-  
+
   /**
    * Sets up auto-save interval for persistent storage
    * @param intervalMs Milliseconds between auto-saves, or 0 to disable
@@ -1231,11 +1235,11 @@ export class CacheStore {
       clearInterval(this.autoSaveInterval);
       this.autoSaveInterval = null;
     }
-    
+
     // Setup new interval if storage adapter exists and interval > 0
     if (this.storageAdapter && intervalMs > 0) {
       this.autoSaveInterval = setInterval(() => {
-        this.saveToStorage().catch(error => {
+        this.saveToStorage().catch((error) => {
           this.logger.log('error', 'Auto-save failed', error);
         });
       }, intervalMs);
@@ -1244,7 +1248,7 @@ export class CacheStore {
 
   /**
    * Adds a middleware function to the middleware chain.
-   * 
+   *
    * @param middleware - The middleware function to add
    * @returns The middleware manager for chaining
    */
@@ -1254,7 +1258,7 @@ export class CacheStore {
 
   /**
    * Clears all middleware functions.
-   * 
+   *
    * @returns The middleware manager for chaining
    */
   clearMiddleware(): MiddlewareManager {
@@ -1264,13 +1268,13 @@ export class CacheStore {
   /**
    * Invalidates all cache entries that have been tagged with the specified tag.
    * Returns true if at least one entry was invalidated, false otherwise.
-   * 
+   *
    * @param {string} tag - The tag to invalidate
    * @returns {boolean} - Whether any entries were invalidated
    */
   invalidateByTag(tag: string): boolean {
     if (!tag || !tag.length) {
-      this.logger.log('error', `Empty tag provided to invalidateByTag() method`);
+      this.logger.log('error', 'Empty tag provided to invalidateByTag() method');
       return false;
     }
 
@@ -1279,22 +1283,25 @@ export class CacheStore {
     this.logger.log('info', `Invalidating cache entries with tag: ${normalizedTag}`);
 
     let invalidated = false;
-    
+
     // Find all keys that have the specified tag
     for (const [key, cacheState] of this.cache.entries()) {
       if (cacheState.tags && cacheState.tags.includes(normalizedTag)) {
         this.logger.log('debug', `Invalidating ${key} due to tag match: ${normalizedTag}`);
-        
+
         // Emit event before deleting
-        this.eventSystem.emitEvent(EVENT.TAG_INVALIDATION, {
-          key,
-          value: cacheState.value,
-          ttl: cacheState.ttl,
-          createdAt: cacheState.createdAt,
-          updatedAt: cacheState.updatedAt,
-          tag: normalizedTag
-        });
-        
+        this.eventSystem.emitEvent(
+          EVENT._TAG_INVALIDATION,
+          {
+            key,
+            value: cacheState.value,
+            createdAt: cacheState.createdAt,
+            updatedAt: cacheState.updatedAt,
+            tag: normalizedTag,
+            _params: { tag: normalizedTag },
+          },
+        );
+
         this.deleteSingle(key);
         invalidated = true;
       }
@@ -1312,13 +1319,13 @@ export class CacheStore {
   /**
    * Invalidates all cache entries that depend on the specified key.
    * Returns true if at least one entry was invalidated, false otherwise.
-   * 
+   *
    * @param {string} key - The dependency key to invalidate by
    * @returns {boolean} - Whether any entries were invalidated
    */
   invalidateByDependency(key: string): boolean {
     if (!key || !key.length) {
-      this.logger.log('error', `Empty key provided to invalidateByDependency() method`);
+      this.logger.log('error', 'Empty key provided to invalidateByDependency() method');
       return false;
     }
 
@@ -1326,7 +1333,7 @@ export class CacheStore {
 
     let invalidated = false;
     const invalidatedKeys = new Set<string>();
-    
+
     // First pass: find all keys that directly depend on the specified key
     for (const [entryKey, cacheState] of this.cache.entries()) {
       if (cacheState.dependencies && cacheState.dependencies.includes(key)) {
@@ -1335,23 +1342,23 @@ export class CacheStore {
         invalidated = true;
       }
     }
-    
+
     // Second pass: look for cascade effects (entries depending on entries we're invalidating)
     let newDependencies = true;
     const processedKeys = new Set<string>();
-    
+
     // Continue finding dependencies until no new ones are found
     while (newDependencies) {
       newDependencies = false;
-      const currentKeys = Array.from(invalidatedKeys).filter(k => !processedKeys.has(k));
-      
+      const currentKeys = Array.from(invalidatedKeys).filter((k) => !processedKeys.has(k));
+
       for (const dependentKey of currentKeys) {
         processedKeys.add(dependentKey);
-        
+
         // Find any entries that depend on this key
         for (const [entryKey, cacheState] of this.cache.entries()) {
           if (invalidatedKeys.has(entryKey)) continue; // Skip already invalidated entries
-          
+
           if (cacheState.dependencies && cacheState.dependencies.includes(dependentKey)) {
             this.logger.log('debug', `Cascade invalidating ${entryKey} due to dependency on: ${dependentKey}`);
             invalidatedKeys.add(entryKey);
@@ -1361,21 +1368,24 @@ export class CacheStore {
         }
       }
     }
-    
+
     // Delete all invalidated keys
     for (const invalidKey of invalidatedKeys) {
       const cacheState = this.cache.get(invalidKey);
       if (cacheState) {
         // Emit event before deleting
-        this.eventSystem.emitEvent(EVENT.DEPENDENCY_INVALIDATION, {
-          key: invalidKey,
-          value: cacheState.value,
-          ttl: cacheState.ttl,
-          createdAt: cacheState.createdAt,
-          updatedAt: cacheState.updatedAt,
-          dependencyKey: key
-        });
-        
+        this.eventSystem.emitEvent(
+          EVENT._DEPENDENCY_INVALIDATION,
+          {
+            key: invalidKey,
+            value: cacheState.value,
+            createdAt: cacheState.createdAt,
+            updatedAt: cacheState.updatedAt,
+            dependencyKey: key,
+            _params: { dependencyKey: key },
+          },
+        );
+
         this.deleteSingle(invalidKey);
       }
     }
@@ -1391,7 +1401,7 @@ export class CacheStore {
 
   /**
    * Checks if the target key depends on the specified dependency key.
-   * 
+   *
    * @param {string} targetKey - The key to check for dependencies
    * @param {string} dependencyKey - The dependency key to look for
    * @param {Set<string>} [visited] - Set of already visited keys to prevent infinite recursion
@@ -1400,10 +1410,10 @@ export class CacheStore {
   async isDependencyOf(
     targetKey: string,
     dependencyKey: string,
-    visited: Set<string> = new Set()
+    visited: Set<string> = new Set(),
   ): Promise<boolean> {
     if (!targetKey || !targetKey.length || !dependencyKey || !dependencyKey.length) {
-      this.logger.log('error', `Empty key provided to isDependencyOf() method`);
+      this.logger.log('error', 'Empty key provided to isDependencyOf() method');
       return false;
     }
 
@@ -1414,7 +1424,7 @@ export class CacheStore {
       this.logger.log('debug', `Already visited ${targetKey}, stopping recursion`);
       return false;
     }
-    
+
     // Add current target to visited set
     visited.add(targetKey);
 
@@ -1457,7 +1467,7 @@ export class CacheStore {
         this.logger.log('error', 'Failed to save cache data during shutdown', error);
       }
     }
-    
+
     // Clear auto-save interval if set
     if (this.autoSaveInterval) {
       clearInterval(this.autoSaveInterval);
@@ -1465,7 +1475,7 @@ export class CacheStore {
     }
 
     // Clear all timeouts
-    for (const [key, cacheItem] of this.cache.entries()) {
+    for (const cacheItem of this.cache.values()) {
       if (cacheItem?.interval) {
         clearTimeout(cacheItem.interval);
         cacheItem.interval = undefined;
@@ -1474,17 +1484,17 @@ export class CacheStore {
 
     // Clear the cache
     this.cache.clear();
-    
+
     // Clear all event listeners
     this.clearEventListeners();
-    
+
     // Detach persistence
     this.storageAdapter = null;
-    
+
     // Defensive: ensure auto-save interval is cleared
     if (this.autoSaveInterval) {
       clearInterval(this.autoSaveInterval);
       this.autoSaveInterval = null;
     }
   }
-} 
+}

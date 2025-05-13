@@ -1,4 +1,6 @@
-import { isExpired, matchesPattern, getMatchingKeys, validateTTL, validateCacheState } from './utils';
+import {
+  isExpired, matchesPattern, getMatchingKeys, validateTTL, validateCacheState,
+} from './utils';
 import { CacheState } from '../types/cache-state';
 
 describe('Cache Utilities', () => {
@@ -113,11 +115,11 @@ describe('Cache Utilities', () => {
     });
 
     it('should throw error for zero ttl', () => {
-      expect(() => validateTTL(0)).toThrow("`ttl` cannot be negative");
+      expect(() => validateTTL(0)).toThrow('`ttl` cannot be negative');
     });
 
     it('should throw error for negative ttl', () => {
-      expect(() => validateTTL(-1000)).toThrow("`ttl` cannot be negative");
+      expect(() => validateTTL(-1000)).toThrow('`ttl` cannot be negative');
     });
   });
 
@@ -144,7 +146,7 @@ describe('Cache Utilities', () => {
         lastAccessed: now,
       } as CacheState;
 
-      expect(() => validateCacheState(invalidState)).toThrow("Cache value cannot be empty");
+      expect(() => validateCacheState(invalidState)).toThrow('Cache value cannot be empty');
     });
 
     it('should throw error for invalid ttl', () => {
@@ -158,7 +160,7 @@ describe('Cache Utilities', () => {
         ttl: -1000,
       };
 
-      expect(() => validateCacheState(invalidState)).toThrow("`ttl` cannot be negative");
+      expect(() => validateCacheState(invalidState)).toThrow('`ttl` cannot be negative');
     });
 
     it('should throw error for invalid createdAt', () => {
@@ -171,7 +173,7 @@ describe('Cache Utilities', () => {
         lastAccessed: now,
       };
 
-      expect(() => validateCacheState(invalidState)).toThrow("Invalid createdAt timestamp");
+      expect(() => validateCacheState(invalidState)).toThrow('Invalid createdAt timestamp');
     });
 
     it('should throw error for invalid updatedAt', () => {
@@ -184,7 +186,7 @@ describe('Cache Utilities', () => {
         lastAccessed: now,
       };
 
-      expect(() => validateCacheState(invalidState)).toThrow("Invalid updatedAt timestamp");
+      expect(() => validateCacheState(invalidState)).toThrow('Invalid updatedAt timestamp');
     });
 
     it('should throw error for autoRefetch without ttl', () => {
@@ -196,10 +198,10 @@ describe('Cache Utilities', () => {
         accessCount: 0,
         lastAccessed: now,
         autoRefetch: true,
-        sourceFn: () => 'new value'
+        sourceFn: () => 'new value',
       };
 
-      expect(() => validateCacheState(invalidState)).toThrow("`autoRefetch` is not allowed without a `ttl`");
+      expect(() => validateCacheState(invalidState)).toThrow('`autoRefetch` is not allowed without a `ttl`');
     });
 
     it('should throw error for autoRefetch without sourceFn', () => {
@@ -211,10 +213,10 @@ describe('Cache Utilities', () => {
         accessCount: 0,
         lastAccessed: now,
         autoRefetch: true,
-        ttl: 1000
+        ttl: 1000,
       };
 
-      expect(() => validateCacheState(invalidState)).toThrow("`autoRefetch` requires sourceFn to be set");
+      expect(() => validateCacheState(invalidState)).toThrow('`autoRefetch` requires sourceFn to be set');
     });
   });
-}); 
+});

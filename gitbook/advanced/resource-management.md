@@ -15,14 +15,14 @@ Effective resource management in RunCache involves:
 
 ### Setting Maximum Cache Size
 
-You can limit the maximum number of entries in the cache using the `maxSize` configuration option:
+You can limit the maximum number of entries in the cache using the `maxEntries` configuration option:
 
 ```typescript
 import { RunCache, EvictionPolicy } from 'run-cache';
 
 // Configure cache with a maximum size of 1000 entries
 RunCache.configure({
-  maxSize: 1000,
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU // Least Recently Used
 });
 ```
@@ -42,13 +42,13 @@ RunCache supports three eviction policies:
 ```typescript
 // Configure with LRU policy
 RunCache.configure({
-  maxSize: 1000,
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU
 });
 
 // Configure with LFU policy
 RunCache.configure({
-  maxSize: 1000,
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LFU
 });
 ```

@@ -7,7 +7,7 @@ RunCache is released under the MIT License, which is a permissive open source li
 ```
 MIT License
 
-Copyright (c) 2023 RunCache Contributors
+Copyright (c) 2024 Dilshan Madushanka
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

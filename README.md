@@ -74,7 +74,7 @@ import { RunCache, EvictionPolicy } from "run-cache";
 
 // Configure the cache with a max size of 100 entries and LRU eviction policy
 RunCache.configure({
-  maxSize: 100,
+  maxEntries: 100,
   evictionPolicy: EvictionPolicy.LRU
 });
 
@@ -93,7 +93,7 @@ RunCache.configure({
 
 // Get the current configuration
 const config = RunCache.getConfig();
-console.log(config); // { maxSize: 100, evictionPolicy: "lfu" }
+console.log(config); // { maxEntries: 100, evictionPolicy: "lfu" }
 ```
 
 ## Tag-based Invalidation
@@ -259,7 +259,7 @@ const hasItems = await RunCache.has("session-*");
 ```typescript
 // Configure cache settings
 RunCache.configure({
-  maxSize: 1000,                  // Maximum number of entries before eviction
+  maxEntries: 1000,                  // Maximum number of entries before eviction
   evictionPolicy: EvictionPolicy.LRU  // Eviction policy to use
 });
 
@@ -517,20 +517,20 @@ This is particularly useful in long-running applications or when you need to rel
 
 ## Debugging and Logging
 
-RunCache provides built-in verbose logging to help with debugging and monitoring cache behavior.
+RunCache provides built-in debug logging to help with debugging and monitoring cache behavior.
 
-### Verbose Logging
+### debug Logging
 
-Enable verbose logging to see detailed information about all cache operations:
+Enable debug logging to see detailed information about all cache operations:
 
 ```typescript
-// Enable verbose logging when configuring the cache
+// Enable debug logging when configuring the cache
 RunCache.configure({
-  verbose: true
+  debug: true
 });
 ```
 
-When verbose mode is enabled, RunCache logs detailed information about:
+When debug mode is enabled, RunCache logs detailed information about:
 - Cache operations (set, get, delete, etc.)
 - Entry expiration and eviction
 - Refetch operations and failures
@@ -539,15 +539,15 @@ When verbose mode is enabled, RunCache logs detailed information about:
 All logs include timestamps and log levels for easy filtering.
 
 ```typescript
-// Example of enabling verbose logging for debugging
-RunCache.configure({ verbose: true });
+// Example of enabling debug logging for debugging
+RunCache.configure({ debug: true });
 
 // Perform some cache operations
 await RunCache.set({ key: "user-1", value: "Alice" });
 await RunCache.get("user-1");
 
-// Disable verbose logging when done debugging
-RunCache.configure({ verbose: false });
+// Disable debug logging when done debugging
+RunCache.configure({ debug: false });
 ```
 
 ### Log Levels
@@ -651,7 +651,7 @@ import { RunCache, LocalStorageAdapter } from 'run-cache';
 
 // Configure RunCache with persistence
 RunCache.configure({
-  maxSize: 1000,
+  maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU,
   storageAdapter: new LocalStorageAdapter({
     storageKey: 'my-app-cache'
