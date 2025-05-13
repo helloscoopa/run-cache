@@ -56,7 +56,8 @@ Configuration is now done through the `configure` method:
 ```typescript
 // Pre-1.0
 const cache = runCache({
-  maxEntries: 1000,
+  maxSize: 1000,
+  verbose: true,
   policy: 'lru'
 });
 
@@ -65,7 +66,8 @@ import { RunCache, EvictionPolicy } from 'run-cache';
 
 RunCache.configure({
   maxEntries: 1000,
-  evictionPolicy: EvictionPolicy.LRU
+  evictionPolicy: EvictionPolicy.LRU,
+  debug: true
 });
 ```
 
@@ -86,7 +88,8 @@ import { RunCache, EvictionPolicy, EVENT } from 'run-cache';
 ```typescript
 // Before
 const cache = runCache({
-  maxEntries: 1000,
+  maxSize: 1000,
+  verbose: true,
   policy: 'lru',
   logger: customLogger
 });
@@ -512,7 +515,7 @@ function migrateDirectory(directory) {
     
     if (stat.isDirectory()) {
       migrateDirectory(filePath);
-    } else if (file.endsWith('') || file.endsWith('')) {
+    } else if (file.endsWith('.js') || file.endsWith('.ts')) {
       migrateFile(filePath);
     }
   }

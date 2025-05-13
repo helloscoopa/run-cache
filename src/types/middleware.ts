@@ -35,7 +35,7 @@ export type MiddlewareFunction<T = string | undefined> = (
 /**
  * Interface for registering and managing middleware.
  */
-export interface MiddlewareManager {
+export interface MiddlewareManager<T = string | undefined> {
   /**
    * Adds a middleware function to the chain.
    * Middleware functions are executed in the order they are added.
@@ -43,14 +43,14 @@ export interface MiddlewareManager {
    * @param _middleware - The middleware function to add
    * @returns The middleware manager (for chaining)
    */
-  use(_middleware: MiddlewareFunction): MiddlewareManager;
+  use(_middleware: MiddlewareFunction<T>): MiddlewareManager<T>;
 
   /**
    * Clears all middleware functions.
    *
    * @returns The middleware manager (for chaining)
    */
-  clear(): MiddlewareManager;
+  clear(): MiddlewareManager<T>;
 
   /**
    * Executes the middleware chain for a given operation.
@@ -59,7 +59,7 @@ export interface MiddlewareManager {
    * @param _context - Context information about the operation
    * @returns The final processed value after all middleware execution
    */
-  execute(_value: string | undefined, _context: MiddlewareContext): Promise<string | undefined>;
+  execute(_value: T, _context: MiddlewareContext): Promise<T>;
 }
 
 export type BeforeMiddleware<T = any> = (_value: T, _context: MiddlewareContext) => Promise<void>;

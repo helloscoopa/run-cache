@@ -669,7 +669,7 @@ export class CacheStore {
         this.logger.log('error', `Source function failed during refetch for key: ${key}`, e);
 
         // Emit event
-        await this.eventSystem.emitEvent(
+        this.eventSystem.emitEvent(
           EVENT.REFETCH_FAILURE,
           {
             key,
@@ -691,7 +691,7 @@ export class CacheStore {
       const now = Date.now();
 
       // Emit event
-      await this.eventSystem.emitEvent(
+      this.eventSystem.emitEvent(
         EVENT.REFETCH,
         {
           key,

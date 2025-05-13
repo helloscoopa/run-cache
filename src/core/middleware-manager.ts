@@ -5,8 +5,8 @@ import { MiddlewareContext, MiddlewareFunction, MiddlewareManager } from '../typ
  * Implements the middleware pattern for RunCache operations.
  * Manages a chain of middleware functions that can transform cache values.
  */
-export class DefaultMiddlewareManager implements MiddlewareManager {
-  private middlewares: MiddlewareFunction[] = [];
+export class DefaultMiddlewareManager<T = string | undefined> implements MiddlewareManager<T> {
+  private middlewares: MiddlewareFunction<T>[] = [];
 
   private logger: Logger;
 
@@ -26,7 +26,7 @@ export class DefaultMiddlewareManager implements MiddlewareManager {
    * @param middleware - The middleware function to add
    * @returns The middleware manager (for chaining)
    */
-  use(middleware: MiddlewareFunction): MiddlewareManager {
+  use(middleware: MiddlewareFunction<T>): MiddlewareManager<T> {
     this.middlewares.push(middleware);
     this.logger.log('debug', `Added middleware function to chain, current length: ${this.middlewares.length}`);
     return this;
@@ -37,7 +37,7 @@ export class DefaultMiddlewareManager implements MiddlewareManager {
    *
    * @returns The middleware manager (for chaining)
    */
-  clear(): MiddlewareManager {
+  clear(): MiddlewareManager<T> {
     this.middlewares = [];
     this.logger.log('debug', 'Cleared all middleware functions');
     return this;
@@ -50,7 +50,7 @@ export class DefaultMiddlewareManager implements MiddlewareManager {
    * @param context - Context information about the operation
    * @returns The final processed value after all middleware execution
    */
-  async execute(value: string | undefined, context: MiddlewareContext): Promise<string | undefined> {
+  async execute(value: T, context: MiddlewareContext): Promise<T> {
     this.logger.log('debug', `Executing middleware chain for operation: ${context.operation}, key: ${context.key}`);
 
     if (this.middlewares.length === 0) {
@@ -67,7 +67,7 @@ export class DefaultMiddlewareManager implements MiddlewareManager {
       let index = 0;
 
       // Create a next function that processes the next middleware
-      const next = async (val: string | undefined): Promise<string | undefined> => {
+      const next = async (val: T): Promise<T> => {
         index++;
         if (index >= middlewares.length) {
           // We're at the end of the chain
