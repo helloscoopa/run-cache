@@ -40,7 +40,7 @@ describe('LocalStorageAdapter', () => {
     it('should throw error if localStorage is not available', () => {
       // First delete the localStorage property
       delete (window as any).localStorage;
-      
+
       // Then try to create the adapter
       expect(() => new LocalStorageAdapter()).toThrow(
         'LocalStorageAdapter can only be used in browser environments with localStorage support',

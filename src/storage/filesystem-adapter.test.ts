@@ -44,12 +44,12 @@ describe('FilesystemAdapter', () => {
     it('should use default file path if not provided', async () => {
       const defaultAdapter = new FilesystemAdapter();
       const defaultPath = path.join(process.cwd(), 'run-cache-data.json');
-      
+
       // Save some data to verify the path
       await defaultAdapter.save('test');
       const exists = await fs.access(defaultPath).then(() => true).catch(() => false);
       expect(exists).toBe(true);
-      
+
       // Clean up
       await fs.unlink(defaultPath);
     });
@@ -57,12 +57,12 @@ describe('FilesystemAdapter', () => {
     it('should use custom file path if provided', async () => {
       const customPath = path.join(process.cwd(), 'custom-cache.json');
       const customAdapter = new FilesystemAdapter({ filePath: customPath });
-      
+
       // Save some data to verify the path
       await customAdapter.save('test');
       const exists = await fs.access(customPath).then(() => true).catch(() => false);
       expect(exists).toBe(true);
-      
+
       // Clean up
       await fs.unlink(customPath);
     });

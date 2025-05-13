@@ -312,7 +312,7 @@ describe('IndexedDBAdapter', () => {
       // First do an operation to ensure DB is initialized
       const putRequest = { onsuccess: null as ((event: Event) => void) | null };
       mockIDBObjectStore.put.mockReturnValue(putRequest);
-      
+
       const savePromise = adapter.save('test-data');
       mockIDBRequest.onsuccess?.(new Event('success'));
       setTimeout(() => putRequest.onsuccess?.(new Event('success')), 0);
@@ -325,10 +325,10 @@ describe('IndexedDBAdapter', () => {
       // Verify DB is closed by checking if next operation initializes new connection
       const secondPutRequest = { onsuccess: null as ((event: Event) => void) | null };
       mockIDBObjectStore.put.mockReturnValue(secondPutRequest);
-      
+
       const secondSavePromise = adapter.save('test-data');
       expect(mockIndexedDB.open).toHaveBeenCalledTimes(2); // Called again after close
-      
+
       mockIDBRequest.onsuccess?.(new Event('success'));
       setTimeout(() => secondPutRequest.onsuccess?.(new Event('success')), 0);
       await secondSavePromise;
