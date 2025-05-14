@@ -61,4 +61,4 @@ RunCache is ideal for:
 
 ## Getting Started
 
-To get started with RunCache, check out the [Installation](getting-started/installation.md) and [Quick Start](getting-started/quick-start.md) guides. 
+To get started with RunCache, check out the [Installation](getting-started/installation.md) guide. 

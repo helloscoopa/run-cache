@@ -8,7 +8,6 @@ This GitBook documentation provides comprehensive information about the RunCache
 
 ### Getting Started
 - **Installation**: Instructions for installing RunCache in different environments
-- **Quick Start**: Basic usage examples to get up and running quickly
 - **Basic Usage**: Common patterns and fundamental concepts
 
 ### Core Features

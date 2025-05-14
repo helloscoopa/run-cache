@@ -71,4 +71,4 @@ testRunCache();
 
 ## Next Steps
 
-Once you have RunCache installed, check out the [Quick Start](quick-start.md) guide to learn how to use the basic features of the library. 
+Once you have RunCache installed, check out the [Basic Usage](basic-usage.md) guide to learn how to use the basic features of the library. 

@@ -279,7 +279,7 @@ This pattern is commonly used to:
 
 ## Next Steps
 
-Now that you understand the basics of RunCache, you can explore more advanced features:
+Now that you understand RunCache, you can explore more advanced features:
 
 - [TTL and Expiration](../features/ttl-expiration.md) - Learn more about time-to-live functionality
 - [Source Functions](../features/source-functions.md) - Dive deeper into source functions
