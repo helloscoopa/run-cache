@@ -12,15 +12,15 @@ import { MiddlewareContext, MiddlewareFunction, MiddlewareManager } from '../typ
 import { StorageAdapter } from '../types/storage-adapter';
 
 // Use the original isExpired function but add a custom wrapper for the simpler case
-function isExpired(_cache: CacheState): boolean;
+function isExpired(_cache: CacheState<string>): boolean;
 function isExpired(_updatedAt: number, _ttl: number): boolean;
-function isExpired(cacheOrUpdatedAt: CacheState | number, ttl?: number): boolean {
+function isExpired(cacheOrUpdatedAt: CacheState<string> | number, ttl?: number): boolean {
   if (typeof cacheOrUpdatedAt === 'number' && ttl !== undefined) {
     // Handle the simple case with just timestamp and TTL
     return cacheOrUpdatedAt + ttl < Date.now();
   }
   // Use the original implementation for CacheState objects
-  return originalIsExpired(cacheOrUpdatedAt as CacheState);
+  return originalIsExpired(cacheOrUpdatedAt as CacheState<string>);
 }
 
 /**
@@ -68,7 +68,7 @@ interface SerializedCacheData {
  * The core cache storage implementation handling cache operations
  */
 export class CacheStore {
-  private cache: Map<string, CacheState>;
+  private cache: Map<string, CacheState<string>>;
 
   private config: CacheConfig;
 
@@ -80,7 +80,7 @@ export class CacheStore {
 
   private lfuPolicy: LFUPolicy;
 
-  private middlewareManager: MiddlewareManager;
+  private middlewareManager: MiddlewareManager<string | undefined>;
 
   private storageAdapter: StorageAdapter | null = null;
 
@@ -100,10 +100,10 @@ export class CacheStore {
       ...config,
     };
 
-    this.cache = new Map<string, CacheState>();
+    this.cache = new Map<string, CacheState<string>>();
     this.logger = new Logger(this.config);
     this.eventSystem = new EventSystem(this.logger);
-    this.middlewareManager = new DefaultMiddlewareManager(this.logger);
+    this.middlewareManager = new DefaultMiddlewareManager<string | undefined>(this.logger);
 
     // Initialize policies
     this.lruPolicy = new LRUPolicy(this.logger);
@@ -153,7 +153,7 @@ export class CacheStore {
     value?: string;
     ttl?: number;
     autoRefetch?: boolean;
-    sourceFn?: SourceFn;
+    sourceFn?: SourceFn<string>;
     tags?: string[];
     dependencies?: string[];
   }): Promise<boolean> {
@@ -307,7 +307,7 @@ export class CacheStore {
 
     // Apply middleware to the value before storing it
     try {
-      const context: MiddlewareContext = {
+      const context: MiddlewareContext<string | undefined> = {
         key,
         operation: 'set',
         value: cacheValue,
@@ -542,7 +542,7 @@ export class CacheStore {
         const { value } = cached;
 
         // Apply middleware
-        const context: MiddlewareContext = {
+        const context: MiddlewareContext<string | undefined> = {
           key,
           operation: 'get',
           value,
@@ -571,7 +571,7 @@ export class CacheStore {
     const { value } = cached;
 
     // Apply middleware
-    const context: MiddlewareContext = {
+    const context: MiddlewareContext<string | undefined> = {
       key,
       operation: 'get',
       value,
@@ -701,7 +701,7 @@ export class CacheStore {
       );
 
       // Apply middleware
-      const context: MiddlewareContext = {
+      const context: MiddlewareContext<string | undefined> = {
         key,
         operation: 'refetch',
         value: newValue,
@@ -1104,7 +1104,7 @@ export class CacheStore {
       // Restore entries
       if (parsed.entries) {
         for (const [key, entry] of Object.entries(parsed.entries)) {
-          const state: CacheState = {
+          const state: CacheState<string> = {
             value: entry.value,
             createdAt: entry.createdAt,
             updatedAt: entry.updatedAt,
@@ -1129,7 +1129,7 @@ export class CacheStore {
   /**
    * Sets up an expiry interval for a cache entry
    */
-  private setExpiryInterval(key: string, state: CacheState): void {
+  private setExpiryInterval(key: string, state: CacheState<string>): void {
     // Skip if no TTL
     if (!state.ttl) {
       return;
@@ -1154,7 +1154,7 @@ export class CacheStore {
   /**
    * Handles expiry of a cache entry
    */
-  private handleExpiry(key: string, state: CacheState): void {
+  private handleExpiry(key: string, state: CacheState<string>): void {
     this.logger.log('debug', `TTL expired for key: ${key}`);
 
     this.eventSystem.emitEvent(
@@ -1251,7 +1251,7 @@ export class CacheStore {
    * @param middleware - The middleware function to add
    * @returns The middleware manager for chaining
    */
-  use(middleware: MiddlewareFunction): MiddlewareManager {
+  use(middleware: MiddlewareFunction<string | undefined>): MiddlewareManager<string | undefined> {
     return this.middlewareManager.use(middleware);
   }
 
@@ -1260,7 +1260,7 @@ export class CacheStore {
    *
    * @returns The middleware manager for chaining
    */
-  clearMiddleware(): MiddlewareManager {
+  clearMiddleware(): MiddlewareManager<string | undefined> {
     return this.middlewareManager.clear();
   }
 

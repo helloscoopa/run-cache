@@ -426,7 +426,7 @@ export class RunCache {
    * 
    * Each middleware function is called in the order they were added.
    */
-  static async use(middleware: MiddlewareFunction) {
+  static async use(middleware: MiddlewareFunction<string | undefined>) {
     await RunCache.ensureInitialized();
     return RunCache.instance.use(middleware);
   }
