@@ -10,6 +10,7 @@ import {
 import { DefaultMiddlewareManager } from './middleware-manager';
 import { MiddlewareContext, MiddlewareFunction, MiddlewareManager } from '../types/middleware';
 import { StorageAdapter } from '../types/storage-adapter';
+import { SerializationManager } from './serialization';
 
 // Use the original isExpired function but add a custom wrapper for the simpler case
 function isExpired(_cache: CacheState<string>): boolean;
@@ -86,6 +87,8 @@ export class CacheStore {
 
   private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
 
+  private serialization: SerializationManager;
+
   /**
    * Creates a new CacheStore instance.
    * Note: Use the static `create` method instead for proper initialization with storage adapters.
@@ -104,6 +107,7 @@ export class CacheStore {
     this.logger = new Logger(this.config);
     this.eventSystem = new EventSystem(this.logger);
     this.middlewareManager = new DefaultMiddlewareManager<string | undefined>(this.logger);
+    this.serialization = new SerializationManager();
 
     // Initialize policies
     this.lruPolicy = new LRUPolicy(this.logger);

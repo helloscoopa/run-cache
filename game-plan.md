@@ -125,6 +125,8 @@ export class SerializationManager {
 
 ### 2.1 Update CacheStore (`src/core/cache-store.ts`)
 
+- [x] **Implement serialization support**
+
 ```typescript
 export class CacheStore<T = string> {
   private cache: Map<string, CacheState<T>>;
@@ -179,6 +181,8 @@ export class CacheStore<T = string> {
 
 ### 2.2 Update RunCache Facade (`src/run-cache.ts`)
 
+- [x] **Add generic methods with serialization**
+
 ```typescript
 export class RunCache {
   private static instance: CacheStore<any>;
@@ -213,6 +217,9 @@ export class RunCache {
     return new TypedCacheInterface<T>();
   }
 }
+
+- [x] **Create TypedCacheInterface class**
+- [x] **Add comprehensive tests for typed functionality**
 
 // New typed interface for better type safety
 export class TypedCacheInterface<T> {
