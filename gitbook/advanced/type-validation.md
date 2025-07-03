@@ -408,7 +408,7 @@ Validators that can transform data during validation:
 class TransformingValidator<TInput, TOutput> implements TypeValidator<TOutput> {
   constructor(
     public name: string,
-    private transform: (input: TInput) => TOutput | null,
+    private transformFn: (input: TInput) => TOutput | null,
     private baseValidator: TypeValidator<TInput>
   ) {}
 
@@ -417,12 +417,12 @@ class TransformingValidator<TInput, TOutput> implements TypeValidator<TOutput> {
       return false;
     }
     
-    const transformed = this.transform(value);
+    const transformed = this.transformFn(value);
     return transformed !== null;
   }
 
-  transform(value: TInput): TOutput | null {
-    return this.transform(value);
+  apply(value: TInput): TOutput | null {
+    return this.transformFn(value);
   }
 }
 
