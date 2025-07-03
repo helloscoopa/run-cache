@@ -1,5 +1,10 @@
 import { RunCache } from './run-cache';
 import { SerializationAdapter } from './core/serialization';
+import { 
+  DateSerializationAdapter,
+  MapSerializationAdapter,
+  SetSerializationAdapter
+} from './examples/serialization-adapters';
 import {
   StringValidator,
   NumberValidator,
@@ -190,31 +195,7 @@ describe('RunCache Usage Examples', () => {
 
   describe('Advanced Features Examples', () => {
     it('should support custom Date serialization adapter', async () => {
-      // Custom serialization for Date objects
-      class DateSerializationAdapter implements SerializationAdapter<Date> {
-        serialize(value: Date): string {
-          return JSON.stringify({ __type__: 'Date', value: value.toISOString() });
-        }
-
-        deserialize(serialized: string): Date {
-          try {
-            const parsed = JSON.parse(serialized);
-            if (parsed.__type__ === 'Date') {
-              return new Date(parsed.value);
-            }
-          } catch {
-            // Fallback to direct parsing
-          }
-          return new Date(serialized);
-        }
-
-        canHandle(value: any): boolean {
-          return value instanceof Date;
-        }
-      }
-
-      // Note: This would require RunCache.addSerializationAdapter method
-      // For now, we'll test the adapter directly
+      // Use the existing DateSerializationAdapter
       const adapter = new DateSerializationAdapter();
       const testDate = new Date('2023-12-25T10:30:00Z');
       
@@ -229,31 +210,7 @@ describe('RunCache Usage Examples', () => {
     });
 
     it('should support Map serialization adapter', async () => {
-      class MapSerializationAdapter implements SerializationAdapter<Map<string, any>> {
-        serialize(value: Map<string, any>): string {
-          return JSON.stringify({
-            __type__: 'Map',
-            entries: Array.from(value.entries())
-          });
-        }
-
-        deserialize(serialized: string): Map<string, any> {
-          try {
-            const parsed = JSON.parse(serialized);
-            if (parsed.__type__ === 'Map' && Array.isArray(parsed.entries)) {
-              return new Map(parsed.entries);
-            }
-          } catch {
-            // Fallback
-          }
-          return new Map();
-        }
-
-        canHandle(value: any): boolean {
-          return value instanceof Map;
-        }
-      }
-
+      // Use the existing MapSerializationAdapter
       const adapter = new MapSerializationAdapter();
       const testMap = new Map<string, any>([
         ['key1', 'value1'],
@@ -272,31 +229,7 @@ describe('RunCache Usage Examples', () => {
     });
 
     it('should support Set serialization adapter', async () => {
-      class SetSerializationAdapter implements SerializationAdapter<Set<any>> {
-        serialize(value: Set<any>): string {
-          return JSON.stringify({
-            __type__: 'Set',
-            values: Array.from(value.values())
-          });
-        }
-
-        deserialize(serialized: string): Set<any> {
-          try {
-            const parsed = JSON.parse(serialized);
-            if (parsed.__type__ === 'Set' && Array.isArray(parsed.values)) {
-              return new Set(parsed.values);
-            }
-          } catch {
-            // Fallback
-          }
-          return new Set();
-        }
-
-        canHandle(value: any): boolean {
-          return value instanceof Set;
-        }
-      }
-
+      // Use the existing SetSerializationAdapter
       const adapter = new SetSerializationAdapter();
       const testSet = new Set(['a', 'b', 'c', 1, 2, 3]);
       
