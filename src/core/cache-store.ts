@@ -1046,6 +1046,25 @@ export class CacheStore {
   }
 
   /**
+   * Checks if a value is a legacy string value (not typed)
+   */
+  private isLegacyStringValue(value: any): boolean {
+    return typeof value === 'string' && !this.hasTypeMetadata(value);
+  }
+
+  /**
+   * Checks if a serialized string contains type metadata
+   */
+  private hasTypeMetadata(serialized: string): boolean {
+    try {
+      const parsed = JSON.parse(serialized);
+      return parsed && typeof parsed === 'object' && '__type__' in parsed;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Serializes the current cache state for storage
    */
   private serializeCache(): string {

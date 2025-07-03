@@ -247,6 +247,8 @@ export class TypedCacheInterface<T> {
 
 ### 3.1 Compatibility Checks
 
+- [x] **Implement compatibility checks in cache-store.ts**
+
 ```typescript
 // In cache-store.ts
 private isLegacyStringValue(value: any): boolean {
@@ -264,6 +266,8 @@ private hasTypeMetadata(serialized: string): boolean {
 ```
 
 ### 3.2 Migration Utilities
+
+- [x] **Create migration utilities in src/utils/migration.ts**
 
 ```typescript
 // src/utils/migration.ts
