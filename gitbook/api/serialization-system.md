@@ -222,9 +222,9 @@ console.log(deserialized.test('Hello   World')); // true
 Handles BigInt serialization for large integers.
 
 ```typescript
-class BigIntSerializationAdapter implements SerializationAdapter<BigInt> {
-  serialize(value: BigInt): string;
-  deserialize(serialized: string): BigInt;
+class BigIntSerializationAdapter implements SerializationAdapter<bigint> {
+  serialize(value: bigint): string;
+  deserialize(serialized: string): bigint;
   canHandle(value: any): boolean; // Returns typeof value === 'bigint'
 }
 ```
