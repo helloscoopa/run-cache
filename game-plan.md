@@ -341,7 +341,17 @@ interface TypedCacheConfig<T> extends CacheConfig {
 
 ## Phase 5: Usage Examples and API Design
 
-### 5.1 Basic Usage
+### 5.1 Basic Usage ✅
+
+- [x] **Created comprehensive usage examples and tests** (`src/usage-examples.test.ts`)
+  - Backward compatible string operations
+  - New typed usage with interfaces 
+  - Typed cache instances
+  - Complex nested objects
+  - Arrays and collections
+  - Primitive types (number, boolean, string arrays)
+  - Source functions with types
+  - 17 comprehensive test cases covering all scenarios
 
 ```typescript
 // Backward compatible - existing code works unchanged
@@ -367,7 +377,21 @@ await userCache.set({ key: 'user:456', value: userData });
 const user2 = await userCache.get('user:456'); // User | undefined
 ```
 
-### 5.2 Advanced Features
+### 5.2 Advanced Features ✅
+
+- [x] **Implemented comprehensive serialization adapters** (`src/examples/serialization-adapters.ts`)
+  - Date serialization adapter with timezone preservation
+  - Map, Set, RegExp, BigInt, URL, Error, Buffer serialization adapters
+  - Class instance serialization adapter with method preservation
+  - TypedArray serialization adapters (Int8Array, Uint8Array, Float32Array, etc.)
+  - CompositeSerializationAdapter for handling multiple types
+  - 33 comprehensive test cases with 100% pass rate
+
+- [x] **Type validation integration examples** (`src/usage-examples.test.ts`)
+  - SchemaValidator usage with complex types
+  - Union types, enum types, optional properties  
+  - Complex validation scenarios with nested objects
+  - Mixed type usage (string and typed values coexisting)
 
 ```typescript
 // Custom serialization
