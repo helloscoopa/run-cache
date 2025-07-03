@@ -50,7 +50,7 @@ export class DefaultMiddlewareManager<T = string | undefined> implements Middlew
    * @param context - Context information about the operation
    * @returns The final processed value after all middleware execution
    */
-  async execute(value: T, context: MiddlewareContext): Promise<T> {
+  async execute(value: T, context: MiddlewareContext<T>): Promise<T> {
     this.logger.log('debug', `Executing middleware chain for operation: ${context.operation}, key: ${context.key}`);
 
     if (this.middlewares.length === 0) {

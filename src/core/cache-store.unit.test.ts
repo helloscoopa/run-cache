@@ -245,4 +245,79 @@ describe('CacheStore', () => {
       await expect(infiniteCache.get('key3')).resolves.toBe('value3');
     });
   });
+
+  describe('backward compatibility', () => {
+    it('should handle legacy string values without type metadata', async () => {
+      const key = 'legacy-key';
+      const value = 'legacy-string-value';
+
+      // Store a simple string value (legacy behavior)
+      await cacheStore.set({ key, value });
+
+      // Should retrieve the same string value
+      await expect(cacheStore.get(key)).resolves.toBe(value);
+    });
+
+    it('should handle values that look like JSON but are plain strings', async () => {
+      const key = 'json-like-key';
+      const value = '{"this": "looks like JSON but is just a string"}';
+
+      // Store a JSON-like string value
+      await cacheStore.set({ key, value });
+
+      // Should retrieve the exact same string
+      await expect(cacheStore.get(key)).resolves.toBe(value);
+    });
+
+    it('should handle empty string values', async () => {
+      const key = 'empty-key';
+      const value = '';
+
+      // Store empty string - this should throw an error due to validation
+      await expect(cacheStore.set({ key, value })).rejects.toThrow(
+        "`value` can't be empty without a `sourceFn`",
+      );
+    });
+
+    it('should handle numeric string values', async () => {
+      const key = 'numeric-key';
+      const value = '12345';
+
+      // Store numeric string
+      await cacheStore.set({ key, value });
+
+      // Should retrieve as string, not number
+      await expect(cacheStore.get(key)).resolves.toBe(value);
+      expect(typeof await cacheStore.get(key)).toBe('string');
+    });
+
+    it('should handle boolean string values', async () => {
+      const key1 = 'bool-key-1';
+      const key2 = 'bool-key-2';
+      const value1 = 'true';
+      const value2 = 'false';
+
+      // Store boolean strings
+      await cacheStore.set({ key: key1, value: value1 });
+      await cacheStore.set({ key: key2, value: value2 });
+
+      // Should retrieve as strings, not booleans
+      await expect(cacheStore.get(key1)).resolves.toBe(value1);
+      await expect(cacheStore.get(key2)).resolves.toBe(value2);
+      expect(typeof await cacheStore.get(key1)).toBe('string');
+      expect(typeof await cacheStore.get(key2)).toBe('string');
+    });
+
+    it('should handle mixed legacy and modern values', async () => {
+      // Store legacy string value
+      await cacheStore.set({ key: 'legacy', value: 'legacy-value' });
+
+      // Store what would be a modern typed value (but stored as string for now)
+      await cacheStore.set({ key: 'modern', value: '{"type": "user", "id": 123}' });
+
+      // Both should be retrievable as strings
+      await expect(cacheStore.get('legacy')).resolves.toBe('legacy-value');
+      await expect(cacheStore.get('modern')).resolves.toBe('{"type": "user", "id": 123}');
+    });
+  });
 });

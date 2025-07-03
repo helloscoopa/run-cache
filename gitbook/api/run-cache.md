@@ -49,23 +49,29 @@ console.log(config); // { maxEntries: 1000, evictionPolicy: "lru", debug: true }
 
 ## Cache Operations
 
-### `set(options)`
+### `set<T = string>(options)`
 
-Sets a cache entry with the specified options.
+Sets a cache entry with the specified options. Supports any serializable JavaScript type.
+
+**Type Parameters:**
+
+- `T` - The type of value being cached (defaults to `string` for backward compatibility)
 
 **Parameters:**
 
 - `options`: `Object` - Cache entry options
   - `key`: `string` - Unique identifier for the cache entry
-  - `value?`: `string` - String value to cache (required if no sourceFn)
+  - `value?`: `T` - Value to cache (required if no sourceFn)
   - `ttl?`: `number` - Time-to-live in milliseconds
   - `autoRefetch?`: `boolean` - Automatically refetch on expiry (requires ttl and sourceFn)
-  - `sourceFn?`: `() => string | Promise<string>` - Function to generate cache value (required if no value)
+  - `sourceFn?`: `() => T | Promise<T>` - Function to generate cache value (required if no value)
   - `tags?`: `string[]` - Array of tags for tag-based invalidation
   - `dependencies?`: `string[]` - Array of cache keys this entry depends on
   - `metadata?`: `any` - Custom metadata to associate with the entry
+  - `validator?`: `TypeValidator<T>` - Optional type validator for runtime checking
+  - `validateOnSet?`: `boolean` - Validate value before caching (default: false)
 
-**Returns:** `Promise<void>`
+**Returns:** `Promise<boolean>` - Returns `true` if the value was successfully set
 
 **Throws:**
 - `Error` - If key is empty
@@ -75,62 +81,121 @@ Sets a cache entry with the specified options.
 **Example:**
 
 ```typescript
-// Basic usage
+// Basic string usage (backward compatible)
 await RunCache.set({ key: 'greeting', value: 'Hello, World!' });
 
-// With TTL
-await RunCache.set({ key: 'temporary', value: 'This will expire', ttl: 60000 });
+// Typed object caching
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
 
-// With source function
-await RunCache.set({
-  key: 'api-data',
-  sourceFn: async () => {
-    const response = await fetch('https://api.example.com/data');
-    const data = await response.json();
-    return JSON.stringify(data);
+const user: User = { id: 1, name: 'John', email: 'john@example.com' };
+await RunCache.set<User>({ key: 'user:1', value: user });
+
+// Array caching with types
+await RunCache.set<number[]>({ key: 'scores', value: [95, 87, 92] });
+
+// With TTL and types
+await RunCache.set<Date>({ 
+  key: 'last-update', 
+  value: new Date(), 
+  ttl: 60000 
+});
+
+// Typed source function
+await RunCache.set<User>({
+  key: 'api-user',
+  sourceFn: async (): Promise<User> => {
+    const response = await fetch('https://api.example.com/user');
+    return response.json(); // Returns typed User object
   },
   ttl: 300000
 });
 
-// With auto-refetch
-await RunCache.set({
+// With auto-refetch and types
+await RunCache.set<{ temperature: number; humidity: number }>({
   key: 'weather',
   sourceFn: () => fetchWeatherData(),
   ttl: 600000,
   autoRefetch: true
 });
 
-// With tags and dependencies
-await RunCache.set({
-  key: 'user:1:dashboard',
-  value: JSON.stringify({ widgets: [...] }),
-  tags: ['user:1', 'dashboard'],
-  dependencies: ['user:1:profile']
+// With tags, dependencies, and validation
+import { userValidator } from './validators';
+
+await RunCache.set<User>({
+  key: 'user:1:profile',
+  value: user,
+  tags: ['user:1', 'profile'],
+  dependencies: ['user:1:session'],
+  validator: userValidator,
+  validateOnSet: true
 });
 ```
 
-### `get(key)`
+### `get<T = string>(key)`
 
-Retrieves a cache entry by key or pattern.
+Retrieves a cache entry by key or pattern with full type safety.
+
+**Type Parameters:**
+
+- `T` - The expected type of the cached value (defaults to `string` for backward compatibility)
 
 **Parameters:**
 
 - `key`: `string` - The key to retrieve, or a pattern with wildcards
 
-**Returns:** `Promise<string | string[] | undefined>`
-- If `key` is a specific key, returns the string value or undefined if not found
-- If `key` is a pattern, returns an array of matching values
+**Returns:** `Promise<T | T[] | undefined>`
+- If `key` is a specific key, returns the typed value or undefined if not found
+- If `key` is a pattern, returns an array of matching typed values
 
 **Example:**
 
 ```typescript
-// Get a specific entry
+// Get a specific string entry (backward compatible)
 const greeting = await RunCache.get('greeting');
 console.log(greeting); // "Hello, World!"
 
-// Get entries matching a pattern
-const userProfiles = await RunCache.get('user:*:profile');
-console.log(userProfiles); // Array of matching values
+// Get typed object
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
+
+const user = await RunCache.get<User>('user:1');
+if (user) {
+  console.log(user.name); // TypeScript knows this is a string
+  console.log(user.id); // TypeScript knows this is a number
+}
+
+// Get typed array
+const scores = await RunCache.get<number[]>('scores');
+if (scores) {
+  const average = scores.reduce((a, b) => a + b) / scores.length;
+}
+
+// Get entries matching a pattern with types
+const userProfiles = await RunCache.get<User>('user:*:profile');
+if (Array.isArray(userProfiles)) {
+  userProfiles.forEach(profile => {
+    console.log(`User: ${profile.name} (${profile.email})`);
+  });
+}
+
+// Complex typed retrieval
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  timestamp: number;
+}
+
+const response = await RunCache.get<ApiResponse<User[]>>('api:users');
+if (response?.success) {
+  response.data.forEach(user => console.log(user.name));
+}
 ```
 
 ### `has(key)`
@@ -589,6 +654,54 @@ Manually loads the cache state from persistent storage.
 await RunCache.loadFromStorage();
 ```
 
+### `createTypedCache<T>()`
+
+Creates a typed cache interface that provides type-safe operations for a specific type.
+
+**Type Parameters:**
+
+- `T` - The type of values that will be cached
+
+**Returns:** `TypedCacheInterface<T>` - A typed cache interface instance
+
+**Example:**
+
+```typescript
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
+
+interface Product {
+  id: number;
+  name: string;
+  price: number;
+}
+
+// Create typed cache instances
+const userCache = RunCache.createTypedCache<User>();
+const productCache = RunCache.createTypedCache<Product>();
+
+// All operations are now strongly typed
+await userCache.set({ 
+  key: 'user:123', 
+  value: { id: 123, name: 'John', email: 'john@example.com' } 
+});
+
+await productCache.set({ 
+  key: 'product:456', 
+  value: { id: 456, name: 'Laptop', price: 999.99 } 
+});
+
+// Type-safe retrieval
+const user = await userCache.get('user:123'); // User | undefined
+const product = await productCache.get('product:456'); // Product | undefined
+
+// TypeScript will enforce correct types
+// userCache.set({ key: 'test', value: { wrong: 'type' } }); // ❌ Type error
+```
+
 ## Resource Management
 
 ### `shutdown()`
@@ -599,7 +712,7 @@ Shuts down the cache, clearing all entries, timers, and event listeners.
 
 **Example:**
 
-```typitten
+```typescript
 // Shut down the cache
 RunCache.shutdown();
 ```

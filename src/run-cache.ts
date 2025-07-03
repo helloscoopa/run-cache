@@ -4,6 +4,7 @@ import { EventParam, EventName, EVENT } from './types/events';
 import { SourceFn } from './types/cache-state';
 import { MiddlewareFunction } from './types/middleware';
 import { StorageAdapter, StorageAdapterConfig } from './types/storage-adapter';
+import { SerializationManager } from './core/serialization';
 
 // Re-export needed types for backwards compatibility with tests
 export { EvictionPolicy, EVENT, EventParam };
@@ -112,6 +113,7 @@ export class RunCache {
   private static instance: CacheStore;
   private static instancePromise: Promise<CacheStore> | null = null;
   private static isInitialized = false;
+  private static serialization = new SerializationManager();
 
   // Register shutdown handlers when the class is loaded
   static {
@@ -185,17 +187,38 @@ export class RunCache {
    *   dependencies: ["user:profile:123", "user:stats:123"]
    * });
    */
-  static async set(params: {
+  static async set<T = string>(params: {
     key: string;
-    value?: string;
+    value?: T;
     ttl?: number;
     autoRefetch?: boolean;
-    sourceFn?: SourceFn;
+    sourceFn?: SourceFn<T>;
     tags?: string[];
     dependencies?: string[];
   }): Promise<boolean> {
     await RunCache.ensureInitialized();
-    return RunCache.instance.set(params);
+    
+    // For backward compatibility, if T is string, pass through directly
+    if (typeof params.value === 'string' || params.value === undefined) {
+      return RunCache.instance.set({
+        ...params,
+        value: params.value as string,
+        sourceFn: params.sourceFn as SourceFn<string> | undefined,
+      });
+    }
+    
+    // For non-string types, serialize the value and wrap the sourceFn
+    const serializedValue = params.value !== undefined ? RunCache.serialization.serialize(params.value) : undefined;
+    const wrappedSourceFn = params.sourceFn ? async () => {
+      const result = await params.sourceFn!();
+      return RunCache.serialization.serialize(result);
+    } : undefined;
+    
+    return RunCache.instance.set({
+      ...params,
+      value: serializedValue,
+      sourceFn: wrappedSourceFn,
+    });
   }
 
   /**
@@ -217,14 +240,39 @@ export class RunCache {
    * Supports wildcard patterns in the key.
    *
    * @async
+   * @template T The type of value to retrieve
    * @param {string} key - The key of the cache entry to retrieve, can include wildcards (*).
-   * @returns {Promise<string | string[] | undefined>} 
-   * - For exact keys: A string value or undefined if not found/expired
-   * - For wildcard keys: An array of matching values or undefined if no matches
+   * @returns {Promise<T | T[] | undefined>} 
+   * - For exact keys: A typed value or undefined if not found/expired
+   * - For wildcard keys: An array of matching typed values or undefined if no matches
    */
-  static async get(key: string): Promise<string | string[] | undefined> {
+  static async get<T = string>(key: string): Promise<T | T[] | undefined> {
     await RunCache.ensureInitialized();
-    return RunCache.instance.get(key);
+    const result = await RunCache.instance.get(key);
+    
+    if (result === undefined) {
+      return undefined;
+    }
+    
+    // Handle array results (wildcard patterns)
+    if (Array.isArray(result)) {
+      return result.map(item => {
+        try {
+          // Try to deserialize, if it fails, return the original string
+          return RunCache.serialization.deserialize<T>(item);
+        } catch {
+          return item as T;
+        }
+      });
+    }
+    
+    // Handle single result
+    try {
+      // Try to deserialize, if it fails, return the original string
+      return RunCache.serialization.deserialize<T>(result);
+    } catch {
+      return result as T;
+    }
   }
 
   /**
@@ -426,7 +474,7 @@ export class RunCache {
    * 
    * Each middleware function is called in the order they were added.
    */
-  static async use(middleware: MiddlewareFunction) {
+  static async use(middleware: MiddlewareFunction<string | undefined>) {
     await RunCache.ensureInitialized();
     return RunCache.instance.use(middleware);
   }
@@ -548,5 +596,150 @@ export class RunCache {
   static async loadFromStorage(): Promise<boolean> {
     await RunCache.ensureInitialized();
     return RunCache.instance.loadFromStorage();
+  }
+
+  /**
+   * Creates a typed cache interface for better type safety.
+   * This provides a strongly-typed interface for cache operations.
+   * 
+   * @template T The type of values that will be stored in the cache
+   * @returns A TypedCacheInterface instance with methods typed for T
+   * 
+   * @example
+   * interface User {
+   *   id: number;
+   *   name: string;
+   *   email: string;
+   * }
+   * 
+   * const userCache = RunCache.createTypedCache<User>();
+   * await userCache.set({ key: 'user:123', value: { id: 123, name: 'John', email: 'john@example.com' } });
+   * const user = await userCache.get('user:123'); // User | undefined
+   */
+  static createTypedCache<T>(): TypedCacheInterface<T> {
+    return new TypedCacheInterface<T>();
+  }
+}
+
+/**
+ * A typed interface for cache operations that provides better type safety.
+ * This class wraps the RunCache static methods with proper typing for a specific type T.
+ * 
+ * @template T The type of values stored in this cache
+ */
+export class TypedCacheInterface<T> {
+  /**
+   * Sets a cache entry with the specified key, value, and optional parameters.
+   * 
+   * @param params Configuration for the cache entry
+   * @returns Promise that resolves to true when the entry is successfully set
+   */
+  async set(params: {
+    key: string;
+    value?: T;
+    ttl?: number;
+    autoRefetch?: boolean;
+    sourceFn?: SourceFn<T>;
+    tags?: string[];
+    dependencies?: string[];
+  }): Promise<boolean> {
+    return RunCache.set<T>(params);
+  }
+
+  /**
+   * Retrieves a value from the cache by key.
+   * 
+   * @param key The cache key to retrieve
+   * @returns Promise that resolves to the typed value, array of values (for wildcard), or undefined
+   */
+  async get(key: string): Promise<T | T[] | undefined> {
+    return RunCache.get<T>(key);
+  }
+
+  /**
+   * Deletes cache entries matching the specified key or pattern.
+   * 
+   * @param key The key or pattern to delete
+   * @returns Promise that resolves to true if entries were deleted
+   */
+  async delete(key: string): Promise<boolean> {
+    return RunCache.delete(key);
+  }
+
+  /**
+   * Checks if cache entries exist for the given key/pattern.
+   * 
+   * @param key The key or pattern to check
+   * @returns Promise that resolves to true if entries exist and are not expired
+   */
+  async has(key: string): Promise<boolean> {
+    return RunCache.has(key);
+  }
+
+  /**
+   * Refetches the cached value using the stored source function.
+   * 
+   * @param key The key to refetch
+   * @returns Promise that resolves to true if refetch was successful
+   */
+  async refetch(key: string): Promise<boolean> {
+    return RunCache.refetch(key);
+  }
+
+  /**
+   * Registers a callback for cache expiry events.
+   * 
+   * @param callback Function to call when entries expire
+   */
+  async onExpiry(callback: (event: EventParam<T>) => void | Promise<void>): Promise<void> {
+    return RunCache.onExpiry(callback as (event: EventParam) => void | Promise<void>);
+  }
+
+  /**
+   * Registers a callback for cache expiry events on a specific key.
+   * 
+   * @param key The key to monitor for expiry
+   * @param callback Function to call when the key expires
+   */
+  async onKeyExpiry(key: string, callback: (event: EventParam<T>) => void | Promise<void>): Promise<void> {
+    return RunCache.onKeyExpiry(key, callback as (event: EventParam) => void | Promise<void>);
+  }
+
+  /**
+   * Registers a callback for refetch events.
+   * 
+   * @param callback Function to call when refetch occurs
+   */
+  async onRefetch(callback: (event: EventParam<T>) => void | Promise<void>): Promise<void> {
+    return RunCache.onRefetch(callback as (event: EventParam) => void | Promise<void>);
+  }
+
+  /**
+   * Registers a callback for refetch events on a specific key.
+   * 
+   * @param key The key to monitor for refetch
+   * @param callback Function to call when the key is refetched
+   */
+  async onKeyRefetch(key: string, callback: (event: EventParam<T>) => void | Promise<void>): Promise<void> {
+    return RunCache.onKeyRefetch(key, callback as (event: EventParam) => void | Promise<void>);
+  }
+
+  /**
+   * Registers a callback for refetch failure events.
+   * 
+   * @param callback Function to call when refetch fails
+   */
+  async onRefetchFailure(callback: (event: EventParam<T>) => void | Promise<void>): Promise<void> {
+    return RunCache.onRefetchFailure(callback as (event: EventParam) => void | Promise<void>);
+  }
+
+  /**
+   * Registers a callback for refetch failure events on a specific key.
+   * 
+   * @param key The key to monitor for refetch failures
+   * @param callback Function to call when refetch fails for the key
+   */
+  async onKeyRefetchFailure(key: string, callback: (event: EventParam<T>) => void | Promise<void>): Promise<void> {
+    return RunCache.onKeyRefetchFailure(key, callback as (event: EventParam) => void | Promise<void>);
   }
 } 

@@ -33,8 +33,10 @@ export type EventName = keyof typeof EVENT
 
 /**
  * Event parameter type shared across all event handlers
+ *
+ * @template T The type of the cached value
  */
-export type EventParam = {
+export type EventParam<T = string> = {
   /**
    * The cache key associated with the event
    */
@@ -43,7 +45,12 @@ export type EventParam = {
   /**
    * The cached value
    */
-  value: string;
+  value: T;
+
+  /**
+   * Serialized value for compatibility with event handlers
+   */
+  serializedValue?: string;
 
   /**
    * Time-to-live in milliseconds, if applicable
@@ -97,10 +104,11 @@ export interface EmitParam {
  * Event callback function type.
  * This defines the signature of functions that can be registered as event handlers.
  *
- * @param {EventParam} params - The event parameters containing cache entry data
+ * @template T The type of the cached value
+ * @param {EventParam<T>} params - The event parameters containing cache entry data
  * @returns {Promise<void> | void} May return a Promise for async handlers or void for sync handlers
  */
-export type EventFn = (_params: EventParam) => Promise<void> | void;
+export type EventFn<T = string> = (_params: EventParam<T>) => Promise<void> | void;
 
 export type EventParams = {
   _params: Record<string, any>;
