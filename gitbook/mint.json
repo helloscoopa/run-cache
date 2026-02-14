@@ -1,0 +1,96 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "RunCache",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#0D9373",
+    "light": "#07C983",
+    "dark": "#0D9373"
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/helloscoopa/run-cache"
+    },
+    {
+      "name": "NPM",
+      "url": "https://www.npmjs.com/package/run-cache"
+    }
+  ],
+  "anchors": [],
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/getting-started/installation"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "getting-started/installation",
+        "getting-started/basic-usage",
+        "getting-started/typed-caching"
+      ]
+    },
+    {
+      "group": "Core Features",
+      "pages": [
+        "features/cache-management",
+        "features/ttl-expiration",
+        "features/auto-refetch",
+        "features/source-functions",
+        "features/eviction-policies",
+        "features/pattern-matching"
+      ]
+    },
+    {
+      "group": "Advanced Features",
+      "pages": [
+        "advanced/tag-invalidation",
+        "advanced/dependency-tracking",
+        "advanced/event-system",
+        "advanced/middleware",
+        "advanced/persistent-storage",
+        "advanced/resource-management",
+        "advanced/serialization-adapters",
+        "advanced/type-validation"
+      ]
+    },
+    {
+      "group": "API Reference",
+      "pages": [
+        "api/run-cache",
+        "api/storage-adapters",
+        "api/events",
+        "api/types",
+        "api/typed-cache-interface",
+        "api/serialization-system"
+      ]
+    },
+    {
+      "group": "Guides",
+      "pages": [
+        "guides/best-practices",
+        "guides/performance",
+        "guides/debugging",
+        "guides/migration-guide"
+      ]
+    },
+    {
+      "group": "Resources",
+      "pages": [
+        "resources/faq",
+        "resources/contributing",
+        "resources/license"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/helloscoopa/run-cache"
+  }
+}
