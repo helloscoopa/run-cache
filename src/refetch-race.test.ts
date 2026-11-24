@@ -182,4 +182,105 @@ describe('overlapping set() calls for the same key', () => {
     await expect(RunCache.set({ key: 'k', value: 'ok' })).resolves.toBe(true);
     expect(await RunCache.get('k')).toBe('ok');
   });
+
+  /** A sourceFn that resolves only when `release(value)` is called */
+  function controlled() {
+    let resolveValue: (value: string) => void = () => {};
+    let markStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const sourceFn = () => new Promise<string>((resolve) => {
+      resolveValue = resolve;
+      markStarted();
+    });
+    // Waits until set() has actually called the source function before resolving it
+    const release = async (value: string) => {
+      await started;
+      resolveValue(value);
+    };
+    return { sourceFn, release };
+  }
+
+  it('applies an earlier set() when a later set() fails in its sourceFn', async () => {
+    const slow = controlled();
+    const first = RunCache.set({ key: 'k', sourceFn: slow.sourceFn });
+    await expect(RunCache.set({
+      key: 'k', sourceFn: () => { throw new Error('boom'); },
+    })).rejects.toThrow();
+
+    slow.release('first');
+    await expect(first).resolves.toBe(true);
+    expect(await RunCache.get('k')).toBe('first');
+  });
+
+  it('applies an earlier set() when a later set() fails in middleware', async () => {
+    const slow = controlled();
+    const first = RunCache.set({ key: 'k', sourceFn: slow.sourceFn });
+    await RunCache.use(async (value, context, next) => {
+      if (context.operation === 'set' && value === 'rejected') throw new Error('invalid');
+      return next(value);
+    });
+    await expect(RunCache.set({ key: 'k', value: 'rejected' })).rejects.toThrow();
+
+    slow.release('first');
+    await expect(first).resolves.toBe(true);
+    expect(await RunCache.get('k')).toBe('first');
+    await RunCache.clearMiddleware();
+  });
+
+  it('keeps the newest value when three set() calls overlap', async () => {
+    const a = controlled();
+    const b = controlled();
+    const first = RunCache.set({ key: 'k', sourceFn: a.sourceFn });
+    const second = RunCache.set({ key: 'k', sourceFn: b.sourceFn });
+    await RunCache.set({ key: 'k', value: 'third' });
+
+    b.release('second');
+    a.release('first');
+
+    await expect(second).resolves.toBe(false);
+    await expect(first).resolves.toBe(false);
+    expect(await RunCache.get('k')).toBe('third');
+  });
+
+  it('lets a later set() overwrite an earlier one that finished first', async () => {
+    const a = controlled();
+    const b = controlled();
+    const first = RunCache.set({ key: 'k', sourceFn: a.sourceFn });
+    const second = RunCache.set({ key: 'k', sourceFn: b.sourceFn });
+
+    a.release('first');
+    await expect(first).resolves.toBe(true);
+    b.release('second');
+    await expect(second).resolves.toBe(true);
+    expect(await RunCache.get('k')).toBe('second');
+  });
+
+  it('writes an in-flight set() even if the key is deleted or flushed meanwhile', async () => {
+    // Intended: delete() and flush() act on what is cached at the time they run.
+    // A set() that is still fetching its value has not written anything yet, so it
+    // completes normally; it is the most recent write for the key.
+    const slow = controlled();
+    const pending = RunCache.set({ key: 'k', sourceFn: slow.sourceFn });
+    await RunCache.delete('k');
+    await RunCache.flush();
+
+    slow.release('value');
+    await expect(pending).resolves.toBe(true);
+    expect(await RunCache.get('k')).toBe('value');
+  });
+
+  it('drops per-key ordering state once no set() is in flight', async () => {
+    const store = await CacheStore.create();
+    const internals = store as unknown as { inFlightSets: Map<string, number>; appliedSets: Map<string, number> };
+    const slow = controlled();
+    const first = store.set({ key: 'k', sourceFn: slow.sourceFn });
+    await store.set({ key: 'k', value: 'v' });
+    await expect(store.set({ key: 'other', sourceFn: () => { throw new Error('x'); } })).rejects.toThrow();
+    slow.release('old');
+    await first;
+
+    expect(internals.inFlightSets.size).toBe(0);
+    expect(internals.appliedSets.size).toBe(0);
+    await store.shutdown();
+  });
 });

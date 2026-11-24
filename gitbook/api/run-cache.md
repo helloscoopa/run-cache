@@ -71,7 +71,7 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
   - `validator?`: `TypeValidator<T>` - Optional type validator for runtime checking
   - `validateOnSet?`: `boolean` - Validate value before caching (default: false)
 
-**Returns:** `Promise<boolean>` - Returns `true` if the value was successfully set. Returns `false` if another `set()` for the same key started later and has replaced this one while it was still waiting for its `sourceFn` or middleware; the newer value is kept.
+**Returns:** `Promise<boolean>` - Returns `true` if the value was successfully set. Returns `false` if another `set()` for the same key started later and has already written its value while this one was still waiting for its `sourceFn` or middleware; the newer value is kept. A later `set()` that fails does not affect an earlier one. `delete()` and `flush()` act on what is cached when they run, so they do not cancel a `set()` that is still waiting for its value.
 
 **Throws:**
 - `Error` - If key is empty

@@ -92,8 +92,15 @@ export class CacheStore {
   /** Monotonic counter used to order concurrent set() calls */
   private setSequence = 0;
 
-  /** Sequence number of the most recent in-flight set() per key */
-  private pendingSets = new Map<string, number>();
+  /** Number of set() calls currently in flight per key */
+  private inFlightSets = new Map<string, number>();
+
+  /**
+   * Highest sequence number written by a set() per key, kept only while other set()
+   * calls for that key are still in flight. A call that finishes later with a lower
+   * sequence number started earlier and must not overwrite the newer value.
+   */
+  private appliedSets = new Map<string, number>();
 
   /**
    * Creates a new CacheStore instance.
@@ -258,7 +265,7 @@ export class CacheStore {
 
     const time = Date.now();
     const sequence = ++this.setSequence;
-    this.pendingSets.set(key, sequence);
+    this.inFlightSets.set(key, (this.inFlightSets.get(key) ?? 0) + 1);
 
     this.logger.log('info', `Setting cache for key: ${key}`, {
       hasTtl: ttl !== undefined,
@@ -313,7 +320,7 @@ export class CacheStore {
         this.logger.log('debug', `Successfully fetched value using sourceFn for key: ${key}`);
       } catch (e) {
         this.logger.log('error', `Source function failed for key: ${key}`, e);
-        this.releasePendingSet(key, sequence);
+        this.finishSet(key);
         throw new Error(`Source function failed for key: '${key}'`);
       }
     }
@@ -338,18 +345,21 @@ export class CacheStore {
       this.logger.log('debug', `Applied middleware for key: ${key}`);
     } catch (error) {
       this.logger.log('error', `Middleware execution failed for key: ${key}`, error);
-      this.releasePendingSet(key, sequence);
+      this.finishSet(key);
       throw new Error(`Middleware execution failed for key: '${key}'`);
     }
 
-    // A set() for the same key that started later has already been applied (or is
-    // still running); writing now would replace newer data with older data.
-    if (this.pendingSets.get(key) !== sequence) {
+    // A set() for the same key that started later has already written its value;
+    // writing now would replace newer data with older data. A later set() that failed,
+    // or has not finished yet, does not block this one.
+    if ((this.appliedSets.get(key) ?? 0) > sequence) {
       this.logger.log('debug', `Discarding superseded set() for key: ${key}`);
       if (interval) clearTimeout(interval);
+      this.finishSet(key);
       return false;
     }
-    this.pendingSets.delete(key);
+    this.appliedSets.set(key, sequence);
+    this.finishSet(key);
 
     // Check if adding this entry will exceed max size and enforce eviction if needed
     // Do this check BEFORE adding the new entry to ensure proper eviction
@@ -399,12 +409,17 @@ export class CacheStore {
   }
 
   /**
-   * Forgets an in-flight set() that ended without writing, unless a newer one replaced it
+   * Marks one in-flight set() for `key` as finished (written, discarded or failed).
+   * Ordering state for the key is dropped once no set() for it is in flight.
    */
-  private releasePendingSet(key: string, sequence: number): void {
-    if (this.pendingSets.get(key) === sequence) {
-      this.pendingSets.delete(key);
+  private finishSet(key: string): void {
+    const remaining = (this.inFlightSets.get(key) ?? 1) - 1;
+    if (remaining > 0) {
+      this.inFlightSets.set(key, remaining);
+      return;
     }
+    this.inFlightSets.delete(key);
+    this.appliedSets.delete(key);
   }
 
   /**
