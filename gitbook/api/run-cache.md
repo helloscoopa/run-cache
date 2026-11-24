@@ -18,16 +18,18 @@ Configures the cache with global settings.
   - `maxEntries?`: `number` - Maximum number of entries before eviction (default: unlimited)
   - `evictionPolicy?`: `EvictionPolicy` - Eviction policy to use (default: NONE)
   - `debug?`: `boolean` - Enable debug logging (default: false)
-  - `storageAdapter?`: `StorageAdapter` - Storage adapter for persistence (default: none)
+  - `handleProcessSignals?`: `boolean` - Shut the cache down (saving to the storage adapter) on `SIGTERM`/`SIGINT` in Node.js and on `beforeunload` in browsers (default: false). In Node.js the signal is re-raised after shutdown unless your application has its own listener, so the process exits as it would without RunCache. Importing RunCache installs no handlers unless this is enabled.
+  - `onListenerError?`: `(error, { event, key }) => void` - Receives errors thrown (or rejected) by event listeners. By default they are written to `console.error`; listener errors never reach the cache operation that emitted the event.
+  - `storageAdapter?`: `StorageAdapter` - Storage adapter for persistence (default: none). Attaching an adapter loads the data it already holds; if a different adapter was attached before, the current entries are saved to it first, and `configure()` rejects (keeping that adapter) if the save fails. The `maxEntries` and `evictionPolicy` stored with the data are not applied. Pass `undefined` to detach persistence.
 
-**Returns:** `void`
+**Returns:** `Promise<void>` - resolves once the configuration is applied, including loading from a newly attached storage adapter
 
 **Example:**
 
 ```typescript
 import { RunCache, EvictionPolicy } from 'run-cache';
 
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU,
   debug: true
@@ -62,7 +64,7 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
 - `options`: `Object` - Cache entry options
   - `key`: `string` - Unique identifier for the cache entry
   - `value?`: `T` - Value to cache (required if no sourceFn)
-  - `ttl?`: `number` - Time-to-live in milliseconds
+  - `ttl?`: `number` - Time-to-live in milliseconds. Must be a finite, positive number; omit it for entries that never expire. TTLs longer than the `setTimeout` limit (about 24.8 days) are supported.
   - `autoRefetch?`: `boolean` - Automatically refetch on expiry (requires ttl and sourceFn)
   - `sourceFn?`: `() => T | Promise<T>` - Function to generate cache value (required if no value)
   - `tags?`: `string[]` - Array of tags for tag-based invalidation
@@ -71,12 +73,13 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
   - `validator?`: `TypeValidator<T>` - Optional type validator for runtime checking
   - `validateOnSet?`: `boolean` - Validate value before caching (default: false)
 
-**Returns:** `Promise<boolean>` - Returns `true` if the value was successfully set
+**Returns:** `Promise<boolean>` - Returns `true` if the value was successfully set. Returns `false` if another `set()` for the same key started later and has already written its value while this one was still waiting for its `sourceFn` or middleware; the newer value is kept. A later `set()` that fails does not affect an earlier one. `delete()` and `flush()` act on what is cached when they run, so they do not cancel a `set()` that is still waiting for its value.
 
 **Throws:**
 - `Error` - If key is empty
 - `Error` - If neither value nor sourceFn is provided
 - `Error` - If autoRefetch is true but ttl or sourceFn is not provided
+- `Error` - If ttl is `0` or negative (`` `ttl` cannot be negative ``), not a number or `NaN` (`` `ttl` must be a number ``), or `Infinity` (`` `ttl` must be a finite number ``)
 - `Error` - If `dependencies` contains the key itself, or would create a cycle (`Circular dependency detected`)
 
 **Example:**
@@ -151,6 +154,8 @@ Retrieves a cache entry by key or pattern with full type safety.
 **Returns:** `Promise<T | T[] | undefined>`
 - If `key` is a specific key, returns the typed value or undefined if not found
 - If `key` is a pattern, returns an array of matching typed values
+
+Values stored as strings are returned unchanged, even if they look like JSON (`"123"`, `"true"`, `'{"a":1}'`). Only values that were stored from non-string types are deserialized.
 
 **Example:**
 
@@ -266,10 +271,14 @@ Manually refreshes a cache entry or entries matching a pattern.
 - `options?`: `Object` - Optional refresh options
   - `metadata?`: `any` - Custom metadata to include in refetch events
 
-**Returns:** `Promise<void>`
+**Returns:** `Promise<boolean>`
+- `true` if the entry (or, for a pattern, at least one matching entry) was refreshed
+- `false` if the key does not exist, has no source function, is already being refetched, or was changed while its source function was running
+
+If an entry is deleted, flushed, evicted, invalidated or overwritten with `set()` while its refetch is in progress, the refetch result is discarded. The entry is not re-created and no `refetch` event is emitted.
 
 **Throws:**
-- `Error` - If no matching entries have source functions
+- `Error` - If the source function of a single key fails (a `refetch_failure` event is also emitted)
 
 **Example:**
 
@@ -542,12 +551,11 @@ Removes event listeners based on the specified options.
 
 **Parameters:**
 
-- `options?`: `Object` - Options to specify which listeners to remove
-  - `event?`: `EVENT` - The event type to remove listeners for
-  - `key?`: `string` - The key or pattern to remove listeners for
-  - `handler?`: `Function` - The specific handler function to remove
+- `options?`: `Object` - Options to specify which listeners to remove. With no options, every listener is removed; an object that selects nothing (`{}`) removes nothing.
+  - `event?`: `EventName` - The event type to remove listeners for. Only that exact event is affected; for example, clearing `EVENT.REFETCH` keeps `EVENT.REFETCH_FAILURE` listeners.
+  - `key?`: `string` - The key or wildcard pattern to remove listeners for. Without `event`, the key's listeners are removed for every event type. An exact key does not remove wildcard listeners that match it.
 
-**Returns:** `void`
+**Returns:** `Promise<boolean>` - `true` if at least one listener was removed, `false` otherwise
 
 **Example:**
 
@@ -711,15 +719,18 @@ const product = await productCache.get('product:456'); // Product | undefined
 
 ### `shutdown()`
 
-Shuts down the cache, clearing all entries, timers, and event listeners.
+Shuts down the cache: saves to the storage adapter (if one is configured), then clears all entries, timers and event listeners, removes any handlers installed with `handleProcessSignals`, and resets the configuration to its defaults.
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
 // Shut down the cache
-RunCache.shutdown();
+await RunCache.shutdown();
+
+// Or let RunCache do it when the process receives SIGTERM/SIGINT
+await RunCache.configure({ handleProcessSignals: true });
 ```
 
 ## Enums

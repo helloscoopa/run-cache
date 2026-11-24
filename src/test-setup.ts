@@ -66,10 +66,13 @@ const mockIndexedDB = {
 };
 
 // Setup global mocks
-Object.defineProperty(window, 'indexedDB', {
-  value: mockIndexedDB,
-  writable: true,
-});
+// Suites that opt into the Node environment (`@jest-environment node`) have no window
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'indexedDB', {
+    value: mockIndexedDB,
+    writable: true,
+  });
+}
 
 // Reset mocks before each test
 beforeEach(() => {

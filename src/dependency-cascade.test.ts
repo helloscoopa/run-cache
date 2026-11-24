@@ -261,3 +261,36 @@ describe('dependency invalidation details', () => {
   });
 });
 
+describe('dependency cascade combined with other expiry and invalidation rules', () => {
+  afterEach(async () => {
+    await RunCache.flush();
+    await RunCache.clearEventListeners();
+  });
+
+  it('invalidates dependents when a parent kept for manual refetch expires', async () => {
+    await RunCache.set({ key: 'parent', sourceFn: () => 'p', ttl: 20 });
+    await RunCache.set({ key: 'child', value: 'c', dependencies: ['parent'] });
+    await sleep(50);
+
+    const store = (RunCache as unknown as { instance: CacheStore }).instance;
+    const cache = (store as unknown as { cache: Map<string, unknown> }).cache;
+    expect(cache.has('parent')).toBe(true); // kept so it can still be refetched
+    expect(cache.has('child')).toBe(false);
+    await expect(RunCache.refetch('parent')).resolves.toBe(true);
+  });
+
+  it('removes tagged entries before their tag_invalidation listeners run', async () => {
+    const store = await CacheStore.create();
+    const cache = (store as unknown as { cache: Map<string, unknown> }).cache;
+    const seen: boolean[] = [];
+    store.onTagInvalidation((event) => { seen.push(cache.has(event.key)); });
+    await store.set({ key: 'p', value: 'p', tags: ['t'] });
+    await store.set({ key: 'c', value: 'c', tags: ['t'], dependencies: ['p'] });
+
+    store.invalidateByTag('t');
+
+    expect(seen).toEqual([false, false]);
+    await store.shutdown();
+  });
+});
+

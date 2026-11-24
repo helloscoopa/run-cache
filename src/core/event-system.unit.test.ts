@@ -303,10 +303,23 @@ describe('EventSystem', () => {
       expect(key2Spy).toHaveBeenCalledTimes(1);
     });
 
-    it('should throw an error when key is provided without event', () => {
-      expect(() => eventSystem.clearEventListeners({ key: 'key1' })).toThrow(
-        '`key` cannot be provided without `event`',
-      );
+    it('should clear listeners for a key across all events when only key is provided', () => {
+      const expirySpy = jest.fn();
+      const refetchSpy = jest.fn();
+      const otherKeySpy = jest.fn();
+      eventSystem.onKeyExpiry('key1', expirySpy);
+      eventSystem.onKeyRefetch('key1', refetchSpy);
+      eventSystem.onKeyExpiry('key2', otherKeySpy);
+
+      expect(eventSystem.clearEventListeners({ key: 'key1' })).toBe(true);
+
+      eventSystem.emitEvent('EXPIRE' as EventName, createEventParam('key1'));
+      eventSystem.emitEvent('REFETCH' as EventName, createEventParam('key1'));
+      eventSystem.emitEvent('EXPIRE' as EventName, createEventParam('key2'));
+
+      expect(expirySpy).not.toHaveBeenCalled();
+      expect(refetchSpy).not.toHaveBeenCalled();
+      expect(otherKeySpy).toHaveBeenCalledTimes(1);
     });
 
     it('should clear wildcard pattern listeners', () => {

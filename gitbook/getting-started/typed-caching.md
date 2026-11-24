@@ -200,6 +200,8 @@ if (weather) {
 }
 ```
 
+The value returned by a source function is serialized in the same way as a `value` passed to `set()`, both on the initial fetch and on every refetch. Middleware therefore always receives the serialized string.
+
 ## Union Types and Enums
 
 RunCache supports complex TypeScript types including unions and enums:
@@ -397,6 +399,21 @@ const legacyData = await RunCache.get('legacy:data'); // string | undefined
 await RunCache.set<User>({ key: 'modern:user', value: user });
 await RunCache.set({ key: 'legacy:config', value: JSON.stringify(config) });
 ```
+
+Strings are always returned exactly as they were stored. RunCache only deserializes values that it serialized itself, that is values that were not strings when they were set (or returned by a source function). A string that happens to look like JSON keeps its type:
+
+```typescript
+await RunCache.set({ key: 'zip', value: '02134' });
+await RunCache.set({ key: 'config', value: JSON.stringify({ theme: 'dark' }) });
+
+await RunCache.get('zip');    // '02134' (string, not the number 2134)
+await RunCache.get('config'); // '{"theme":"dark"}' (string, parse it yourself)
+
+await RunCache.set<{ theme: string }>({ key: 'config:typed', value: { theme: 'dark' } });
+await RunCache.get<{ theme: string }>('config:typed'); // { theme: 'dark' }
+```
+
+To get an object back from `get()`, store the object itself rather than its JSON string.
 
 ## Performance Considerations
 

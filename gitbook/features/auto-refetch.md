@@ -121,6 +121,8 @@ Manual refetching is useful for:
 - Retrying after a failed automatic refresh
 - Refreshing data after related data changes
 
+`refetch()` resolves to `true` when the new value was stored. It resolves to `false` if the entry changed while the source function was running, for example because it was deleted, invalidated, flushed or overwritten with `set()`. In that case the result is discarded, so a refetch never brings back an entry that was removed, and never overwrites a newer value.
+
 ## Best Practices for Automatic Refetching
 
 ### 1. Use for Critical Data Only
