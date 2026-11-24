@@ -85,3 +85,26 @@ describe('a set() that fails', () => {
     expect(await RunCache.get('k')).toBe('second');
   });
 });
+
+describe('set() timestamps', () => {
+  afterEach(async () => {
+    await RunCache.flush();
+  });
+
+  it('starts the TTL when the value is written, for both the timer and lazy checks', async () => {
+    const before = Date.now();
+    await RunCache.set({
+      key: 'slow',
+      sourceFn: async () => { await sleep(100); return 'v'; },
+      ttl: 150,
+    });
+    const writtenAt = Date.now();
+
+    // 90 ms after the write is well within the 150 ms TTL, even though the
+    // set() call started about 190 ms earlier
+    await sleep(90);
+    expect(await RunCache.has('slow')).toBe(true);
+    expect(writtenAt - before).toBeGreaterThanOrEqual(95);
+  });
+});
+

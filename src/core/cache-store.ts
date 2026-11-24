@@ -303,6 +303,11 @@ export class CacheStore {
     // current entry, including its expiry timer, untouched and create no new timer.
     // The entry is read here (not before the awaits) so it reflects the live state.
     const existingCache = this.cache.get(key);
+
+    // Timestamp the entry now, when its TTL timer starts, so lazy expiry checks
+    // (updatedAt + ttl) and the timer agree on one expiry time even if the value
+    // took a while to fetch.
+    const writtenAt = Date.now();
     if (existingCache?.interval) {
       this.logger.log('debug', `Clearing existing interval for key: ${key}`);
       clearTimeout(existingCache.interval);
@@ -319,8 +324,8 @@ export class CacheStore {
           {
             key,
             value: value ?? 'undefined',
-            createdAt: time,
-            updatedAt: time,
+            createdAt: writtenAt,
+            updatedAt: writtenAt,
             _params: { ttl },
           },
         );
@@ -348,7 +353,7 @@ export class CacheStore {
 
     // Set up proper access metadata - preserve existing metadata for updates
     const accessCount = existingCache ? existingCache.accessCount : 0;
-    const lastAccessed = existingCache ? existingCache.lastAccessed : time;
+    const lastAccessed = existingCache ? existingCache.lastAccessed : writtenAt;
 
     // Process and sanitize tags and dependencies
     const finalTags = tags ? normalizeTags(tags) : (existingCache?.tags || []);
@@ -360,8 +365,8 @@ export class CacheStore {
       sourceFn,
       autoRefetch,
       interval: interval || undefined,
-      createdAt: time,
-      updatedAt: time,
+      createdAt: writtenAt,
+      updatedAt: writtenAt,
       // Initialize access metadata for eviction policies
       accessCount,
       lastAccessed,
