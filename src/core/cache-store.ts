@@ -915,11 +915,13 @@ export class CacheStore {
     this.logger.updateConfig(this.config);
 
     // Update storage adapter if provided
-    if ('storageAdapter' in config) {
+    // Configuring the adapter that is already attached changes nothing: reloading it
+    // would restore its last snapshot over entries that have not been saved yet
+    if ('storageAdapter' in config && (config.storageAdapter ?? null) !== this.storageAdapter) {
       // If we're replacing the storage adapter, save current data first. If that
       // fails, keep the current adapter so no entries are lost and the caller can retry.
       const previousAdapter = this.storageAdapter;
-      if (previousAdapter && previousAdapter !== config.storageAdapter) {
+      if (previousAdapter) {
         if (!(await this.saveToStorage())) {
           this.config.storageAdapter = previousAdapter;
           this.logger.log('error', 'Failed to save cache data before changing storage adapter; keeping the current adapter');

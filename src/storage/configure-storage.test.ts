@@ -150,4 +150,19 @@ describe('RunCache.configure({ storageAdapter })', () => {
     expect(await RunCache.has('from-slow')).toBe(false);
     expect((await RunCache.getConfig()).storageAdapter).toBe(fast);
   });
+
+  it('does not reload the adapter that is already attached', async () => {
+    const adapter = new MemoryAdapter();
+    await RunCache.configure({ storageAdapter: adapter });
+    await RunCache.set({ key: 'saved', value: 'x' });
+    await RunCache.saveToStorage();
+    await RunCache.set({ key: 'unsaved', value: 'y' });
+    const load = jest.spyOn(adapter, 'load');
+
+    await RunCache.configure({ storageAdapter: adapter, debug: false });
+
+    expect(load).not.toHaveBeenCalled();
+    expect(await RunCache.get('unsaved')).toBe('y');
+    expect(await RunCache.get('saved')).toBe('x');
+  });
 });
