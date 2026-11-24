@@ -18,6 +18,7 @@ Configures the cache with global settings.
   - `maxEntries?`: `number` - Maximum number of entries before eviction (default: unlimited)
   - `evictionPolicy?`: `EvictionPolicy` - Eviction policy to use (default: NONE)
   - `debug?`: `boolean` - Enable debug logging (default: false)
+  - `handleProcessSignals?`: `boolean` - Shut the cache down (saving to the storage adapter) on `SIGTERM`/`SIGINT` in Node.js and on `beforeunload` in browsers (default: false). In Node.js the signal is re-raised after shutdown unless your application has its own listener, so the process exits as it would without RunCache. Importing RunCache installs no handlers unless this is enabled.
   - `storageAdapter?`: `StorageAdapter` - Storage adapter for persistence (default: none). Attaching an adapter loads the data it already holds; if a different adapter was attached before, the current entries are saved to it first, and `configure()` rejects (keeping that adapter) if the save fails. The `maxEntries` and `evictionPolicy` stored with the data are not applied. Pass `undefined` to detach persistence.
 
 **Returns:** `Promise<void>` - resolves once the configuration is applied, including loading from a newly attached storage adapter
@@ -713,15 +714,18 @@ const product = await productCache.get('product:456'); // Product | undefined
 
 ### `shutdown()`
 
-Shuts down the cache, clearing all entries, timers, and event listeners.
+Shuts down the cache: saves to the storage adapter (if one is configured), then clears all entries, timers and event listeners, removes any handlers installed with `handleProcessSignals`, and resets the configuration to its defaults.
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
 // Shut down the cache
-RunCache.shutdown();
+await RunCache.shutdown();
+
+// Or let RunCache do it when the process receives SIGTERM/SIGINT
+await RunCache.configure({ handleProcessSignals: true });
 ```
 
 ## Enums
