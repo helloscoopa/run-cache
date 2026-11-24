@@ -64,4 +64,11 @@ export type CacheState<T = string> = {
   // Tag and dependency support
   tags?: string[];
   dependencies?: string[];
+
+  /**
+   * Set once an expire event has been emitted for this version of the entry,
+   * so the timer and lazy expiry checks never report the same expiry twice.
+   * Internal; reset whenever the entry is rewritten.
+   */
+  expiryEmitted?: boolean;
 };

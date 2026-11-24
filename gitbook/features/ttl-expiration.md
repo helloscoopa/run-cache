@@ -100,6 +100,8 @@ RunCache.onKeyExpiry("user-*", (event) => {
 });
 ```
 
+Each expiry is reported once, with the entry's stored `value` and its `ttl`. The event fires when the TTL timer elapses. If a `get()` or `has()` call notices the expiry first, the event fires then instead, and it is not repeated. Entries that are overwritten or deleted before their TTL elapses do not emit an expiry event.
+
 These events can be useful for:
 - Logging and monitoring
 - Triggering background processes

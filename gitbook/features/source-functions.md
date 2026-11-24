@@ -126,19 +126,23 @@ This will:
 
 If a source function throws an error, RunCache handles it appropriately:
 
-### Initial Cache Miss
+### Initial Fetch
 
-If the source function throws an error on initial cache miss:
-1. The error is propagated to the caller
-2. No cache entry is created
+`set()` calls the source function before anything is written. If it throws:
+1. The error is propagated to the caller of `set()`
+2. No cache entry is created, and no TTL timer is started for it (so no `expire` event or auto-refetch follows)
 
 ```typescript
 try {
-  await RunCache.get('api-data'); // First call, source function throws
+  await RunCache.set({ key: 'api-data', sourceFn: fetchApiData, ttl: 60000 });
 } catch (error) {
   console.error('Failed to fetch API data:', error);
 }
 ```
+
+### Overwriting an Existing Entry
+
+If `set()` is called for a key that already exists and the source function (or a middleware) throws, the existing entry is left exactly as it was. It keeps its value, its TTL timer and, if enabled, its automatic refetching. A new value only replaces the old one, together with its TTL, once it has been produced successfully.
 
 ### Refetch Failures
 
