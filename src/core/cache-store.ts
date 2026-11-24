@@ -12,6 +12,17 @@ import { MiddlewareContext, MiddlewareFunction, MiddlewareManager } from '../typ
 import { StorageAdapter } from '../types/storage-adapter';
 import { SerializationManager } from './serialization';
 
+/**
+ * Lets the Node.js process exit while a timer is pending. Cache timers are
+ * housekeeping and should never be the only thing keeping a process alive.
+ * No-op in browsers, where timer handles are numbers.
+ */
+function unrefTimer(timer: unknown): void {
+  if (timer && typeof timer === 'object' && typeof (timer as { unref?: unknown }).unref === 'function') {
+    (timer as { unref: () => void }).unref();
+  }
+}
+
 // Use the original isExpired function but add a custom wrapper for the simpler case
 function isExpired(_cache: CacheState<string>): boolean;
 function isExpired(_updatedAt: number, _ttl: number): boolean;
@@ -292,8 +303,12 @@ export class CacheStore {
             this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
             /* Ignore as the event is already emitted inside the function */
           });
+        } else if (typeof sourceFn !== 'function') {
+          // Entries with a sourceFn are kept so they can still be refetched manually
+          this.removeExpiredEntry(key, interval);
         }
       }, ttl);
+      unrefTimer(interval);
     }
 
     let cacheValue = value;
@@ -377,6 +392,19 @@ export class CacheStore {
     // Double-check after adding to ensure we're not over the limit
     this.enforceEvictionPolicy();
     return true;
+  }
+
+  /**
+   * Removes an entry whose TTL timer has fired, unless the entry has since been
+   * replaced (its timer is then a different one) or already removed.
+   */
+  private removeExpiredEntry(key: string, timer: ReturnType<typeof setTimeout> | null | undefined): void {
+    const current = this.cache.get(key);
+    if (!current || !timer || current.interval !== timer) {
+      return;
+    }
+    this.logger.log('debug', `Removing expired entry for key: ${key}`);
+    this.deleteSingle(key);
   }
 
   /**
@@ -748,7 +776,9 @@ export class CacheStore {
               this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
             });
           }
+          // Refetched entries always have a sourceFn, so they are kept for manual refetch
         }, cached.ttl);
+        unrefTimer(newInterval);
       }
 
       // Update the cache entry
@@ -1070,6 +1100,11 @@ export class CacheStore {
   private serializeCache(): string {
     const entries: { [key: string]: any } = {};
     for (const [key, state] of this.cache.entries()) {
+      // Expired entries cannot be served after a restore (source functions are not
+      // persisted), so there is no point in writing them out
+      if (state.ttl && isExpired(state.updatedAt, state.ttl)) {
+        continue;
+      }
       entries[key] = {
         value: state.value,
         createdAt: state.createdAt,
@@ -1172,6 +1207,7 @@ export class CacheStore {
     state.interval = setTimeout(() => {
       this.handleExpiry(key, state);
     }, remainingTime);
+    unrefTimer(state.interval);
   }
 
   /**
@@ -1196,6 +1232,8 @@ export class CacheStore {
         this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
         /* Ignore as the event is already emitted inside the function */
       });
+    } else if (typeof state.sourceFn !== 'function' && this.cache.get(key) === state) {
+      this.deleteSingle(key);
     }
   }
 
@@ -1265,6 +1303,7 @@ export class CacheStore {
           this.logger.log('error', 'Auto-save failed', error);
         });
       }, intervalMs);
+      unrefTimer(this.autoSaveInterval);
     }
   }
 
