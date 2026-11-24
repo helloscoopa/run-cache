@@ -151,6 +151,8 @@ Retrieves a cache entry by key or pattern with full type safety.
 - If `key` is a specific key, returns the typed value or undefined if not found
 - If `key` is a pattern, returns an array of matching typed values
 
+Values stored as strings are returned unchanged, even if they look like JSON (`"123"`, `"true"`, `'{"a":1}'`). Only values that were stored from non-string types are deserialized.
+
 **Example:**
 
 ```typescript

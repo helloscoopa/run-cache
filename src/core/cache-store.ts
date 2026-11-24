@@ -25,6 +25,14 @@ function isExpired(cacheOrUpdatedAt: CacheState<string> | number, ttl?: number):
 }
 
 /**
+ * A stored value as read from the cache, with whether it must be deserialized
+ */
+interface StoredRead {
+  value: string;
+  serialized: boolean;
+}
+
+/**
  * Interface representing serialized cache data for persistence
  */
 interface SerializedCacheData {
@@ -52,6 +60,7 @@ interface SerializedCacheData {
       lastAccessed: number;
       tags?: string[];
       dependencies?: string[];
+      serialized?: boolean;
       sourceFn?: string; // Serialized as string if available
     };
   };
@@ -154,10 +163,10 @@ export class CacheStore {
     dependencies,
   }: {
     key: string;
-    value?: string;
+    value?: unknown;
     ttl?: number;
     autoRefetch?: boolean;
-    sourceFn?: SourceFn<string>;
+    sourceFn?: SourceFn<unknown>;
     tags?: string[];
     dependencies?: string[];
   }): Promise<boolean> {
@@ -166,7 +175,7 @@ export class CacheStore {
       throw new Error('Empty key');
     }
 
-    if (sourceFn === undefined && (value === undefined || !value.length)) {
+    if (sourceFn === undefined && (value === undefined || (typeof value === 'string' && !value.length))) {
       this.logger.log('error', `Neither value nor sourceFn provided to set() method for key: ${key}`);
       throw new Error("`value` can't be empty without a `sourceFn`");
     }
@@ -251,6 +260,7 @@ export class CacheStore {
     }
 
     const time = Date.now();
+    const directValue = value === undefined ? undefined : this.encodeValue(value);
 
     this.logger.log('info', `Setting cache for key: ${key}`, {
       hasTtl: ttl !== undefined,
@@ -279,7 +289,7 @@ export class CacheStore {
           EVENT.EXPIRE,
           {
             key,
-            value: value ?? 'undefined',
+            value: directValue?.value ?? 'undefined',
             createdAt: time,
             updatedAt: time,
             _params: { ttl },
@@ -296,12 +306,15 @@ export class CacheStore {
       }, ttl);
     }
 
-    let cacheValue = value;
+    let cacheValue = directValue?.value;
+    let serialized = directValue?.serialized ?? false;
 
     if (value === undefined && typeof sourceFn === 'function') {
       try {
         this.logger.log('debug', `Fetching value using sourceFn for key: ${key}`);
-        cacheValue = await sourceFn();
+        const encoded = this.encodeValue(await sourceFn());
+        cacheValue = encoded.value;
+        serialized = encoded.serialized;
         this.logger.log('debug', `Successfully fetched value using sourceFn for key: ${key}`);
       } catch (e) {
         this.logger.log('error', `Source function failed for key: ${key}`, e);
@@ -353,8 +366,9 @@ export class CacheStore {
 
     this.cache.set(key, {
       value: cacheValue ?? 'undefined',
+      serialized,
       ttl,
-      sourceFn,
+      sourceFn: sourceFn as SourceFn<string> | undefined,
       autoRefetch,
       interval: interval || undefined,
       createdAt: time,
@@ -475,6 +489,32 @@ export class CacheStore {
    * Gets a value or values from the cache by key or pattern
    */
   async get(key: string): Promise<string | string[] | undefined> {
+    const results = await this.read(key);
+    if (results === undefined) {
+      return undefined;
+    }
+    return Array.isArray(results) ? results.map((result) => result.value) : results.value;
+  }
+
+  /**
+   * Gets a value or values from the cache, deserializing entries that were stored
+   * from non-string values. Plain string entries are returned unchanged.
+   */
+  async getDeserialized(key: string): Promise<unknown | unknown[] | undefined> {
+    const results = await this.read(key);
+    if (results === undefined) {
+      return undefined;
+    }
+    return Array.isArray(results)
+      ? results.map((result) => this.decodeValue(result))
+      : this.decodeValue(results);
+  }
+
+  /**
+   * Shared implementation of get() and getDeserialized(): reads a single key, or every
+   * key matching a wildcard pattern, returning the stored strings with their serialized flag.
+   */
+  private async read(key: string): Promise<StoredRead | StoredRead[] | undefined> {
     if (!key?.length) {
       this.logger.log('debug', 'Empty key provided to get() method');
       return undefined;
@@ -482,35 +522,62 @@ export class CacheStore {
 
     this.logger.log('info', `Getting cache for key: ${key}`);
 
-    const isPattern = key.includes('*');
-
-    if (isPattern) {
-      const matchingKeys = this.getMatchingKeys(key);
-      if (!matchingKeys.length) {
-        this.logger.log('debug', `No keys found matching pattern: ${key}`);
-        return undefined;
-      }
-
-      // For patterns, get all matching values in parallel
-      const results = await Promise.all(
-        matchingKeys.map(async (matchedKey) => {
-          try {
-            return await this.getSingle(matchedKey);
-          } catch (error) {
-            this.logger.log('error', `Error getting cache for key: ${matchedKey}`, error);
-            return undefined;
-          }
-        }),
-      );
-
-      // Filter out undefined values from expired or errored keys
-      const validResults = results.filter((result): result is string => result !== undefined);
-
-      return validResults.length > 0 ? validResults : undefined;
+    if (!key.includes('*')) {
+      return this.readSingle(key);
     }
 
-    // For single keys, just get the value directly
-    return this.getSingle(key);
+    const matchingKeys = this.getMatchingKeys(key);
+    if (!matchingKeys.length) {
+      this.logger.log('debug', `No keys found matching pattern: ${key}`);
+      return undefined;
+    }
+
+    // For patterns, get all matching values in parallel
+    const results = await Promise.all(
+      matchingKeys.map(async (matchedKey) => {
+        try {
+          return await this.readSingle(matchedKey);
+        } catch (error) {
+          this.logger.log('error', `Error getting cache for key: ${matchedKey}`, error);
+          return undefined;
+        }
+      }),
+    );
+
+    // Filter out undefined values from expired or errored keys
+    const validResults = results.filter((result): result is StoredRead => result !== undefined);
+    return validResults.length > 0 ? validResults : undefined;
+  }
+
+  /**
+   * Converts a value into its stored string form. Strings are stored as-is;
+   * any other value is serialized and flagged so it can be restored on read.
+   */
+  private encodeValue(value: unknown): { value: string | undefined; serialized: boolean } {
+    if (value === undefined || typeof value === 'string') {
+      return { value, serialized: false };
+    }
+    return { value: this.serialization.serialize(value), serialized: true };
+  }
+
+  /**
+   * Restores a stored value: serialized entries are deserialized, strings are returned unchanged.
+   */
+  private decodeValue({ value, serialized }: StoredRead): unknown {
+    return serialized ? this.serialization.deserialize(value) : value;
+  }
+
+  /**
+   * Reads a single entry by exact key, returning the (middleware-processed) stored
+   * string together with whether it holds a serialized non-string value.
+   */
+  private async readSingle(key: string): Promise<StoredRead | undefined> {
+    const cached = this.cache.get(key);
+    const value = await this.getSingle(key);
+    if (value === undefined) {
+      return undefined;
+    }
+    return { value, serialized: cached?.serialized === true };
   }
 
   /**
@@ -665,9 +732,12 @@ export class CacheStore {
       this.logger.log('debug', `Refetching key: ${key}`);
 
       // Execute the source function
-      let newValue: string;
+      let newValue: string | undefined;
+      let serialized: boolean;
       try {
-        newValue = await cached.sourceFn();
+        const encoded = this.encodeValue(await (cached.sourceFn as SourceFn<unknown>)());
+        newValue = encoded.value;
+        serialized = encoded.serialized;
       } catch (e) {
         this.logger.log('error', `Source function failed during refetch for key: ${key}`, e);
 
@@ -698,7 +768,7 @@ export class CacheStore {
         EVENT.REFETCH,
         {
           key,
-          value: newValue,
+          value: newValue ?? 'undefined',
           createdAt: now,
           updatedAt: now,
         },
@@ -719,7 +789,7 @@ export class CacheStore {
         this.logger.log('error', `Middleware returned undefined during refetch for key: ${key}`);
         throw new Error(`Middleware returned undefined during refetch for key: '${key}'`);
       }
-      newValue = processed;
+      const storedValue: string = processed;
 
       // Clear the existing interval if present
       if (cached.interval) {
@@ -736,7 +806,7 @@ export class CacheStore {
             EVENT.EXPIRE,
             {
               key,
-              value: newValue,
+              value: storedValue,
               createdAt: now,
               updatedAt: now,
             },
@@ -754,7 +824,8 @@ export class CacheStore {
       // Update the cache entry
       this.cache.set(key, {
         ...cached,
-        value: newValue,
+        value: storedValue,
+        serialized,
         updatedAt: now,
         interval: newInterval,
         fetching: false,
@@ -1084,6 +1155,7 @@ export class CacheStore {
         lastAccessed: state.lastAccessed,
         tags: state.tags,
         dependencies: state.dependencies,
+        serialized: state.serialized || undefined,
         sourceFn: state.sourceFn ? state.sourceFn.toString() : undefined,
       };
     }
@@ -1133,6 +1205,7 @@ export class CacheStore {
             lastAccessed: entry.lastAccessed,
             tags: entry.tags,
             dependencies: entry.dependencies,
+            serialized: entry.serialized === true,
           };
 
           this.cache.set(key, state);

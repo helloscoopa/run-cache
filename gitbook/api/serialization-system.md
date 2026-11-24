@@ -90,6 +90,8 @@ class DefaultSerializationAdapter implements SerializationAdapter {
 - For other values: Uses `JSON.stringify()`
 - Deserialization: Attempts `JSON.parse()`, falls back to original string
 
+**How the cache uses it:** RunCache records for each entry whether its value was serialized from a non-string value. `RunCache.get()` deserializes only those entries; strings are stored and returned unchanged, so a string such as `"123"` or `'{"a":1}'` is never turned into a number or an object. This applies to values passed to `set()` and to values returned by source functions, on the initial fetch and on every refetch. Deserialization runs after `get` middleware, so middleware always works with the stored string.
+
 ### `DateSerializationAdapter`
 
 Handles Date object serialization with timezone preservation.

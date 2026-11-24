@@ -4,7 +4,6 @@ import { EventParam, EventName, EVENT } from './types/events';
 import { SourceFn } from './types/cache-state';
 import { MiddlewareFunction } from './types/middleware';
 import { StorageAdapter, StorageAdapterConfig } from './types/storage-adapter';
-import { SerializationManager } from './core/serialization';
 
 // Re-export needed types for backwards compatibility with tests
 export { EvictionPolicy, EVENT, EventParam };
@@ -113,7 +112,6 @@ export class RunCache {
   private static instance: CacheStore;
   private static instancePromise: Promise<CacheStore> | null = null;
   private static isInitialized = false;
-  private static serialization = new SerializationManager();
 
   // Register shutdown handlers when the class is loaded
   static {
@@ -197,27 +195,13 @@ export class RunCache {
     dependencies?: string[];
   }): Promise<boolean> {
     await RunCache.ensureInitialized();
-    
-    // For backward compatibility, if T is string, pass through directly
-    if (typeof params.value === 'string' || params.value === undefined) {
-      return RunCache.instance.set({
-        ...params,
-        value: params.value as string,
-        sourceFn: params.sourceFn as SourceFn<string> | undefined,
-      });
-    }
-    
-    // For non-string types, serialize the value and wrap the sourceFn
-    const serializedValue = params.value !== undefined ? RunCache.serialization.serialize(params.value) : undefined;
-    const wrappedSourceFn = params.sourceFn ? async () => {
-      const result = await params.sourceFn!();
-      return RunCache.serialization.serialize(result);
-    } : undefined;
-    
+
+    // Strings are stored as-is; any other value is serialized by the store and
+    // flagged so that get() can restore it. This applies to values returned by
+    // `sourceFn` as well, on both the initial fetch and every refetch.
     return RunCache.instance.set({
       ...params,
-      value: serializedValue,
-      sourceFn: wrappedSourceFn,
+      sourceFn: params.sourceFn as SourceFn<unknown> | undefined,
     });
   }
 
@@ -248,31 +232,9 @@ export class RunCache {
    */
   static async get<T = string>(key: string): Promise<T | T[] | undefined> {
     await RunCache.ensureInitialized();
-    const result = await RunCache.instance.get(key);
-    
-    if (result === undefined) {
-      return undefined;
-    }
-    
-    // Handle array results (wildcard patterns)
-    if (Array.isArray(result)) {
-      return result.map(item => {
-        try {
-          // Try to deserialize, if it fails, return the original string
-          return RunCache.serialization.deserialize<T>(item);
-        } catch {
-          return item as T;
-        }
-      });
-    }
-    
-    // Handle single result
-    try {
-      // Try to deserialize, if it fails, return the original string
-      return RunCache.serialization.deserialize<T>(result);
-    } catch {
-      return result as T;
-    }
+    // Only values that were stored from non-string types are deserialized, so a
+    // string such as "123" or '{"a":1}' is returned exactly as it was stored.
+    return (await RunCache.instance.getDeserialized(key)) as T | T[] | undefined;
   }
 
   /**
