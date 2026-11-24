@@ -33,11 +33,16 @@ Triggered when a cache entry expires.
 ```typescript
 interface ExpiryEvent {
   key: string;        // The key of the expired entry
+  value: string;      // The stored value at the time it expired (after middleware)
   ttl: number;        // The TTL value in milliseconds
+  createdAt: number;  // Timestamp when the entry was created
   updatedAt: number;  // Timestamp when the entry was last updated
-  metadata?: any;     // Optional custom metadata associated with the entry
 }
 ```
+
+An expiry is reported exactly once per version of an entry. The event fires when the TTL timer elapses, or earlier if a `get()` or `has()` call notices the expiry first; it is never repeated for the same expiry. Each time an auto-refetched entry is refreshed it gets a new version, so its next expiry is reported again. An entry that is overwritten or deleted before its TTL elapses does not emit an expiry event.
+
+`value` is the stored string. For entries cached from non-string values (for example through a typed cache), it is the serialized form.
 
 ### RefetchEvent
 
@@ -46,7 +51,10 @@ Triggered when a cache entry is refreshed.
 ```typescript
 interface RefetchEvent {
   key: string;        // The key of the refreshed entry
-  metadata?: any;     // Optional custom metadata associated with the entry
+  value: string;      // The value returned by the source function
+  ttl?: number;       // The entry's TTL in milliseconds, if it has one
+  createdAt: number;  // Timestamp of the refetch
+  updatedAt: number;  // Timestamp of the refetch
 }
 ```
 
@@ -69,8 +77,11 @@ Triggered when a cache entry is invalidated by tag.
 ```typescript
 interface TagInvalidationEvent {
   key: string;        // The key of the invalidated entry
+  value: string;      // The value the entry held
+  ttl?: number;       // The entry's TTL in milliseconds, if it had one
+  createdAt: number;  // Timestamp when the entry was created
+  updatedAt: number;  // Timestamp when the entry was last updated
   tag: string;        // The tag that caused the invalidation
-  metadata?: any;     // Optional custom metadata associated with the entry
 }
 ```
 
@@ -81,8 +92,11 @@ Triggered when a cache entry is invalidated due to a dependency.
 ```typescript
 interface DependencyInvalidationEvent {
   key: string;        // The key of the invalidated entry
+  value: string;      // The value the entry held
+  ttl?: number;       // The entry's TTL in milliseconds, if it had one
+  createdAt: number;  // Timestamp when the entry was created
+  updatedAt: number;  // Timestamp when the entry was last updated
   dependencyKey: string; // The key of the dependency that caused the invalidation
-  metadata?: any;     // Optional custom metadata associated with the entry
 }
 ```
 

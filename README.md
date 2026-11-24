@@ -290,6 +290,8 @@ RunCache.onKeyExpiry("user-*", (event) => {
 });
 ```
 
+Expiry events carry the entry's stored `value`, `ttl`, `createdAt` and `updatedAt`, and are emitted once per expiry.
+
 #### Refetch Events
 
 ```typescript

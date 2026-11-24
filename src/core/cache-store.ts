@@ -318,17 +318,14 @@ export class CacheStore {
     if (ttl !== undefined) {
       this.logger.log('debug', `Setting expiry interval for key: ${key}, ttl: ${ttl}ms`);
       interval = setTimeout(() => {
+        // Only act if this timer still belongs to the live entry; it may have been
+        // replaced by a later set() or refetch.
+        const current = this.cache.get(key);
+        if (!current || current.interval !== interval) {
+          return;
+        }
         this.logger.log('debug', `TTL expired for key: ${key}`);
-        this.eventSystem.emitEvent(
-          EVENT.EXPIRE,
-          {
-            key,
-            value: value ?? 'undefined',
-            createdAt: writtenAt,
-            updatedAt: writtenAt,
-            _params: { ttl },
-          },
-        );
+        this.emitExpiry(key, current);
 
         if (typeof sourceFn === 'function' && autoRefetch) {
           this.logger.log('debug', `Auto-refetching key: ${key}`);
@@ -385,6 +382,27 @@ export class CacheStore {
     // Double-check after adding to ensure we're not over the limit
     this.enforceEvictionPolicy();
     return true;
+  }
+
+  /**
+   * Emits the expire event for an entry, at most once per version of the entry.
+   * The payload always reflects the stored value and includes the entry's TTL.
+   */
+  private emitExpiry(key: string, state: CacheState<string>): void {
+    if (state.expiryEmitted) {
+      return;
+    }
+    state.expiryEmitted = true;
+    this.eventSystem.emitEvent(
+      EVENT.EXPIRE,
+      {
+        key,
+        value: state.value,
+        ttl: state.ttl,
+        createdAt: state.createdAt,
+        updatedAt: state.updatedAt,
+      },
+    );
   }
 
   /**
@@ -536,6 +554,9 @@ export class CacheStore {
     if (cached.ttl && isExpired(cached.updatedAt, cached.ttl)) {
       this.logger.log('debug', `Cache expired for key: ${key}`);
 
+      // The timer normally reports the expiry; this covers reads that notice it first
+      this.emitExpiry(key, cached);
+
       // For entries with autoRefetch, generate a new value in the background
       if (cached.autoRefetch && cached.sourceFn) {
         // Only initiate refetch if not already in progress
@@ -685,6 +706,7 @@ export class CacheStore {
           {
             key,
             value: cached.value,
+            ttl: cached.ttl,
             createdAt: cached.createdAt,
             updatedAt: cached.updatedAt,
           },
@@ -707,6 +729,7 @@ export class CacheStore {
         {
           key,
           value: newValue,
+          ttl: cached.ttl,
           createdAt: now,
           updatedAt: now,
         },
@@ -739,18 +762,14 @@ export class CacheStore {
 
       if (cached.ttl) {
         newInterval = setTimeout(() => {
+          const current = this.cache.get(key);
+          if (!current || current.interval !== newInterval) {
+            return;
+          }
           this.logger.log('debug', `TTL expired for refetched key: ${key}`);
-          this.eventSystem.emitEvent(
-            EVENT.EXPIRE,
-            {
-              key,
-              value: newValue,
-              createdAt: now,
-              updatedAt: now,
-            },
-          );
+          this.emitExpiry(key, current);
 
-          if (cached.autoRefetch) {
+          if (current.autoRefetch) {
             this.logger.log('debug', `Auto-refetching key after expiry: ${key}`);
             this.refetchSingle(key).catch((e) => {
               this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
@@ -766,6 +785,7 @@ export class CacheStore {
         updatedAt: now,
         interval: newInterval,
         fetching: false,
+        expiryEmitted: false,
       });
 
       this.logger.log('debug', `Successfully refetched key: ${key}`);
@@ -883,15 +903,7 @@ export class CacheStore {
     }
 
     if (cached.ttl && isExpired(cached.updatedAt, cached.ttl)) {
-      this.eventSystem.emitEvent(
-        EVENT.EXPIRE,
-        {
-          key,
-          value: cached.value,
-          createdAt: cached.createdAt,
-          updatedAt: cached.updatedAt,
-        },
-      );
+      this.emitExpiry(key, cached);
 
       // Clean up expired entry to prevent memory leaks
       if (cached.interval) {
@@ -1188,15 +1200,7 @@ export class CacheStore {
   private handleExpiry(key: string, state: CacheState<string>): void {
     this.logger.log('debug', `TTL expired for key: ${key}`);
 
-    this.eventSystem.emitEvent(
-      EVENT.EXPIRE,
-      {
-        key,
-        value: state.value,
-        createdAt: state.createdAt,
-        updatedAt: state.updatedAt,
-      },
-    );
+    this.emitExpiry(key, state);
 
     if (typeof state.sourceFn === 'function' && state.autoRefetch) {
       this.logger.log('debug', `Auto-refetching key: ${key}`);
@@ -1325,6 +1329,7 @@ export class CacheStore {
           {
             key,
             value: cacheState.value,
+            ttl: cacheState.ttl,
             createdAt: cacheState.createdAt,
             updatedAt: cacheState.updatedAt,
             tag: normalizedTag,
@@ -1409,6 +1414,7 @@ export class CacheStore {
           {
             key: invalidKey,
             value: cacheState.value,
+            ttl: cacheState.ttl,
             createdAt: cacheState.createdAt,
             updatedAt: cacheState.updatedAt,
             dependencyKey: key,
