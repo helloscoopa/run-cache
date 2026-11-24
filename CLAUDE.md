@@ -147,7 +147,7 @@ RunCache.onKeyExpiry("user:*", (event) => {
 2. Implement core logic in `src/core/cache-store.ts`
 3. Add static wrapper methods in `src/run-cache.ts`
 4. Add comprehensive tests in `.test.ts` files
-5. Update documentation
+5. Update documentation in `gitbook/` (the "Next" docs version; released versions are frozen in `gitbook-versions/`, see `gitbook-versions/README.md`)
 
 ### Testing Strategy
 - Unit tests for each component (`.unit.test.ts`)
