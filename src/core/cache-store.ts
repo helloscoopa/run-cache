@@ -489,42 +489,11 @@ export class CacheStore {
    * Gets a value or values from the cache by key or pattern
    */
   async get(key: string): Promise<string | string[] | undefined> {
-    if (!key?.length) {
-      this.logger.log('debug', 'Empty key provided to get() method');
+    const results = await this.read(key);
+    if (results === undefined) {
       return undefined;
     }
-
-    this.logger.log('info', `Getting cache for key: ${key}`);
-
-    const isPattern = key.includes('*');
-
-    if (isPattern) {
-      const matchingKeys = this.getMatchingKeys(key);
-      if (!matchingKeys.length) {
-        this.logger.log('debug', `No keys found matching pattern: ${key}`);
-        return undefined;
-      }
-
-      // For patterns, get all matching values in parallel
-      const results = await Promise.all(
-        matchingKeys.map(async (matchedKey) => {
-          try {
-            return await this.readSingle(matchedKey);
-          } catch (error) {
-            this.logger.log('error', `Error getting cache for key: ${matchedKey}`, error);
-            return undefined;
-          }
-        }),
-      );
-
-      // Filter out undefined values from expired or errored keys
-      const validResults = results.filter((result): result is StoredRead => result !== undefined);
-
-      return validResults.length > 0 ? validResults.map((result) => result.value) : undefined;
-    }
-
-    // For single keys, just get the value directly
-    return (await this.readSingle(key))?.value;
+    return Array.isArray(results) ? results.map((result) => result.value) : results.value;
   }
 
   /**
@@ -532,34 +501,52 @@ export class CacheStore {
    * from non-string values. Plain string entries are returned unchanged.
    */
   async getDeserialized(key: string): Promise<unknown | unknown[] | undefined> {
+    const results = await this.read(key);
+    if (results === undefined) {
+      return undefined;
+    }
+    return Array.isArray(results)
+      ? results.map((result) => this.decodeValue(result))
+      : this.decodeValue(results);
+  }
+
+  /**
+   * Shared implementation of get() and getDeserialized(): reads a single key, or every
+   * key matching a wildcard pattern, returning the stored strings with their serialized flag.
+   */
+  private async read(key: string): Promise<StoredRead | StoredRead[] | undefined> {
     if (!key?.length) {
-      this.logger.log('debug', 'Empty key provided to getDeserialized() method');
+      this.logger.log('debug', 'Empty key provided to get() method');
       return undefined;
     }
 
-    if (key.includes('*')) {
-      const matchingKeys = this.getMatchingKeys(key);
-      if (!matchingKeys.length) {
-        return undefined;
-      }
+    this.logger.log('info', `Getting cache for key: ${key}`);
 
-      const results = await Promise.all(
-        matchingKeys.map(async (matchedKey) => {
-          try {
-            return await this.readSingle(matchedKey);
-          } catch (error) {
-            this.logger.log('error', `Error getting cache for key: ${matchedKey}`, error);
-            return undefined;
-          }
-        }),
-      );
-
-      const validResults = results.filter((result): result is StoredRead => result !== undefined);
-      return validResults.length > 0 ? validResults.map((result) => this.decodeValue(result)) : undefined;
+    if (!key.includes('*')) {
+      return this.readSingle(key);
     }
 
-    const result = await this.readSingle(key);
-    return result === undefined ? undefined : this.decodeValue(result);
+    const matchingKeys = this.getMatchingKeys(key);
+    if (!matchingKeys.length) {
+      this.logger.log('debug', `No keys found matching pattern: ${key}`);
+      return undefined;
+    }
+
+    // For patterns, get all matching values in parallel
+    const results = await Promise.all(
+      matchingKeys.map(async (matchedKey) => {
+        try {
+          return await this.readSingle(matchedKey);
+        } catch (error) {
+          this.logger.log('error', `Error getting cache for key: ${matchedKey}`, error);
+          return undefined;
+        }
+      }),
+    );
+
+    // Filter out undefined values from expired or errored keys
+    const validResults = results.filter((result): result is StoredRead => result !== undefined);
+    return validResults.length > 0 ? validResults : undefined;
   }
 
   /**
