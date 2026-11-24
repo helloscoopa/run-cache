@@ -8,6 +8,12 @@ Add an entry under **Unreleased** in the same pull request as the change. When a
 
 ## [1.7.0] - 2026-11-24
 
+### Upgrading from 1.6
+No API was removed and existing code compiles unchanged (`set<T>()`/`get<T>()` default to `string`). Three behavior changes may affect you:
+- **Process signals are opt-in.** 1.6 registered `SIGINT`/`SIGTERM` handlers on import. If you relied on RunCache shutting down and saving to storage on exit, call `configure({ handleProcessSignals: true })`.
+- **Dependents are invalidated automatically** when the entry they depend on changes, so entries with `dependencies` may disappear sooner than before. Circular dependencies are now rejected.
+- **Loading from storage merges** into the cache instead of replacing it, and no longer restores the saved configuration or source function code. Pass your configuration to `configure()` and set source functions again after loading.
+
 ### Added
 - Values of any JSON-serializable type can be cached; strings are stored as-is and other values are serialized on `set()` and parsed again by `get()`. `RunCache.createTypedCache<T>()` returns a typed wrapper ([#39](https://github.com/helloscoopa/run-cache/pull/39), [#67](https://github.com/helloscoopa/run-cache/pull/67)).
 - `RunCacheError`, `SourceFnError` and `MiddlewareError` are exported; they keep the original error as `cause`, and `refetch_failure` events carry it as `error` ([#80](https://github.com/helloscoopa/run-cache/pull/80)).
