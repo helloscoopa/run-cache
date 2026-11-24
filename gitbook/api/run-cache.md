@@ -18,16 +18,16 @@ Configures the cache with global settings.
   - `maxEntries?`: `number` - Maximum number of entries before eviction (default: unlimited)
   - `evictionPolicy?`: `EvictionPolicy` - Eviction policy to use (default: NONE)
   - `debug?`: `boolean` - Enable debug logging (default: false)
-  - `storageAdapter?`: `StorageAdapter` - Storage adapter for persistence (default: none)
+  - `storageAdapter?`: `StorageAdapter` - Storage adapter for persistence (default: none). Attaching an adapter loads the data it already holds; if a different adapter was attached before, the current entries are saved to it first, and `configure()` rejects (keeping that adapter) if the save fails. The `maxEntries` and `evictionPolicy` stored with the data are not applied. Pass `undefined` to detach persistence.
 
-**Returns:** `void`
+**Returns:** `Promise<void>` - resolves once the configuration is applied, including loading from a newly attached storage adapter
 
 **Example:**
 
 ```typescript
 import { RunCache, EvictionPolicy } from 'run-cache';
 
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU,
   debug: true
@@ -62,7 +62,7 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
 - `options`: `Object` - Cache entry options
   - `key`: `string` - Unique identifier for the cache entry
   - `value?`: `T` - Value to cache (required if no sourceFn)
-  - `ttl?`: `number` - Time-to-live in milliseconds
+  - `ttl?`: `number` - Time-to-live in milliseconds. Must be a finite, positive number; omit it for entries that never expire. TTLs longer than the `setTimeout` limit (about 24.8 days) are supported.
   - `autoRefetch?`: `boolean` - Automatically refetch on expiry (requires ttl and sourceFn)
   - `sourceFn?`: `() => T | Promise<T>` - Function to generate cache value (required if no value)
   - `tags?`: `string[]` - Array of tags for tag-based invalidation
@@ -77,6 +77,7 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
 - `Error` - If key is empty
 - `Error` - If neither value nor sourceFn is provided
 - `Error` - If autoRefetch is true but ttl or sourceFn is not provided
+- `Error` - If ttl is `0` or negative (`` `ttl` cannot be negative ``), not a number or `NaN` (`` `ttl` must be a number ``), or `Infinity` (`` `ttl` must be a finite number ``)
 
 **Example:**
 
@@ -150,6 +151,8 @@ Retrieves a cache entry by key or pattern with full type safety.
 **Returns:** `Promise<T | T[] | undefined>`
 - If `key` is a specific key, returns the typed value or undefined if not found
 - If `key` is a pattern, returns an array of matching typed values
+
+Values stored as strings are returned unchanged, even if they look like JSON (`"123"`, `"true"`, `'{"a":1}'`). Only values that were stored from non-string types are deserialized.
 
 **Example:**
 

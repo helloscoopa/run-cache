@@ -1,0 +1,360 @@
+# RunCache
+
+{% hint style="info" %}
+These docs are for **RunCache v1.5.x** (last updated at release v1.5.0). Install this version with `npm install run-cache@1.5`, or pick another version from the menu above the sidebar.
+{% endhint %}
+
+A dependency-free, lightweight runtime caching library for JavaScript and TypeScript applications. RunCache allows you to cache string values with configurable time-to-live (TTL) settings and supports automatic value regeneration through source functions.
+
+## Key Features
+
+- **Zero Dependencies:** Lightweight implementation with no external dependencies
+- **In-Memory Performance:** Fast, efficient runtime cache for optimal application performance
+- **Source Function Support:** Cache values generated from synchronous or asynchronous functions
+- **Automatic Refetching:** Configure cache entries to automatically refresh on expiration
+- **Comprehensive Event System:** Subscribe to cache events including expiry, refetch, and refetch failures
+- **Pattern Matching:** Use wildcard patterns to operate on groups of related cache keys
+- **Eviction Policies:** Configure size limits with LRU (Least Recently Used) or LFU (Least Frequently Used) eviction strategies
+- **TypeScript Support:** Full type definitions included
+
+## Installation
+
+```bash
+npm install run-cache
+```
+
+## Quick Start
+
+```typescript
+import { RunCache } from "run-cache";
+
+// Basic caching
+await RunCache.set({ key: "user-profile", value: JSON.stringify({ name: "John Doe" }) });
+const profile = await RunCache.get("user-profile");
+
+// Cache with expiration (TTL in milliseconds)
+await RunCache.set({ 
+  key: "api-data", 
+  value: JSON.stringify({ data: [1, 2, 3] }),
+  ttl: 60000 // 1 minute
+});
+
+// Cache with automatic refresh
+await RunCache.set({
+  key: "weather-data",
+  sourceFn: async () => JSON.stringify(await fetchWeatherData()),
+  ttl: 300000, // 5 minutes
+  autoRefetch: true
+});
+
+// Using wildcard patterns
+await RunCache.set({ key: "user-1", value: "Alice" });
+await RunCache.set({ key: "user-2", value: "Bob" });
+const users = await RunCache.get("user-*"); // Returns array of all matching values
+```
+
+## Cache Eviction Policies
+
+RunCache supports configurable cache eviction policies to manage memory usage by automatically removing entries when the cache reaches a defined size limit.
+
+### Available Eviction Policies
+
+- **NONE**: No automatic eviction (default). Cache entries are only removed via TTL or manual deletion.
+- **LRU (Least Recently Used)**: Removes the least recently accessed entries when the cache exceeds its maximum size.
+- **LFU (Least Frequently Used)**: Removes the least frequently accessed entries when the cache exceeds its maximum size. When entries have the same access frequency, the oldest entry is removed first.
+
+### Configuring Eviction Policies
+
+```typescript
+import { RunCache, EvictionPolicy } from "run-cache";
+
+// Configure the cache with a max size of 100 entries and LRU eviction policy
+RunCache.configure({
+  maxSize: 100,
+  evictionPolicy: EvictionPolicy.LRU
+});
+
+// Add entries to the cache
+for (let i = 0; i < 150; i++) {
+  await RunCache.set({ key: `item-${i}`, value: `value-${i}` });
+}
+
+// Only the 100 most recently used entries will be retained
+// The oldest 50 entries will be automatically evicted
+
+// Change to LFU eviction policy
+RunCache.configure({
+  evictionPolicy: EvictionPolicy.LFU
+});
+
+// Get the current configuration
+const config = RunCache.getConfig();
+console.log(config); // { maxSize: 100, evictionPolicy: "lfu" }
+```
+
+## API Reference
+
+### Cache Management
+
+#### Setting Cache Entries
+
+```typescript
+await RunCache.set({
+  key: string,                         // Required: Unique identifier for the cache entry
+  value?: string,                      // Optional: String value to cache (required if no sourceFn)
+  ttl?: number,                        // Optional: Time-to-live in milliseconds
+  autoRefetch?: boolean,               // Optional: Automatically refetch on expiry (requires ttl and sourceFn)
+  sourceFn?: () => string | Promise<string> // Optional: Function to generate cache value (required if no value)
+});
+```
+
+#### Retrieving Cache Entries
+
+```typescript
+// Get a single cache entry
+const value = await RunCache.get("cache-key");
+
+// Get multiple entries using wildcards (returns an array)
+const values = await RunCache.get("user-*");
+```
+
+#### Refreshing Cache
+
+```typescript
+// Manually refresh a cache entry (requires a sourceFn)
+await RunCache.refetch("cache-key");
+
+// Refresh multiple entries using wildcards
+await RunCache.refetch("api-data-*");
+```
+
+#### Removing Cache Entries
+
+```typescript
+// Remove a specific entry
+RunCache.delete("cache-key");
+
+// Remove multiple entries using wildcards
+RunCache.delete("temp-*");
+
+// Remove all cache entries
+RunCache.flush();
+```
+
+#### Checking Cache Status
+
+```typescript
+// Check if a valid (non-expired) cache entry exists
+const exists = await RunCache.has("cache-key");
+
+// Check if any matching cache entries exist
+const hasItems = await RunCache.has("session-*");
+```
+
+#### Cache Configuration
+
+```typescript
+// Configure cache settings
+RunCache.configure({
+  maxSize: 1000,                  // Maximum number of entries before eviction
+  evictionPolicy: EvictionPolicy.LRU  // Eviction policy to use
+});
+
+// Get current configuration
+const config = RunCache.getConfig();
+```
+
+### Event System
+
+RunCache provides a comprehensive event system to monitor cache lifecycle events.
+
+#### Expiry Events
+
+```typescript
+// Global expiry event
+RunCache.onExpiry((event) => {
+  console.log(`Cache key ${event.key} expired at ${new Date(event.updatedAt + event.ttl).toISOString()}`);
+});
+
+// Specific key expiry
+RunCache.onKeyExpiry("api-data", (event) => {
+  console.log(`API data cache expired`);
+});
+
+// Pattern-based expiry events
+RunCache.onKeyExpiry("user-*", (event) => {
+  console.log(`User cache ${event.key} expired`);
+});
+```
+
+#### Refetch Events
+
+```typescript
+// Global refetch event
+RunCache.onRefetch((event) => {
+  console.log(`Cache key ${event.key} was refreshed`);
+});
+
+// Specific key refetch
+RunCache.onKeyRefetch("weather-data", (event) => {
+  console.log(`Weather data was refreshed`);
+});
+
+// Pattern-based refetch events
+RunCache.onKeyRefetch("stats-*", (event) => {
+  console.log(`Statistics for ${event.key} were refreshed`);
+});
+```
+
+#### Refetch Failure Events
+
+```typescript
+// Global refetch failure event
+RunCache.onRefetchFailure((event) => {
+  console.error(`Failed to refresh cache key ${event.key}`);
+});
+
+// Specific key refetch failure
+RunCache.onKeyRefetchFailure("api-data", (event) => {
+  console.error(`API data refresh failed`);
+});
+
+// Pattern-based refetch failure events
+RunCache.onKeyRefetchFailure("external-*", (event) => {
+  console.error(`External data refresh failed for ${event.key}`);
+});
+```
+
+#### Managing Event Listeners
+
+```typescript
+// Remove all event listeners
+RunCache.clearEventListeners();
+
+// Remove listeners for a specific event type
+RunCache.clearEventListeners({
+  event: EVENT.EXPIRE
+});
+
+// Remove listeners for a specific key
+RunCache.clearEventListeners({
+  event: EVENT.REFETCH,
+  key: "api-data"
+});
+
+// Remove listeners using wildcard patterns
+RunCache.clearEventListeners({
+  event: EVENT.REFETCH_FAILURE,
+  key: "external-*"
+});
+```
+
+## Wildcard Pattern Matching
+
+RunCache supports wildcard pattern matching for operating on multiple related cache keys simultaneously. Use the `*` character as a wildcard in your key patterns.
+
+### Pattern Matching Examples
+
+```typescript
+// Cache multiple related entries
+await RunCache.set({ key: "user:1:profile", value: "Alice's data" });
+await RunCache.set({ key: "user:2:profile", value: "Bob's data" });
+await RunCache.set({ key: "user:1:preferences", value: "Alice's preferences" });
+await RunCache.set({ key: "user:2:preferences", value: "Bob's preferences" });
+
+// Get all user profiles
+const profiles = await RunCache.get("user:*:profile");
+
+// Get all data for user 1
+const user1Data = await RunCache.get("user:1:*");
+
+// Delete all preference data
+RunCache.delete("user:*:preferences");
+
+// Check if any user 2 data exists
+const hasUser2Data = await RunCache.has("user:2:*");
+
+// Refresh all profile data
+await RunCache.refetch("user:*:profile");
+```
+
+Wildcard support is implemented for all key-based operations:
+- `get`: Returns an array of values for matching keys
+- `delete`: Removes all matching keys
+- `refetch`: Refreshes all matching keys
+- `has`: Returns true if any matching key exists
+- Event listeners: Registers callbacks for keys matching patterns
+- `clearEventListeners`: Removes listeners for keys matching patterns
+
+## Resource Management
+
+RunCache is designed to properly manage resources throughout the application lifecycle.
+
+### Automatic Cleanup on Termination
+
+RunCache automatically registers handlers for SIGTERM and SIGINT signals in Node.js environments to ensure proper cleanup of all resources when the application is shutting down. This prevents memory leaks and ensures a clean shutdown.
+
+### Manual Shutdown
+
+You can also manually trigger a complete shutdown of the cache:
+
+```typescript
+// Manually shut down the cache, clearing all entries, intervals, and event listeners
+RunCache.shutdown();
+```
+
+The `shutdown` method performs the following cleanup:
+- Clears all cache entries and their associated intervals
+- Removes all event listeners
+- Resets the cache configuration to default values
+
+This is particularly useful in long-running applications or when you need to release resources manually.
+
+## Debugging and Logging
+
+RunCache provides built-in verbose logging to help with debugging and monitoring cache behavior.
+
+### Verbose Logging
+
+Enable verbose logging to see detailed information about all cache operations:
+
+```typescript
+// Enable verbose logging when configuring the cache
+RunCache.configure({
+  verbose: true
+});
+```
+
+When verbose mode is enabled, RunCache logs detailed information about:
+- Cache operations (set, get, delete, etc.)
+- Entry expiration and eviction
+- Refetch operations and failures
+- Configuration changes
+
+All logs include timestamps and log levels for easy filtering.
+
+```typescript
+// Example of enabling verbose logging for debugging
+RunCache.configure({ verbose: true });
+
+// Perform some cache operations
+await RunCache.set({ key: "user-1", value: "Alice" });
+await RunCache.get("user-1");
+
+// Disable verbose logging when done debugging
+RunCache.configure({ verbose: false });
+```
+
+### Log Levels
+
+Logs are output at different levels depending on their importance:
+- `info`: General information about cache operations
+- `debug`: Detailed information useful for debugging
+- `warn`: Warnings about potential issues
+- `error`: Errors that occurred during operations
+
+This is useful when you want to filter logs in complex applications.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
