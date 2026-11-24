@@ -618,10 +618,10 @@ interface StorageAdapterConfig {
   // Storage key/filename to use
   storageKey?: string; // Default: "run-cache-data"
   
-  // Auto-save interval in milliseconds
+  // Auto-save interval in milliseconds, applied when the adapter is attached
   autoSaveInterval?: number; // Default: 0 (disabled)
   
-  // Whether to load cache automatically when adapter is initialized
+  // Whether to load existing data when the adapter is attached
   autoLoadOnInit?: boolean; // Default: true
 }
 ```
@@ -642,7 +642,14 @@ When the application restarts, the cache state is automatically restored if:
 1. A storage adapter is configured when initializing RunCache
 2. The adapter contains valid cached data
 
-This recovery happens automatically when you configure RunCache with a storage adapter. Any cache entries with TTL values will have their expiry timers properly restored based on their original expiration time.
+This recovery happens automatically when you configure RunCache with a storage adapter (unless the adapter sets `autoLoadOnInit: false`). Restored entries:
+
+- are merged into the cache; keys already in memory keep their current value,
+- continue their original TTL (expiry timers are re-armed for the time remaining), and entries that expired while stored are skipped,
+- keep your runtime configuration (`maxEntries`, `evictionPolicy`); the stored configuration is not applied,
+- have no source function, because source functions are never written to storage. Call `set()` with a `sourceFn` again to make them refetchable.
+
+The FilesystemAdapter writes atomically (temporary file plus rename), so an interrupted save never corrupts the stored cache.
 
 ### Example: Full Cache Persistence Setup
 

@@ -319,6 +319,21 @@ interface StorageAdapter {
    * @returns The stringified cache data or null if not found
    */
   load(): Promise<string | null>;
+
+  /**
+   * Remove the stored cache data
+   */
+  clear(): Promise<void>;
+
+  /**
+   * Optional auto-save interval in milliseconds, applied when the adapter is attached
+   */
+  readonly autoSaveInterval?: number;
+
+  /**
+   * Optional: whether existing data is loaded when the adapter is attached (default: true)
+   */
+  readonly autoLoadOnInit?: boolean;
 }
 ```
 
