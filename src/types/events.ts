@@ -76,6 +76,12 @@ export type EventParam<T = string> = {
    * The dependency key that triggered the invalidation (only for DEPENDENCY_INVALIDATION events)
    */
   dependencyKey?: string;
+
+  /**
+   * The error that caused the event. Set on `refetch_failure` events to the error
+   * thrown by the source function.
+   */
+  error?: unknown;
 };
 
 /**
@@ -96,6 +102,8 @@ export interface EmitParam {
   tag?: string;
   /** The dependency key that triggered the invalidation (only for DEPENDENCY_INVALIDATION events) */
   dependencyKey?: string;
+  /** The error that caused the event (only for REFETCH_FAILURE events) */
+  error?: unknown;
   /** Additional parameters specific to the event */
   _params?: Record<string, any>;
 }

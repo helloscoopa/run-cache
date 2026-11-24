@@ -213,14 +213,10 @@ interface RefetchFailureEvent {
   key: string;
   
   /**
-   * The error that occurred during refresh
+   * The error thrown by the source function (or a SourceFnError if it
+   * resolved to undefined)
    */
-  error: Error;
-  
-  /**
-   * Optional custom metadata associated with the entry
-   */
-  metadata?: any;
+  error: unknown;
 }
 ```
 

@@ -65,10 +65,15 @@ Triggered when a cache refresh operation fails.
 ```typescript
 interface RefetchFailureEvent {
   key: string;        // The key of the entry that failed to refresh
-  error: Error;       // The error that occurred during refresh
-  metadata?: any;     // Optional custom metadata associated with the entry
+  value: string;      // The value still in the cache (the last successful one)
+  ttl?: number;       // The entry's TTL in milliseconds, if it has one
+  createdAt: number;  // Timestamp when the entry was created
+  updatedAt: number;  // Timestamp of the last successful update
+  error: unknown;     // The error thrown by the source function
 }
 ```
+
+`error` is exactly what the source function threw or rejected with, so you can inspect its type, status code or message. If the source function resolved to `undefined`, `error` is a `SourceFnError` describing that.
 
 ### TagInvalidationEvent
 

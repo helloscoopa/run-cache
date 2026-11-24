@@ -11,6 +11,7 @@ import { DefaultMiddlewareManager } from './middleware-manager';
 import { MiddlewareContext, MiddlewareFunction, MiddlewareManager } from '../types/middleware';
 import { StorageAdapter } from '../types/storage-adapter';
 import { SerializationManager } from './serialization';
+import { MiddlewareError, SourceFnError } from './errors';
 import { createExpiryTimer, ExpiryTimer } from './timer';
 
 /**
@@ -207,7 +208,8 @@ export class CacheStore {
       throw new Error('Empty key');
     }
 
-    if (sourceFn === undefined && (value === undefined || (typeof value === 'string' && !value.length))) {
+    // An empty string is a valid value; only a missing value needs a sourceFn
+    if (sourceFn === undefined && value === undefined) {
       this.logger.log('error', `Neither value nor sourceFn provided to set() method for key: ${key}`);
       throw new Error("`value` can't be empty without a `sourceFn`");
     }
@@ -326,7 +328,13 @@ export class CacheStore {
       } catch (e) {
         this.logger.log('error', `Source function failed for key: ${key}`, e);
         this.finishSet(key);
-        throw new Error(`Source function failed for key: '${key}'`);
+        throw new SourceFnError(`Source function failed for key: '${key}'`, key, e);
+      }
+
+      if (cacheValue === undefined) {
+        this.logger.log('error', `Source function returned undefined for key: ${key}`);
+        this.finishSet(key);
+        throw new SourceFnError(`Source function returned undefined for key: '${key}'`, key);
       }
     }
 
@@ -344,14 +352,14 @@ export class CacheStore {
       const processed = await this.middlewareManager.execute(cacheValue, context);
       if (processed === undefined) {
         this.logger.log('error', `Middleware returned undefined for key: ${key}`);
-        throw new Error(`Middleware returned undefined for key: '${key}'`);
+        throw new MiddlewareError(`Middleware returned undefined for key: '${key}'`, key);
       }
       cacheValue = processed;
       this.logger.log('debug', `Applied middleware for key: ${key}`);
     } catch (error) {
       this.logger.log('error', `Middleware execution failed for key: ${key}`, error);
       this.finishSet(key);
-      throw new Error(`Middleware execution failed for key: '${key}'`);
+      throw new MiddlewareError(`Middleware execution failed for key: '${key}'`, key, error);
     }
 
     // A set() for the same key that started later has already written its value;
@@ -441,7 +449,8 @@ export class CacheStore {
     // Re-insert so the Map's iteration order stays least- to most-recently-used
     this.cache.delete(key);
     this.cache.set(key, {
-      value: cacheValue ?? 'undefined',
+      // Defined: a missing value was rejected above, and sourceFn/middleware results are checked
+      value: cacheValue as string,
       serialized,
       ttl,
       sourceFn: sourceFn as SourceFn<string> | undefined,
@@ -472,6 +481,25 @@ export class CacheStore {
     // Double-check after adding to ensure we're not over the limit
     this.enforceEvictionPolicy();
     return true;
+  }
+
+  /**
+   * Runs the middleware chain for a read or refetch. A middleware that throws is reported
+   * as a MiddlewareError carrying the original error as `cause`, as it is for set().
+   */
+  private async runMiddleware(
+    value: string | undefined,
+    context: MiddlewareContext<string | undefined>,
+  ): Promise<string | undefined> {
+    try {
+      return await this.middlewareManager.execute(value, context);
+    } catch (error) {
+      if (error instanceof MiddlewareError) {
+        throw error;
+      }
+      this.logger.log('error', `Middleware execution failed for key: ${context.key}`, error);
+      throw new MiddlewareError(`Middleware execution failed for key: '${context.key}'`, context.key, error);
+    }
   }
 
   /**
@@ -763,10 +791,10 @@ export class CacheStore {
           timestamp: Date.now(),
         };
 
-        const processed = await this.middlewareManager.execute(value, context);
+        const processed = await this.runMiddleware(value, context);
         if (processed === undefined) {
           this.logger.log('error', `Middleware returned undefined for stale key: ${key}`);
-          throw new Error(`Middleware returned undefined for stale key: '${key}'`);
+          throw new MiddlewareError(`Middleware returned undefined for stale key: '${key}'`, key);
         }
         return processed;
       }
@@ -792,10 +820,10 @@ export class CacheStore {
       timestamp: Date.now(),
     };
 
-    const processed = await this.middlewareManager.execute(value, context);
+    const processed = await this.runMiddleware(value, context);
     if (processed === undefined) {
       this.logger.log('error', `Middleware returned undefined for key: ${key}`);
-      throw new Error(`Middleware returned undefined for key: '${key}'`);
+      throw new MiddlewareError(`Middleware returned undefined for key: '${key}'`, key);
     }
     return processed;
   }
@@ -878,8 +906,14 @@ export class CacheStore {
         const encoded = this.encodeValue(await (cached.sourceFn as SourceFn<unknown>)());
         newValue = encoded.value;
         serialized = encoded.serialized;
+        if (newValue === undefined) {
+          throw new SourceFnError(`Source function returned undefined for key: '${key}'`, key);
+        }
       } catch (e) {
         this.logger.log('error', `Source function failed during refetch for key: ${key}`, e);
+        const error = e instanceof SourceFnError
+          ? e
+          : new SourceFnError(`Source function failed for key: '${key}'`, key, e);
 
         // Emit event
         this.eventSystem.emitEvent(
@@ -890,6 +924,7 @@ export class CacheStore {
             ttl: cached.ttl,
             createdAt: cached.createdAt,
             updatedAt: cached.updatedAt,
+            error: error.cause ?? error,
           },
         );
 
@@ -897,8 +932,8 @@ export class CacheStore {
         // updated in place so a deleted entry is not re-inserted into the cache.
         cached.fetching = false;
 
-        // Rethrow with more context
-        throw new Error(`Source function failed for key: '${key}'`);
+        // Rethrow with more context; the original error is available as `cause`
+        throw error;
       }
 
       // The entry may have been deleted, flushed, invalidated, evicted or replaced
@@ -923,10 +958,10 @@ export class CacheStore {
         timestamp: now,
       };
 
-      const processed = await this.middlewareManager.execute(newValue, context);
+      const processed = await this.runMiddleware(newValue, context);
       if (processed === undefined) {
         this.logger.log('error', `Middleware returned undefined during refetch for key: ${key}`);
-        throw new Error(`Middleware returned undefined during refetch for key: '${key}'`);
+        throw new MiddlewareError(`Middleware returned undefined during refetch for key: '${key}'`, key);
       }
       const storedValue: string = processed;
 
@@ -998,8 +1033,8 @@ export class CacheStore {
 
       return true;
     } catch (e) {
-      // If it's not a source function error that we've already handled, reset the fetching flag
-      if (!(e instanceof Error && e.message.startsWith(`Source function failed for key: '${key}'`))) {
+      // Source function errors were handled (event emitted, flag reset) above
+      if (!(e instanceof SourceFnError)) {
         this.logger.log('error', `Refetch failed for key: ${key}`, e);
 
         // Reset the fetching flag in place; never re-insert the entry here

@@ -63,7 +63,7 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
 
 - `options`: `Object` - Cache entry options
   - `key`: `string` - Unique identifier for the cache entry
-  - `value?`: `T` - Value to cache (required if no sourceFn)
+  - `value?`: `T` - Value to cache (required if no sourceFn). An empty string is a valid value.
   - `ttl?`: `number` - Time-to-live in milliseconds. Must be a finite, positive number; omit it for entries that never expire. TTLs longer than the `setTimeout` limit (about 24.8 days) are supported.
   - `autoRefetch?`: `boolean` - Automatically refetch on expiry (requires ttl and sourceFn)
   - `sourceFn?`: `() => T | Promise<T>` - Function to generate cache value (required if no value)
@@ -81,6 +81,10 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
 - `Error` - If autoRefetch is true but ttl or sourceFn is not provided
 - `Error` - If ttl is `0` or negative (`` `ttl` cannot be negative ``), not a number or `NaN` (`` `ttl` must be a number ``), or `Infinity` (`` `ttl` must be a finite number ``)
 - `Error` - If `dependencies` contains the key itself, or would create a cycle (`Circular dependency detected`)
+- `SourceFnError` - If the source function throws or rejects (the original error is in `error.cause`), or resolves to `undefined`
+- `MiddlewareError` - If a middleware throws (original error in `error.cause`) or produces `undefined`
+
+`SourceFnError` and `MiddlewareError` extend `RunCacheError`, which extends `Error` and also carries the cache `key`. All three are exported from `run-cache`.
 
 **Example:**
 
@@ -278,7 +282,8 @@ Manually refreshes a cache entry or entries matching a pattern.
 If an entry is deleted, flushed, evicted, invalidated or overwritten with `set()` while its refetch is in progress, the refetch result is discarded. The entry is not re-created and no `refetch` event is emitted.
 
 **Throws:**
-- `Error` - If the source function of a single key fails (a `refetch_failure` event is also emitted)
+- `SourceFnError` - If the source function of a single key throws or resolves to `undefined`. The original error is in `error.cause`, the previous value stays in the cache, and a `refetch_failure` event is emitted with the same error in `event.error`.
+- `MiddlewareError` - If a middleware throws (original error in `error.cause`) or produces `undefined` for the new value. The previous value stays in the cache.
 
 **Example:**
 
