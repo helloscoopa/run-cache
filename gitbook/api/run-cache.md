@@ -71,7 +71,7 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
   - `validator?`: `TypeValidator<T>` - Optional type validator for runtime checking
   - `validateOnSet?`: `boolean` - Validate value before caching (default: false)
 
-**Returns:** `Promise<boolean>` - Returns `true` if the value was successfully set
+**Returns:** `Promise<boolean>` - Returns `true` if the value was successfully set. Returns `false` if another `set()` for the same key started later and has already written its value while this one was still waiting for its `sourceFn` or middleware; the newer value is kept. A later `set()` that fails does not affect an earlier one. `delete()` and `flush()` act on what is cached when they run, so they do not cancel a `set()` that is still waiting for its value.
 
 **Throws:**
 - `Error` - If key is empty
@@ -268,10 +268,14 @@ Manually refreshes a cache entry or entries matching a pattern.
 - `options?`: `Object` - Optional refresh options
   - `metadata?`: `any` - Custom metadata to include in refetch events
 
-**Returns:** `Promise<void>`
+**Returns:** `Promise<boolean>`
+- `true` if the entry (or, for a pattern, at least one matching entry) was refreshed
+- `false` if the key does not exist, has no source function, is already being refetched, or was changed while its source function was running
+
+If an entry is deleted, flushed, evicted, invalidated or overwritten with `set()` while its refetch is in progress, the refetch result is discarded. The entry is not re-created and no `refetch` event is emitted.
 
 **Throws:**
-- `Error` - If no matching entries have source functions
+- `Error` - If the source function of a single key fails (a `refetch_failure` event is also emitted)
 
 **Example:**
 

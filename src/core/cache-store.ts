@@ -99,6 +99,19 @@ export class CacheStore {
 
   private serialization: SerializationManager;
 
+  /** Monotonic counter used to order concurrent set() calls */
+  private setSequence = 0;
+
+  /** Number of set() calls currently in flight per key */
+  private inFlightSets = new Map<string, number>();
+
+  /**
+   * Highest sequence number written by a set() per key, kept only while other set()
+   * calls for that key are still in flight. A call that finishes later with a lower
+   * sequence number started earlier and must not overwrite the newer value.
+   */
+  private appliedSets = new Map<string, number>();
+
   /**
    * Creates a new CacheStore instance.
    * Note: Use the static `create` method instead for proper initialization with storage adapters.
@@ -262,6 +275,8 @@ export class CacheStore {
 
     const time = Date.now();
     const directValue = value === undefined ? undefined : this.encodeValue(value);
+    const sequence = ++this.setSequence;
+    this.inFlightSets.set(key, (this.inFlightSets.get(key) ?? 0) + 1);
 
     this.logger.log('info', `Setting cache for key: ${key}`, {
       hasTtl: ttl !== undefined,
@@ -319,6 +334,7 @@ export class CacheStore {
         this.logger.log('debug', `Successfully fetched value using sourceFn for key: ${key}`);
       } catch (e) {
         this.logger.log('error', `Source function failed for key: ${key}`, e);
+        this.finishSet(key);
         throw new Error(`Source function failed for key: '${key}'`);
       }
     }
@@ -343,8 +359,21 @@ export class CacheStore {
       this.logger.log('debug', `Applied middleware for key: ${key}`);
     } catch (error) {
       this.logger.log('error', `Middleware execution failed for key: ${key}`, error);
+      this.finishSet(key);
       throw new Error(`Middleware execution failed for key: '${key}'`);
     }
+
+    // A set() for the same key that started later has already written its value;
+    // writing now would replace newer data with older data. A later set() that failed,
+    // or has not finished yet, does not block this one.
+    if ((this.appliedSets.get(key) ?? 0) > sequence) {
+      this.logger.log('debug', `Discarding superseded set() for key: ${key}`);
+      interval?.clear();
+      this.finishSet(key);
+      return false;
+    }
+    this.appliedSets.set(key, sequence);
+    this.finishSet(key);
 
     // Check if adding this entry will exceed max size and enforce eviction if needed
     // Do this check BEFORE adding the new entry to ensure proper eviction
@@ -392,6 +421,27 @@ export class CacheStore {
     // Double-check after adding to ensure we're not over the limit
     this.enforceEvictionPolicy();
     return true;
+  }
+
+  /**
+   * Marks one in-flight set() for `key` as finished (written, discarded or failed).
+   * Ordering state for the key is dropped once no set() for it is in flight.
+   */
+  private finishSet(key: string): void {
+    const remaining = (this.inFlightSets.get(key) ?? 1) - 1;
+    if (remaining > 0) {
+      this.inFlightSets.set(key, remaining);
+      return;
+    }
+    this.inFlightSets.delete(key);
+    this.appliedSets.delete(key);
+  }
+
+  /**
+   * Returns true if `entry` is still the live cache entry for `key`
+   */
+  private isCurrentEntry(key: string, entry: CacheState<string>): boolean {
+    return this.cache.get(key) === entry;
   }
 
   /**
@@ -727,7 +777,6 @@ export class CacheStore {
 
     // Set the fetching flag to prevent concurrent refetches
     cached.fetching = true;
-    this.cache.set(key, cached);
 
     try {
       this.logger.log('debug', `Refetching key: ${key}`);
@@ -753,27 +802,25 @@ export class CacheStore {
           },
         );
 
-        // Reset the fetching flag before propagating the error
+        // Reset the fetching flag before propagating the error. The entry object is
+        // updated in place so a deleted entry is not re-inserted into the cache.
         cached.fetching = false;
-        this.cache.set(key, cached);
 
         // Rethrow with more context
         throw new Error(`Source function failed for key: '${key}'`);
       }
 
+      // The entry may have been deleted, flushed, invalidated, evicted or replaced
+      // by set() while sourceFn was running; writing now would resurrect stale data.
+      if (!this.isCurrentEntry(key, cached)) {
+        cached.fetching = false;
+        this.logger.log('debug', `Discarding refetch result for key: ${key}, entry changed while fetching`);
+        return false;
+      }
+
       // Update timestamps before applying middleware
       const now = Date.now();
-
-      // Emit event
-      this.eventSystem.emitEvent(
-        EVENT.REFETCH,
-        {
-          key,
-          value: newValue ?? 'undefined',
-          createdAt: now,
-          updatedAt: now,
-        },
-      );
+      const fetchedValue = newValue;
 
       // Apply middleware
       const context: MiddlewareContext<string | undefined> = {
@@ -791,6 +838,24 @@ export class CacheStore {
         throw new Error(`Middleware returned undefined during refetch for key: '${key}'`);
       }
       const storedValue: string = processed;
+
+      // Middleware is async too, so check again before writing
+      if (!this.isCurrentEntry(key, cached)) {
+        cached.fetching = false;
+        this.logger.log('debug', `Discarding refetch result for key: ${key}, entry changed during middleware`);
+        return false;
+      }
+
+      // Emit event only for results that are actually applied
+      this.eventSystem.emitEvent(
+        EVENT.REFETCH,
+        {
+          key,
+          value: fetchedValue ?? 'undefined',
+          createdAt: now,
+          updatedAt: now,
+        },
+      );
 
       // Clear the existing interval if present
       if (cached.interval) {
@@ -840,9 +905,8 @@ export class CacheStore {
       if (!(e instanceof Error && e.message.startsWith(`Source function failed for key: '${key}'`))) {
         this.logger.log('error', `Refetch failed for key: ${key}`, e);
 
-        // Reset the fetching flag
+        // Reset the fetching flag in place; never re-insert the entry here
         cached.fetching = false;
-        this.cache.set(key, cached);
       }
 
       // Propagate the error
