@@ -218,6 +218,8 @@ await RunCache.refetch("cache-key");
 await RunCache.refetch("api-data-*");
 ```
 
+`refetch()` resolves to `false` (and stores nothing) if the entry is deleted, invalidated or overwritten while its source function is running.
+
 #### Removing Cache Entries
 
 ```typescript
