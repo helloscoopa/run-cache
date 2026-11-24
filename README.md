@@ -27,6 +27,21 @@ A dependency-free, lightweight runtime caching library for JavaScript and TypeSc
 npm install run-cache
 ```
 
+RunCache ships CommonJS and ES module builds and works in Node.js and in browsers:
+
+```typescript
+import { RunCache } from 'run-cache';        // ES modules and bundlers (webpack, Vite, Rollup, esbuild)
+const { RunCache } = require('run-cache');   // CommonJS
+```
+
+For use without a bundler, a minified ES module build is available from a CDN:
+
+```html
+<script type="module">
+  import { RunCache } from 'https://unpkg.com/run-cache/dist/index.min.js';
+</script>
+```
+
 ## Quick Start
 
 ```typescript
@@ -190,7 +205,7 @@ RunCache.onDependencyInvalidation((event) => {
 await RunCache.set({
   key: string,                         // Required: Unique identifier for the cache entry
   value?: string,                      // Optional: String value to cache (required if no sourceFn)
-  ttl?: number,                        // Optional: Time-to-live in milliseconds
+  ttl?: number,                        // Optional: Time-to-live in milliseconds (finite and > 0; any length, including > 24.8 days)
   autoRefetch?: boolean,               // Optional: Automatically refetch on expiry (requires ttl and sourceFn)
   sourceFn?: () => string | Promise<string>, // Optional: Function to generate cache value (required if no value)
   tags?: string[],                     // Optional: Array of tags for tag-based invalidation
@@ -217,6 +232,8 @@ await RunCache.refetch("cache-key");
 // Refresh multiple entries using wildcards
 await RunCache.refetch("api-data-*");
 ```
+
+`refetch()` resolves to `false` (and stores nothing) if the entry is deleted, invalidated or overwritten while its source function is running.
 
 #### Removing Cache Entries
 
@@ -271,6 +288,8 @@ const config = RunCache.getConfig();
 
 RunCache provides a comprehensive event system to monitor cache lifecycle events.
 
+Listeners are isolated from cache operations: if a listener throws or rejects, the error is logged with `console.error`, the other listeners still run, and the cache operation completes normally. For invalidation events, the entry has already been removed when the listener runs.
+
 #### Expiry Events
 
 ```typescript
@@ -289,6 +308,8 @@ RunCache.onKeyExpiry("user-*", (event) => {
   console.log(`User cache ${event.key} expired`);
 });
 ```
+
+Expiry events carry the entry's stored `value`, `ttl`, `createdAt` and `updatedAt`, and are emitted once per expiry.
 
 #### Refetch Events
 
@@ -378,7 +399,12 @@ RunCache.clearEventListeners({
   event: EVENT.REFETCH_FAILURE,
   key: "external-*"
 });
+
+// Remove all listeners for a key, across every event type
+RunCache.clearEventListeners({ key: "api-data" });
 ```
+
+`clearEventListeners()` resolves to `true` if at least one listener was removed and `false` otherwise. Clearing one event type never affects another; for example, clearing `EVENT.REFETCH` keeps `EVENT.REFETCH_FAILURE` listeners.
 
 ### Middleware
 
@@ -495,9 +521,17 @@ Wildcard support is implemented for all key-based operations:
 
 RunCache is designed to properly manage resources throughout the application lifecycle.
 
-### Automatic Cleanup on Termination
+### Cleanup on Termination
 
-RunCache automatically registers handlers for SIGTERM and SIGINT signals in Node.js environments to ensure proper cleanup of all resources when the application is shutting down. This prevents memory leaks and ensures a clean shutdown.
+Importing RunCache does not install any process or window handlers. To have RunCache shut down (and save to its storage adapter) when the process is terminating, opt in:
+
+```typescript
+await RunCache.configure({ handleProcessSignals: true });
+```
+
+In Node.js this listens for SIGTERM and SIGINT, awaits `RunCache.shutdown()`, and then re-raises the signal unless your application has its own listener for it, so the process exits the same way it would without RunCache. In browsers it calls `RunCache.shutdown()` on `beforeunload` (best effort, since browsers do not wait for asynchronous work during unload).
+
+If your application already handles these signals, leave the option off and call `await RunCache.shutdown()` from your own handler instead.
 
 ### Manual Shutdown
 
@@ -580,12 +614,14 @@ To use a storage adapter, first import the adapter you want to use, then configu
 import { RunCache, LocalStorageAdapter } from 'run-cache';
 
 // Configure RunCache with LocalStorage persistence
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new LocalStorageAdapter({
     storageKey: 'my-app-cache' // Optional custom key
   })
 });
 ```
+
+Configuring an adapter loads any data it already holds, so `await` the call before reading from the cache. If another adapter was configured before, the current entries are saved to that adapter first; if that save fails, `configure()` rejects and the current adapter stays attached. The options passed to `configure()` always take precedence over the configuration stored with the data. Pass `storageAdapter: undefined` to detach persistence.
 
 ### Auto-Saving and Manual Control
 

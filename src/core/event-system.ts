@@ -1,4 +1,4 @@
-import { EventEmitter } from 'node:events';
+import { Emitter } from './emitter';
 import {
   EventFn, EventName, EventParam, EmitParam, EVENT,
 } from '../types/events';
@@ -15,8 +15,8 @@ import { matchesPattern } from './utils';
  * @internal
  */
 export class EventSystem {
-  /** Node.js EventEmitter used for the event distribution */
-  private emitter: EventEmitter;
+  /** Dependency-free emitter used for event distribution (works in Node.js and browsers) */
+  private emitter: Emitter;
 
   /** Storage for wildcard pattern listeners that need special handling */
   private wildcardListeners: Array<{
@@ -35,8 +35,7 @@ export class EventSystem {
    */
   constructor(logger: Logger) {
     this.logger = logger;
-    this.emitter = new EventEmitter();
-    this.emitter.setMaxListeners(0); // unlimited – safe for library code
+    this.emitter = new Emitter();
     this.wildcardListeners = [];
   }
 
@@ -105,7 +104,7 @@ export class EventSystem {
   onExpiry(callback: EventFn): void {
     this.logger.log('debug', 'Registering global expiry listener');
     const normalizedEvent = this.normalizeEventName(EVENT.EXPIRE);
-    this.emitter.on(normalizedEvent, callback);
+    this.emitter.on(normalizedEvent, this.isolate(normalizedEvent, callback));
   }
 
   /**
@@ -131,7 +130,7 @@ export class EventSystem {
   onRefetch(callback: EventFn): void {
     this.logger.log('debug', 'Registering global refetch listener');
     const normalizedEvent = this.normalizeEventName(EVENT.REFETCH);
-    this.emitter.on(normalizedEvent, callback);
+    this.emitter.on(normalizedEvent, this.isolate(normalizedEvent, callback));
   }
 
   /**
@@ -157,7 +156,7 @@ export class EventSystem {
   onRefetchFailure(callback: EventFn): void {
     this.logger.log('debug', 'Registering global refetch failure listener');
     const normalizedEvent = this.normalizeEventName(EVENT.REFETCH_FAILURE);
-    this.emitter.on(normalizedEvent, callback);
+    this.emitter.on(normalizedEvent, this.isolate(normalizedEvent, callback));
   }
 
   /**
@@ -183,7 +182,7 @@ export class EventSystem {
   onTagInvalidation(callback: EventFn): void {
     this.logger.log('debug', 'Registering global tag invalidation listener');
     const normalizedEvent = this.normalizeEventName(EVENT.TAG_INVALIDATION);
-    this.emitter.on(normalizedEvent, callback);
+    this.emitter.on(normalizedEvent, this.isolate(normalizedEvent, callback));
   }
 
   /**
@@ -209,7 +208,7 @@ export class EventSystem {
   onDependencyInvalidation(callback: EventFn): void {
     this.logger.log('debug', 'Registering global dependency invalidation listener');
     const normalizedEvent = this.normalizeEventName(EVENT.DEPENDENCY_INVALIDATION);
-    this.emitter.on(normalizedEvent, callback);
+    this.emitter.on(normalizedEvent, this.isolate(normalizedEvent, callback));
   }
 
   /**
@@ -232,23 +231,36 @@ export class EventSystem {
    *
    * @param {Object} [params] - Optional parameters to specify which listeners to clear
    * @param {EventName} [params.event] - The event type for which to clear listeners
-   * @param {string} [params.key] - The key pattern for which to clear listeners
-   * @returns {boolean} true if listeners were removed, false if no action was taken
-   * @throws {Error} If key is provided without an event
+   * @param {string} [params.key] - The key pattern for which to clear listeners. When given without
+   *   `event`, listeners for that key (or pattern) are cleared for every event type. An exact key
+   *   only clears listeners registered for that exact key, not wildcard listeners that match it.
+   * @returns {boolean} true if at least one listener was removed, false otherwise
    */
   clearEventListeners(params?: {
     event?: EventName;
     key?: string;
   }): boolean {
     if (!params) {
-      this.logger.log('info', 'Clearing all event listeners');
+      const total = this.emitter.eventNames()
+        .reduce((count, eventName) => count + this.emitter.listenerCount(eventName), 0);
+      this.logger.log('info', `Clearing all event listeners (${total})`);
       this.emitter.removeAllListeners();
       this.wildcardListeners = [];
-      return true;
+      return total > 0;
+    }
+
+    // An options object that selects nothing (`{}`, `{ event: undefined }`) is a no-op,
+    // so a filter built from optional values never clears every listener by accident
+    if (params.event === undefined && params.key === undefined) {
+      return false;
     }
 
     if (params.key && !params.event) {
-      throw Error('`key` cannot be provided without `event`');
+      let removedAny = false;
+      for (const event of Object.values(EVENT)) {
+        removedAny = this.clearKeyEventListeners(event, params.key) || removedAny;
+      }
+      return removedAny;
     }
 
     if (params.event && params.key) {
@@ -265,6 +277,65 @@ export class EventSystem {
   }
 
   /**
+   * Wraps a listener so that an exception it throws, or a promise it rejects, is
+   * reported instead of propagating into the cache operation that emitted the event.
+   * Without this a failing listener could abort an invalidation part-way, crash the
+   * process from a timer callback, or cause an unhandled promise rejection.
+   *
+   * @param {string} event - The event the listener is registered for, used in error reports
+   * @param {EventFn} callback - The listener supplied by the application
+   * @returns {EventFn} The isolated listener
+   * @private
+   */
+  private isolate(event: string, callback: EventFn): EventFn {
+    return (params: EventParam) => {
+      try {
+        const result = callback(params);
+        if (result && typeof (result as Promise<void>).then === 'function') {
+          (result as Promise<void>).then(undefined, (error: unknown) => {
+            this.reportListenerError(event, params.key, error);
+          });
+        }
+      } catch (error) {
+        this.reportListenerError(event, params.key, error);
+      }
+    };
+  }
+
+  /**
+   * Reports a listener failure to the configured `onListenerError` handler or, by default,
+   * to `console.error` (not only in debug mode, since a silently failing listener is
+   * otherwise very hard to diagnose).
+   *
+   * @private
+   */
+  private reportListenerError(event: string, key: string, error: unknown): void {
+    this.logger.log('error', `Listener for ${event} event on key ${key} failed`, error);
+
+    const handler = this.logger.getConfig().onListenerError;
+    if (typeof handler === 'function') {
+      try {
+        handler(error, { event, key });
+        return;
+      } catch (handlerError) {
+        this.writeToConsole('RunCache: onListenerError handler threw an error', handlerError);
+      }
+    }
+    this.writeToConsole(`RunCache: a ${event} listener for key "${key}" threw an error`, error);
+  }
+
+  /**
+   * Writes an error to the console when one is available.
+   *
+   * @private
+   */
+  private writeToConsole(message: string, error: unknown): void {
+    if (typeof console !== 'undefined' && typeof console.error === 'function') {
+      console.error(message, error);
+    }
+  }
+
+  /**
    * Helper method to add a key-specific listener with wildcard support.
    * Handles the complexity of registering pattern-based listeners.
    *
@@ -273,8 +344,9 @@ export class EventSystem {
    * @param {EventFn} callback - The function to call when matching events occur
    * @private
    */
-  private addKeyListener(event: EventName, key: string, callback: EventFn): void {
+  private addKeyListener(event: EventName, key: string, listener: EventFn): void {
     const normalizedEvent = this.normalizeEventName(event);
+    const callback = this.isolate(normalizedEvent, listener);
 
     if (key.includes('*')) {
       this.logger.log('debug', `Adding wildcard listener for event: ${normalizedEvent}, pattern: ${key}`);
@@ -348,12 +420,13 @@ export class EventSystem {
       const totalMessage = `Cleared ${removedCount + wildcardRemoved} total listeners for event: ${event}, `
         + `key pattern: ${key}`;
       this.logger.log('info', totalMessage);
-    } else {
-      const count = this.emitter.listenerCount(`${event}-${key}`);
-      this.emitter.removeAllListeners(`${event}-${key}`);
-      this.logger.log('info', `Cleared ${count} listeners for event: ${event}, exact key: ${key}`);
+      return removedCount + wildcardRemoved > 0;
     }
-    return true;
+
+    const count = this.emitter.listenerCount(`${event}-${key}`);
+    this.emitter.removeAllListeners(`${event}-${key}`);
+    this.logger.log('info', `Cleared ${count} listeners for event: ${event}, exact key: ${key}`);
+    return count > 0;
   }
 
   /**
@@ -364,41 +437,29 @@ export class EventSystem {
    * @private
    */
   private clearEventTypeListeners(event: string): boolean {
+    // Root listeners include the wrappers registered for wildcard key patterns
     const rootCount = this.emitter.listenerCount(event);
     this.logger.log('debug', `Clearing ${rootCount} root listeners for event: ${event}`);
     this.emitter.removeAllListeners(event);
 
-    // Remove all namespaced events
+    // Remove key-specific listeners, which are registered as `${event}-${key}`.
+    // Matching on the full prefix (including the separator) matters: event names can
+    // share a prefix, e.g. 'refetch' and 'refetch_failure'.
+    const prefix = `${event}-`;
     let namespacedCount = 0;
     this.emitter.eventNames().forEach((eventName) => {
-      if (
-        typeof eventName === 'string'
-        && eventName.startsWith(event)
-      ) {
-        const count = this.emitter.listenerCount(eventName);
-        namespacedCount += count;
+      if (typeof eventName === 'string' && eventName.startsWith(prefix)) {
+        namespacedCount += this.emitter.listenerCount(eventName);
         this.emitter.removeAllListeners(eventName);
       }
     });
     this.logger.log('debug', `Cleared ${namespacedCount} namespaced listeners for event: ${event}`);
 
-    // Remove all wildcard listeners for this event
-    const remaining: typeof this.wildcardListeners = [];
-    let wildcardCount = 0;
-    for (const entry of this.wildcardListeners) {
-      if (entry.event === event) {
-        // Already removed by removeAllListeners(event) above
-        wildcardCount++;
-      } else {
-        remaining.push(entry);
-      }
-    }
-    this.wildcardListeners = remaining;
-    this.logger.log('debug', `Removed ${wildcardCount} wildcard listener references for event: ${event}`);
+    // Forget the wildcard wrappers for this event; they were removed with the root listeners
+    this.wildcardListeners = this.wildcardListeners.filter((entry) => entry.event !== event);
 
-    const totalMessage = `Cleared all listeners (${rootCount + namespacedCount + wildcardCount} total) `
-      + `for event: ${event}`;
-    this.logger.log('info', totalMessage);
-    return true;
+    const total = rootCount + namespacedCount;
+    this.logger.log('info', `Cleared all listeners (${total} total) for event: ${event}`);
+    return total > 0;
   }
 }
