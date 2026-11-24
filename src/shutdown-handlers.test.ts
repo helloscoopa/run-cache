@@ -125,4 +125,35 @@ describe('initialization', () => {
     expect(await RunCache.get('c2')).toBe('two');
     await RunCache.flush();
   });
+
+  it('serves a call made before the first initialization finished, even if shutdown() runs meanwhile', async () => {
+    let Fresh: typeof RunCache | undefined;
+    jest.isolateModules(() => {
+      // eslint-disable-next-line global-require
+      Fresh = require('./run-cache').RunCache;
+    });
+    const cache = Fresh as typeof RunCache;
+
+    const pending = cache.set({ key: 'early', value: 'value' }); // initialization still in progress
+    await cache.shutdown();
+
+    await expect(pending).resolves.toBe(true);
+    expect(await cache.get('early')).toBe('value');
+    await cache.shutdown();
+  });
+
+  it('recovers when shutdown() runs repeatedly while initialization is pending', async () => {
+    let Fresh: typeof RunCache | undefined;
+    jest.isolateModules(() => {
+      // eslint-disable-next-line global-require
+      Fresh = require('./run-cache').RunCache;
+    });
+    const cache = Fresh as typeof RunCache;
+
+    const pending = cache.has('anything');
+    await Promise.all([cache.shutdown(), cache.shutdown()]);
+
+    await expect(pending).resolves.toBe(false);
+    await cache.shutdown();
+  });
 });

@@ -153,25 +153,33 @@ export class RunCache {
    * This is automatically called when the class is loaded.
    * @private
    */
-  private static async initialize() {
+  private static async initialize(): Promise<CacheStore> {
     if (!RunCache.instancePromise) {
       RunCache.instancePromise = CacheStore.create();
     }
     // Always await the shared promise so concurrent callers never see an unset instance
     const pending = RunCache.instancePromise;
+    let instance: CacheStore;
     try {
-      const instance = await pending;
-      if (RunCache.instancePromise === pending) {
-        RunCache.instance = instance;
-        RunCache.isInitialized = true;
-      }
+      instance = await pending;
     } catch (error) {
-      // Allow a later call to retry instead of caching the rejected promise
-      if (RunCache.instancePromise === pending) {
-        RunCache.instancePromise = null;
+      if (RunCache.instancePromise !== pending) {
+        // Replaced (e.g. by shutdown()) while waiting: start over with the current state
+        return RunCache.initialize();
       }
+      // Allow a later call to retry instead of caching the rejected promise
+      RunCache.instancePromise = null;
       throw new Error('Failed to initialize RunCache storage');
     }
+
+    if (RunCache.instancePromise !== pending) {
+      // shutdown() cleared or replaced the promise while it was pending. The instance it
+      // produced has been discarded, so initialize again instead of returning nothing.
+      return RunCache.initialize();
+    }
+
+    RunCache.instance = instance;
+    RunCache.isInitialized = true;
     return RunCache.instance;
   }
 
