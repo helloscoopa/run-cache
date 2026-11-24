@@ -40,6 +40,42 @@ describe('FilesystemAdapter', () => {
     }
   });
 
+  describe('atomic writes', () => {
+    it('leaves no temporary files behind after saving', async () => {
+      await adapter.save('first');
+      await adapter.save('second');
+
+      const files = await fs.readdir(testDir);
+      expect(files).toEqual(['test-cache.json']);
+      expect(await adapter.load()).toBe('second');
+    });
+
+    it('keeps the previous file intact when a write fails', async () => {
+      await adapter.save('previous');
+      // eslint-disable-next-line global-require
+      const realFs = require('fs/promises');
+      const rename = jest.spyOn(realFs, 'rename').mockRejectedValueOnce(new Error('disk full'));
+      try {
+        await expect(adapter.save('next')).rejects.toThrow('Failed to save cache data to filesystem: disk full');
+      } finally {
+        rename.mockRestore();
+      }
+
+      expect(await adapter.load()).toBe('previous');
+      expect(await fs.readdir(testDir)).toEqual(['test-cache.json']);
+    });
+  });
+
+  describe('options', () => {
+    it('exposes autoSaveInterval and autoLoadOnInit', () => {
+      expect(new FilesystemAdapter({ filePath: testPath }).autoSaveInterval).toBe(0);
+      expect(new FilesystemAdapter({ filePath: testPath }).autoLoadOnInit).toBe(true);
+      const configured = new FilesystemAdapter({ filePath: testPath, autoSaveInterval: 500, autoLoadOnInit: false });
+      expect(configured.autoSaveInterval).toBe(500);
+      expect(configured.autoLoadOnInit).toBe(false);
+    });
+  });
+
   describe('constructor', () => {
     it('should use default file path if not provided', async () => {
       const defaultAdapter = new FilesystemAdapter();

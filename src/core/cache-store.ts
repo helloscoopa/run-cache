@@ -12,6 +12,18 @@ import { MiddlewareContext, MiddlewareFunction, MiddlewareManager } from '../typ
 import { StorageAdapter } from '../types/storage-adapter';
 import { SerializationManager } from './serialization';
 import { MiddlewareError, SourceFnError } from './errors';
+import { createExpiryTimer, ExpiryTimer } from './timer';
+
+/**
+ * Lets the Node.js process exit while a native timer (the auto-save interval) is
+ * pending. Expiry timers use ExpiryTimer.unref(), which also covers re-armed chunks.
+ * No-op in browsers, where timer handles are numbers.
+ */
+function unrefTimer(timer: unknown): void {
+  if (timer && typeof timer === 'object' && typeof (timer as { unref?: unknown }).unref === 'function') {
+    (timer as { unref: () => void }).unref();
+  }
+}
 
 // Use the original isExpired function but add a custom wrapper for the simpler case
 function isExpired(_cache: CacheState<string>): boolean;
@@ -23,6 +35,14 @@ function isExpired(cacheOrUpdatedAt: CacheState<string> | number, ttl?: number):
   }
   // Use the original implementation for CacheState objects
   return originalIsExpired(cacheOrUpdatedAt as CacheState<string>);
+}
+
+/**
+ * A stored value as read from the cache, with whether it must be deserialized
+ */
+interface StoredRead {
+  value: string;
+  serialized: boolean;
 }
 
 /**
@@ -53,7 +73,9 @@ interface SerializedCacheData {
       lastAccessed: number;
       tags?: string[];
       dependencies?: string[];
-      sourceFn?: string; // Serialized as string if available
+      serialized?: boolean;
+      /** Written by versions up to 1.6.1; ignored on load and no longer written */
+      sourceFn?: string;
     };
   };
 
@@ -88,7 +110,30 @@ export class CacheStore {
 
   private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
 
+  /** Whether the running auto-save interval came from an adapter's `autoSaveInterval` option */
+  private autoSaveStartedByAdapter = false;
+
   private serialization: SerializationManager;
+
+  /** Monotonic counter used to order concurrent set() calls */
+  private setSequence = 0;
+
+  /** Number of set() calls currently in flight per key */
+  private inFlightSets = new Map<string, number>();
+
+  /**
+   * Highest sequence number written by a set() per key, kept only while other set()
+   * calls for that key are still in flight. A call that finishes later with a lower
+   * sequence number started earlier and must not overwrite the newer value.
+   */
+  private appliedSets = new Map<string, number>();
+
+  /**
+   * Reverse dependency index: for each key, the keys of entries that list it in their
+   * `dependencies`. Keeps dependency invalidation proportional to the number of
+   * dependents (and free when no entry declares dependencies).
+   */
+  private dependents = new Map<string, Set<string>>();
 
   /**
    * Creates a new CacheStore instance.
@@ -132,11 +177,7 @@ export class CacheStore {
 
     // Load from storage if a storage adapter is provided
     if (store.storageAdapter) {
-      try {
-        await store.loadFromStorage();
-      } catch (error) {
-        store.logger.log('error', 'Failed to load cache data from storage', error);
-      }
+      await store.attachStorageAdapter();
     }
 
     return store;
@@ -155,10 +196,10 @@ export class CacheStore {
     dependencies,
   }: {
     key: string;
-    value?: string;
+    value?: unknown;
     ttl?: number;
     autoRefetch?: boolean;
-    sourceFn?: SourceFn<string>;
+    sourceFn?: SourceFn<unknown>;
     tags?: string[];
     dependencies?: string[];
   }): Promise<boolean> {
@@ -250,9 +291,19 @@ export class CacheStore {
         );
         throw new Error('A key cannot depend on itself');
       }
+
+      // Reject longer cycles (A -> B -> A), which would make invalidation ambiguous
+      const cycleVia = dependencies.find((dep) => this.dependsTransitively(dep, key));
+      if (cycleVia !== undefined) {
+        this.logger.log('error', `Circular dependency detected for key: ${key} via ${cycleVia}`);
+        throw new Error(`Circular dependency detected: "${cycleVia}" already depends on "${key}"`);
+      }
     }
 
     const time = Date.now();
+    const directValue = value === undefined ? undefined : this.encodeValue(value);
+    const sequence = ++this.setSequence;
+    this.inFlightSets.set(key, (this.inFlightSets.get(key) ?? 0) + 1);
 
     this.logger.log('info', `Setting cache for key: ${key}`, {
       hasTtl: ttl !== undefined,
@@ -264,54 +315,25 @@ export class CacheStore {
       hasDependencies: dependencies !== undefined && dependencies.length > 0,
     });
 
-    // Clear existing interval if the key already exists
-    const existingCache = this.cache.get(key);
-    if (existingCache?.interval) {
-      this.logger.log('debug', `Clearing existing interval for key: ${key}`);
-      clearTimeout(existingCache.interval);
-    }
-
-    let interval: ReturnType<typeof setTimeout> | null = null;
-
-    if (ttl !== undefined) {
-      this.logger.log('debug', `Setting expiry interval for key: ${key}, ttl: ${ttl}ms`);
-      interval = setTimeout(() => {
-        this.logger.log('debug', `TTL expired for key: ${key}`);
-        this.eventSystem.emitEvent(
-          EVENT.EXPIRE,
-          {
-            key,
-            value: value ?? 'undefined',
-            createdAt: time,
-            updatedAt: time,
-            _params: { ttl },
-          },
-        );
-
-        if (typeof sourceFn === 'function' && autoRefetch) {
-          this.logger.log('debug', `Auto-refetching key: ${key}`);
-          this.refetchSingle(key).catch((e) => {
-            this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
-            /* Ignore as the event is already emitted inside the function */
-          });
-        }
-      }, ttl);
-    }
-
-    let cacheValue = value;
+    let cacheValue = directValue?.value;
+    let serialized = directValue?.serialized ?? false;
 
     if (value === undefined && typeof sourceFn === 'function') {
       try {
         this.logger.log('debug', `Fetching value using sourceFn for key: ${key}`);
-        cacheValue = await sourceFn();
+        const encoded = this.encodeValue(await sourceFn());
+        cacheValue = encoded.value;
+        serialized = encoded.serialized;
         this.logger.log('debug', `Successfully fetched value using sourceFn for key: ${key}`);
       } catch (e) {
         this.logger.log('error', `Source function failed for key: ${key}`, e);
+        this.finishSet(key);
         throw new SourceFnError(`Source function failed for key: '${key}'`, key, e);
       }
 
       if (cacheValue === undefined) {
         this.logger.log('error', `Source function returned undefined for key: ${key}`);
+        this.finishSet(key);
         throw new SourceFnError(`Source function returned undefined for key: '${key}'`, key);
       }
     }
@@ -336,7 +358,67 @@ export class CacheStore {
       this.logger.log('debug', `Applied middleware for key: ${key}`);
     } catch (error) {
       this.logger.log('error', `Middleware execution failed for key: ${key}`, error);
+      this.finishSet(key);
       throw new MiddlewareError(`Middleware execution failed for key: '${key}'`, key, error);
+    }
+
+    // A set() for the same key that started later has already written its value;
+    // writing now would replace newer data with older data. A later set() that failed,
+    // or has not finished yet, does not block this one.
+    if ((this.appliedSets.get(key) ?? 0) > sequence) {
+      this.logger.log('debug', `Discarding superseded set() for key: ${key}`);
+      this.finishSet(key);
+      return false;
+    }
+    this.appliedSets.set(key, sequence);
+    this.finishSet(key);
+
+    // The value is resolved, so nothing below can fail. Only now replace the
+    // existing entry's timer: a failed sourceFn or middleware above must leave the
+    // current entry, including its expiry timer, untouched and create no new timer.
+    // The entry is read here (not before the awaits) so it reflects the live state.
+    const existingCache = this.cache.get(key);
+
+    // Timestamp the entry now, when its TTL timer starts, so lazy expiry checks
+    // (updatedAt + ttl) and the timer agree on one expiry time even if the value
+    // took a while to fetch.
+    const writtenAt = Date.now();
+    if (existingCache?.interval) {
+      this.logger.log('debug', `Clearing existing interval for key: ${key}`);
+      existingCache.interval.clear();
+    }
+
+    let interval: ExpiryTimer | null = null;
+
+    if (ttl !== undefined) {
+      this.logger.log('debug', `Setting expiry interval for key: ${key}, ttl: ${ttl}ms`);
+      interval = createExpiryTimer(() => {
+        // Only act if this timer still belongs to the live entry; it may have been
+        // replaced by a later set() or refetch.
+        const current = this.cache.get(key);
+        if (!current || current.interval !== interval) {
+          return;
+        }
+        this.logger.log('debug', `TTL expired for key: ${key}`);
+        this.emitExpiry(key, current);
+
+        if (typeof sourceFn === 'function' && autoRefetch) {
+          this.logger.log('debug', `Auto-refetching key: ${key}`);
+          this.refetchSingle(key).catch((e) => {
+            this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
+            /* Ignore as the event is already emitted inside the function */
+          });
+        } else if (typeof sourceFn !== 'function') {
+          // Removing the entry also invalidates its dependents
+          this.removeExpiredEntry(key, interval);
+        } else {
+          // Entries with a sourceFn are kept so they can still be refetched manually,
+          // but their value is no longer valid, so neither is anything derived from it.
+          // Auto-refetched entries invalidate their dependents when the refetch lands.
+          this.invalidateDependentsOf(key);
+        }
+      }, ttl);
+      interval.unref();
     }
 
     // Check if adding this entry will exceed max size and enforce eviction if needed
@@ -350,23 +432,32 @@ export class CacheStore {
       this.enforceEvictionPolicy(1);
     }
 
-    // Set up proper access metadata - preserve existing metadata for updates
+    // Set up access metadata. The access count is preserved for updates; a write
+    // always counts as the most recent use for LRU purposes.
     const accessCount = existingCache ? existingCache.accessCount : 0;
-    const lastAccessed = existingCache ? existingCache.lastAccessed : time;
+    const lastAccessed = writtenAt;
 
     // Process and sanitize tags and dependencies
     const finalTags = tags ? normalizeTags(tags) : (existingCache?.tags || []);
     const finalDependencies = dependencies ? [...dependencies] : (existingCache?.dependencies || []);
 
+    // Replace this key's edges in the reverse dependency index. The live entry is read
+    // here (not the one captured before the awaits) so the index matches what is replaced.
+    this.unindexDependencies(key, this.cache.get(key)?.dependencies);
+    this.indexDependencies(key, finalDependencies);
+
+    // Re-insert so the Map's iteration order stays least- to most-recently-used
+    this.cache.delete(key);
     this.cache.set(key, {
       // Defined: a missing value was rejected above, and sourceFn/middleware results are checked
       value: cacheValue as string,
+      serialized,
       ttl,
-      sourceFn,
+      sourceFn: sourceFn as SourceFn<string> | undefined,
       autoRefetch,
       interval: interval || undefined,
-      createdAt: time,
-      updatedAt: time,
+      createdAt: writtenAt,
+      updatedAt: writtenAt,
       // Initialize access metadata for eviction policies
       accessCount,
       lastAccessed,
@@ -381,6 +472,11 @@ export class CacheStore {
       tags: finalTags,
       dependencies: finalDependencies,
     });
+
+    // An updated entry invalidates everything derived from its previous value
+    if (existingCache) {
+      this.invalidateDependentsOf(key);
+    }
 
     // Double-check after adding to ensure we're not over the limit
     this.enforceEvictionPolicy();
@@ -407,6 +503,61 @@ export class CacheStore {
   }
 
   /**
+   * Emits the expire event for an entry, at most once per version of the entry.
+   * The payload always reflects the stored value and includes the entry's TTL.
+   */
+  private emitExpiry(key: string, state: CacheState<string>): void {
+    if (state.expiryEmitted) {
+      return;
+    }
+    state.expiryEmitted = true;
+    this.eventSystem.emitEvent(
+      EVENT.EXPIRE,
+      {
+        key,
+        value: state.value,
+        ttl: state.ttl,
+        createdAt: state.createdAt,
+        updatedAt: state.updatedAt,
+      },
+    );
+  }
+
+  /**
+   * Removes an entry whose TTL timer has fired, unless the entry has since been
+   * replaced (its timer is then a different one) or already removed.
+   */
+  private removeExpiredEntry(key: string, timer: ExpiryTimer | null | undefined): void {
+    const current = this.cache.get(key);
+    if (!current || !timer || current.interval !== timer) {
+      return;
+    }
+    this.logger.log('debug', `Removing expired entry for key: ${key}`);
+    this.deleteSingle(key);
+  }
+
+  /**
+   * Marks one in-flight set() for `key` as finished (written, discarded or failed).
+   * Ordering state for the key is dropped once no set() for it is in flight.
+   */
+  private finishSet(key: string): void {
+    const remaining = (this.inFlightSets.get(key) ?? 1) - 1;
+    if (remaining > 0) {
+      this.inFlightSets.set(key, remaining);
+      return;
+    }
+    this.inFlightSets.delete(key);
+    this.appliedSets.delete(key);
+  }
+
+  /**
+   * Returns true if `entry` is still the live cache entry for `key`
+   */
+  private isCurrentEntry(key: string, entry: CacheState<string>): boolean {
+    return this.cache.get(key) === entry;
+  }
+
+  /**
    * Updates the access metadata for a specific cache entry
    * @param key The cache key to update
    */
@@ -418,6 +569,8 @@ export class CacheStore {
       const previousAccess = { lastAccessed: cached.lastAccessed, accessCount: cached.accessCount };
       cached.lastAccessed = now;
       cached.accessCount += 1;
+      // Move to the end so the Map's iteration order stays least- to most-recently-used
+      this.cache.delete(key);
       this.cache.set(key, cached);
 
       this.logger.log('debug', `Updated access metadata for key: ${key}`, {
@@ -502,6 +655,32 @@ export class CacheStore {
    * Gets a value or values from the cache by key or pattern
    */
   async get(key: string): Promise<string | string[] | undefined> {
+    const results = await this.read(key);
+    if (results === undefined) {
+      return undefined;
+    }
+    return Array.isArray(results) ? results.map((result) => result.value) : results.value;
+  }
+
+  /**
+   * Gets a value or values from the cache, deserializing entries that were stored
+   * from non-string values. Plain string entries are returned unchanged.
+   */
+  async getDeserialized(key: string): Promise<unknown | unknown[] | undefined> {
+    const results = await this.read(key);
+    if (results === undefined) {
+      return undefined;
+    }
+    return Array.isArray(results)
+      ? results.map((result) => this.decodeValue(result))
+      : this.decodeValue(results);
+  }
+
+  /**
+   * Shared implementation of get() and getDeserialized(): reads a single key, or every
+   * key matching a wildcard pattern, returning the stored strings with their serialized flag.
+   */
+  private async read(key: string): Promise<StoredRead | StoredRead[] | undefined> {
     if (!key?.length) {
       this.logger.log('debug', 'Empty key provided to get() method');
       return undefined;
@@ -509,35 +688,62 @@ export class CacheStore {
 
     this.logger.log('info', `Getting cache for key: ${key}`);
 
-    const isPattern = key.includes('*');
-
-    if (isPattern) {
-      const matchingKeys = this.getMatchingKeys(key);
-      if (!matchingKeys.length) {
-        this.logger.log('debug', `No keys found matching pattern: ${key}`);
-        return undefined;
-      }
-
-      // For patterns, get all matching values in parallel
-      const results = await Promise.all(
-        matchingKeys.map(async (matchedKey) => {
-          try {
-            return await this.getSingle(matchedKey);
-          } catch (error) {
-            this.logger.log('error', `Error getting cache for key: ${matchedKey}`, error);
-            return undefined;
-          }
-        }),
-      );
-
-      // Filter out undefined values from expired or errored keys
-      const validResults = results.filter((result): result is string => result !== undefined);
-
-      return validResults.length > 0 ? validResults : undefined;
+    if (!key.includes('*')) {
+      return this.readSingle(key);
     }
 
-    // For single keys, just get the value directly
-    return this.getSingle(key);
+    const matchingKeys = this.getMatchingKeys(key);
+    if (!matchingKeys.length) {
+      this.logger.log('debug', `No keys found matching pattern: ${key}`);
+      return undefined;
+    }
+
+    // For patterns, get all matching values in parallel
+    const results = await Promise.all(
+      matchingKeys.map(async (matchedKey) => {
+        try {
+          return await this.readSingle(matchedKey);
+        } catch (error) {
+          this.logger.log('error', `Error getting cache for key: ${matchedKey}`, error);
+          return undefined;
+        }
+      }),
+    );
+
+    // Filter out undefined values from expired or errored keys
+    const validResults = results.filter((result): result is StoredRead => result !== undefined);
+    return validResults.length > 0 ? validResults : undefined;
+  }
+
+  /**
+   * Converts a value into its stored string form. Strings are stored as-is;
+   * any other value is serialized and flagged so it can be restored on read.
+   */
+  private encodeValue(value: unknown): { value: string | undefined; serialized: boolean } {
+    if (value === undefined || typeof value === 'string') {
+      return { value, serialized: false };
+    }
+    return { value: this.serialization.serialize(value), serialized: true };
+  }
+
+  /**
+   * Restores a stored value: serialized entries are deserialized, strings are returned unchanged.
+   */
+  private decodeValue({ value, serialized }: StoredRead): unknown {
+    return serialized ? this.serialization.deserialize(value) : value;
+  }
+
+  /**
+   * Reads a single entry by exact key, returning the (middleware-processed) stored
+   * string together with whether it holds a serialized non-string value.
+   */
+  private async readSingle(key: string): Promise<StoredRead | undefined> {
+    const cached = this.cache.get(key);
+    const value = await this.getSingle(key);
+    if (value === undefined) {
+      return undefined;
+    }
+    return { value, serialized: cached?.serialized === true };
   }
 
   /**
@@ -554,6 +760,9 @@ export class CacheStore {
     // Check if the entry has expired
     if (cached.ttl && isExpired(cached.updatedAt, cached.ttl)) {
       this.logger.log('debug', `Cache expired for key: ${key}`);
+
+      // The timer normally reports the expiry; this covers reads that notice it first
+      this.emitExpiry(key, cached);
 
       // For entries with autoRefetch, generate a new value in the background
       if (cached.autoRefetch && cached.sourceFn) {
@@ -686,15 +895,17 @@ export class CacheStore {
 
     // Set the fetching flag to prevent concurrent refetches
     cached.fetching = true;
-    this.cache.set(key, cached);
 
     try {
       this.logger.log('debug', `Refetching key: ${key}`);
 
       // Execute the source function
-      let newValue: string;
+      let newValue: string | undefined;
+      let serialized: boolean;
       try {
-        newValue = await cached.sourceFn();
+        const encoded = this.encodeValue(await (cached.sourceFn as SourceFn<unknown>)());
+        newValue = encoded.value;
+        serialized = encoded.serialized;
         if (newValue === undefined) {
           throw new SourceFnError(`Source function returned undefined for key: '${key}'`, key);
         }
@@ -710,33 +921,32 @@ export class CacheStore {
           {
             key,
             value: cached.value,
+            ttl: cached.ttl,
             createdAt: cached.createdAt,
             updatedAt: cached.updatedAt,
             error: error.cause ?? error,
           },
         );
 
-        // Reset the fetching flag before propagating the error
+        // Reset the fetching flag before propagating the error. The entry object is
+        // updated in place so a deleted entry is not re-inserted into the cache.
         cached.fetching = false;
-        this.cache.set(key, cached);
 
         // Rethrow with more context; the original error is available as `cause`
         throw error;
       }
 
+      // The entry may have been deleted, flushed, invalidated, evicted or replaced
+      // by set() while sourceFn was running; writing now would resurrect stale data.
+      if (!this.isCurrentEntry(key, cached)) {
+        cached.fetching = false;
+        this.logger.log('debug', `Discarding refetch result for key: ${key}, entry changed while fetching`);
+        return false;
+      }
+
       // Update timestamps before applying middleware
       const now = Date.now();
-
-      // Emit event
-      this.eventSystem.emitEvent(
-        EVENT.REFETCH,
-        {
-          key,
-          value: newValue,
-          createdAt: now,
-          updatedAt: now,
-        },
-      );
+      const fetchedValue = newValue;
 
       // Apply middleware
       const context: MiddlewareContext<string | undefined> = {
@@ -753,48 +963,73 @@ export class CacheStore {
         this.logger.log('error', `Middleware returned undefined during refetch for key: ${key}`);
         throw new MiddlewareError(`Middleware returned undefined during refetch for key: '${key}'`, key);
       }
-      newValue = processed;
+      const storedValue: string = processed;
+
+      // Middleware is async too, so check again before writing
+      if (!this.isCurrentEntry(key, cached)) {
+        cached.fetching = false;
+        this.logger.log('debug', `Discarding refetch result for key: ${key}, entry changed during middleware`);
+        return false;
+      }
+
+      // Emit event only for results that are actually applied
+      this.eventSystem.emitEvent(
+        EVENT.REFETCH,
+        {
+          key,
+          value: fetchedValue ?? 'undefined',
+          ttl: cached.ttl,
+          createdAt: now,
+          updatedAt: now,
+        },
+      );
 
       // Clear the existing interval if present
       if (cached.interval) {
-        clearTimeout(cached.interval);
+        cached.interval.clear();
       }
 
       // Create a new interval if TTL is specified
-      let newInterval: ReturnType<typeof setTimeout> | undefined;
+      let newInterval: ExpiryTimer | undefined;
 
       if (cached.ttl) {
-        newInterval = setTimeout(() => {
+        newInterval = createExpiryTimer(() => {
+          const current = this.cache.get(key);
+          if (!current || current.interval !== newInterval) {
+            return;
+          }
           this.logger.log('debug', `TTL expired for refetched key: ${key}`);
-          this.eventSystem.emitEvent(
-            EVENT.EXPIRE,
-            {
-              key,
-              value: newValue,
-              createdAt: now,
-              updatedAt: now,
-            },
-          );
+          this.emitExpiry(key, current);
 
-          if (cached.autoRefetch) {
+          if (current.autoRefetch) {
             this.logger.log('debug', `Auto-refetching key after expiry: ${key}`);
             this.refetchSingle(key).catch((e) => {
               this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
             });
+          } else {
+            // Refetched entries always have a sourceFn, so they are kept for manual
+            // refetch; anything derived from the expired value is invalidated
+            this.invalidateDependentsOf(key);
           }
         }, cached.ttl);
+        newInterval.unref();
       }
 
       // Update the cache entry
       this.cache.set(key, {
         ...cached,
-        value: newValue,
+        value: storedValue,
+        serialized,
         updatedAt: now,
         interval: newInterval,
         fetching: false,
+        expiryEmitted: false,
       });
 
       this.logger.log('debug', `Successfully refetched key: ${key}`);
+
+      // Entries derived from the previous value are now stale
+      this.invalidateDependentsOf(key);
 
       return true;
     } catch (e) {
@@ -802,9 +1037,8 @@ export class CacheStore {
       if (!(e instanceof SourceFnError)) {
         this.logger.log('error', `Refetch failed for key: ${key}`, e);
 
-        // Reset the fetching flag
+        // Reset the fetching flag in place; never re-insert the entry here
         cached.fetching = false;
-        this.cache.set(key, cached);
       }
 
       // Propagate the error
@@ -838,9 +1072,21 @@ export class CacheStore {
   }
 
   /**
-   * Helper method to delete a single key
+   * Deletes a single key and invalidates every entry that depends on it.
+   * Used for explicit deletes, eviction, expiry and tag invalidation.
    */
   private deleteSingle(key: string): boolean {
+    if (!this.removeEntry(key)) {
+      return false;
+    }
+    this.invalidateDependentsOf(key);
+    return true;
+  }
+
+  /**
+   * Removes a single key without touching its dependents
+   */
+  private removeEntry(key: string): boolean {
     const cache = this.cache.get(key);
     if (!cache) {
       this.logger.log('debug', `Delete failed: key not found: ${key}`);
@@ -849,10 +1095,11 @@ export class CacheStore {
 
     if (cache.interval) {
       this.logger.log('debug', `Clearing timeout for key: ${key}`);
-      clearTimeout(cache.interval);
+      cache.interval.clear();
     }
 
     this.logger.log('info', `Deleted key: ${key}`);
+    this.unindexDependencies(key, cache.dependencies);
     return this.cache.delete(key);
   }
 
@@ -867,11 +1114,12 @@ export class CacheStore {
 
     values.forEach(({ interval }) => {
       if (interval) {
-        clearTimeout(interval);
+        interval.clear();
       }
     });
 
     this.cache.clear();
+    this.dependents.clear();
     this.logger.log('debug', `Cache flushed successfully, removed ${count} entries`);
   }
 
@@ -909,23 +1157,11 @@ export class CacheStore {
     }
 
     if (cached.ttl && isExpired(cached.updatedAt, cached.ttl)) {
-      this.eventSystem.emitEvent(
-        EVENT.EXPIRE,
-        {
-          key,
-          value: cached.value,
-          createdAt: cached.createdAt,
-          updatedAt: cached.updatedAt,
-        },
-      );
+      this.emitExpiry(key, cached);
 
-      // Clean up expired entry to prevent memory leaks
-      if (cached.interval) {
-        this.logger.log('debug', `Clearing timeout for expired key: ${key}`);
-        clearTimeout(cached.interval);
-      }
+      // Clean up expired entry to prevent memory leaks (also invalidates its dependents)
       this.logger.log('debug', `Removing expired key during has() check: ${key}`);
-      this.cache.delete(key);
+      this.deleteSingle(key);
 
       return false;
     }
@@ -949,29 +1185,59 @@ export class CacheStore {
     this.logger.updateConfig(this.config);
 
     // Update storage adapter if provided
-    if ('storage' in config) {
-      // If we're replacing the storage adapter, save current data first
-      if (this.storageAdapter) {
-        try {
-          await this.saveToStorage();
-        } catch (error) {
-          this.logger.log('error', 'Failed to save cache data before changing storage adapter', error);
+    // Configuring the adapter that is already attached changes nothing: reloading it
+    // would restore its last snapshot over entries that have not been saved yet
+    if ('storageAdapter' in config && (config.storageAdapter ?? null) !== this.storageAdapter) {
+      // If we're replacing the storage adapter, save current data first. If that
+      // fails, keep the current adapter so no entries are lost and the caller can retry.
+      const previousAdapter = this.storageAdapter;
+      if (previousAdapter) {
+        if (!(await this.saveToStorage())) {
+          this.config.storageAdapter = previousAdapter;
+          this.logger.log('error', 'Failed to save cache data before changing storage adapter; keeping the current adapter');
+          throw new Error('Failed to save cache data to the current storage adapter; the storage adapter was not changed');
         }
       }
 
       this.storageAdapter = config.storageAdapter ?? null;
+
+      // An interval requested by the previous adapter's options ends with that adapter.
+      // One started explicitly with setupAutoSave() keeps running.
+      if (this.autoSaveStartedByAdapter) {
+        this.startAutoSave(0, false);
+      }
 
       // If the new adapter is null/undefined we're done
       if (!this.storageAdapter) {
         return;
       }
 
-      // Load from new storage
+      await this.attachStorageAdapter();
+    }
+  }
+
+  /**
+   * Applies the current storage adapter's options: loads existing data unless the
+   * adapter sets `autoLoadOnInit: false`, and starts auto-saving when the adapter sets a
+   * positive `autoSaveInterval`. An interval started with setupAutoSave() is kept when
+   * the adapter does not set one.
+   */
+  private async attachStorageAdapter(): Promise<void> {
+    const adapter = this.storageAdapter;
+    if (!adapter) {
+      return;
+    }
+
+    if (adapter.autoLoadOnInit !== false) {
       try {
         await this.loadFromStorage();
       } catch (error) {
-        this.logger.log('error', 'Failed to load cache data from new storage adapter', error);
+        this.logger.log('error', 'Failed to load cache data from storage adapter', error);
       }
+    }
+
+    if (typeof adapter.autoSaveInterval === 'number' && adapter.autoSaveInterval > 0) {
+      this.startAutoSave(adapter.autoSaveInterval, true);
     }
   }
 
@@ -1104,6 +1370,11 @@ export class CacheStore {
   private serializeCache(): string {
     const entries: { [key: string]: any } = {};
     for (const [key, state] of this.cache.entries()) {
+      // Expired entries cannot be served after a restore (source functions are not
+      // persisted), so there is no point in writing them out
+      if (state.ttl && isExpired(state.updatedAt, state.ttl)) {
+        continue;
+      }
       entries[key] = {
         value: state.value,
         createdAt: state.createdAt,
@@ -1114,7 +1385,9 @@ export class CacheStore {
         lastAccessed: state.lastAccessed,
         tags: state.tags,
         dependencies: state.dependencies,
-        sourceFn: state.sourceFn ? state.sourceFn.toString() : undefined,
+        serialized: state.serialized || undefined,
+        // Source functions are not persisted: their source text cannot be safely turned
+        // back into a function, and writing it out leaks application code to storage
       };
     }
 
@@ -1136,51 +1409,58 @@ export class CacheStore {
    * @param data The serialized cache data
    */
   private deserializeCache(data: string): void {
+    let parsed: SerializedCacheData;
     try {
-      const parsed: SerializedCacheData = JSON.parse(data);
-
-      // Check data version
-      if (parsed.version !== 1) {
-        throw new Error(`Unsupported cache data version: ${parsed.version}`);
-      }
-
-      // Clear existing cache
-      this.flush();
-
-      // Restore config
-      if (parsed.config) {
-        if (parsed.config.maxEntries !== undefined) {
-          this.config.maxEntries = parsed.config.maxEntries;
-        }
-
-        if (parsed.config.evictionPolicy) {
-          this.config.evictionPolicy = parsed.config.evictionPolicy as EvictionPolicy;
-        }
-      }
-
-      // Restore entries
-      if (parsed.entries) {
-        for (const [key, entry] of Object.entries(parsed.entries)) {
-          const state: CacheState<string> = {
-            value: entry.value,
-            createdAt: entry.createdAt,
-            updatedAt: entry.updatedAt,
-            ttl: entry.ttl,
-            autoRefetch: entry.autoRefetch,
-            accessCount: entry.accessCount,
-            lastAccessed: entry.lastAccessed,
-            tags: entry.tags,
-            dependencies: entry.dependencies,
-          };
-
-          this.cache.set(key, state);
-        }
-      }
-
-      this.logger.log('info', `Restored ${this.cache.size} cache entries from storage`);
+      parsed = JSON.parse(data);
     } catch (error) {
       throw new Error(`Failed to deserialize cache data: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
+
+    // Check data version
+    if (parsed.version !== 1) {
+      throw new Error(`Failed to deserialize cache data: Unsupported cache data version: ${parsed.version}`);
+    }
+
+    // The stored `config` block is informational only. The runtime configuration
+    // (maxEntries, evictionPolicy, ...) is whatever the application configured.
+
+    let restored = 0;
+    let skipped = 0;
+    for (const [key, entry] of Object.entries(parsed.entries ?? {})) {
+      // Entries already in memory are newer than anything in storage
+      if (this.cache.has(key)) {
+        skipped++;
+        continue;
+      }
+
+      // Expired entries cannot be served (source functions are not persisted)
+      if (entry.ttl && isExpired(entry.updatedAt, entry.ttl)) {
+        skipped++;
+        continue;
+      }
+
+      const state: CacheState<string> = {
+        value: entry.value,
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+        ttl: entry.ttl,
+        autoRefetch: entry.autoRefetch,
+        accessCount: entry.accessCount,
+        lastAccessed: entry.lastAccessed,
+        tags: entry.tags,
+        dependencies: entry.dependencies,
+        serialized: entry.serialized === true,
+      };
+
+      this.cache.set(key, state);
+      this.indexDependencies(key, state.dependencies);
+      // Re-arm the expiry timer for the time remaining on the original TTL
+      this.setExpiryInterval(key, state);
+      restored++;
+    }
+
+    this.logger.log('info', `Restored ${restored} cache entries from storage (${skipped} skipped)`);
+    this.enforceEvictionPolicy();
   }
 
   /**
@@ -1203,9 +1483,10 @@ export class CacheStore {
     }
 
     // Otherwise set timeout for remaining time
-    state.interval = setTimeout(() => {
+    state.interval = createExpiryTimer(() => {
       this.handleExpiry(key, state);
     }, remainingTime);
+    state.interval.unref();
   }
 
   /**
@@ -1214,15 +1495,7 @@ export class CacheStore {
   private handleExpiry(key: string, state: CacheState<string>): void {
     this.logger.log('debug', `TTL expired for key: ${key}`);
 
-    this.eventSystem.emitEvent(
-      EVENT.EXPIRE,
-      {
-        key,
-        value: state.value,
-        createdAt: state.createdAt,
-        updatedAt: state.updatedAt,
-      },
-    );
+    this.emitExpiry(key, state);
 
     if (typeof state.sourceFn === 'function' && state.autoRefetch) {
       this.logger.log('debug', `Auto-refetching key: ${key}`);
@@ -1230,6 +1503,8 @@ export class CacheStore {
         this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
         /* Ignore as the event is already emitted inside the function */
       });
+    } else if (typeof state.sourceFn !== 'function' && this.cache.get(key) === state) {
+      this.deleteSingle(key);
     }
   }
 
@@ -1256,16 +1531,26 @@ export class CacheStore {
   }
 
   /**
-   * Loads cache state from storage if a storage adapter is configured
+   * Loads cache state from storage if a storage adapter is configured.
+   * Stored entries are merged into the cache: keys that already exist in memory keep
+   * their current value, and expired stored entries are skipped. TTL timers of restored
+   * entries are re-armed for the time remaining on their original TTL.
    */
   async loadFromStorage(): Promise<boolean> {
-    if (!this.storageAdapter) {
+    const adapter = this.storageAdapter;
+    if (!adapter) {
       return false;
     }
 
     try {
       // Load from storage
-      const data = await this.storageAdapter.load();
+      const data = await adapter.load();
+
+      // The adapter may have been replaced or detached while loading
+      if (this.storageAdapter !== adapter) {
+        this.logger.log('debug', 'Storage adapter changed during load; discarding loaded data');
+        return false;
+      }
 
       if (!data) {
         this.logger.log('info', 'No cached data found in storage');
@@ -1286,11 +1571,21 @@ export class CacheStore {
    * @param intervalMs Milliseconds between auto-saves, or 0 to disable
    */
   setupAutoSave(intervalMs: number): void {
+    this.startAutoSave(intervalMs, false);
+  }
+
+  /**
+   * Replaces the auto-save interval. `byAdapter` records whether it was requested by the
+   * attached adapter's `autoSaveInterval` option (and so ends with that adapter) or by
+   * an explicit setupAutoSave() call (and so survives adapter changes).
+   */
+  private startAutoSave(intervalMs: number, byAdapter: boolean): void {
     // Clear existing interval if any
     if (this.autoSaveInterval) {
       clearInterval(this.autoSaveInterval);
       this.autoSaveInterval = null;
     }
+    this.autoSaveStartedByAdapter = false;
 
     // Setup new interval if storage adapter exists and interval > 0
     if (this.storageAdapter && intervalMs > 0) {
@@ -1299,6 +1594,10 @@ export class CacheStore {
           this.logger.log('error', 'Auto-save failed', error);
         });
       }, intervalMs);
+      this.autoSaveStartedByAdapter = byAdapter;
+
+      // Auto-saving should never be the only thing keeping a Node.js process alive
+      unrefTimer(this.autoSaveInterval);
     }
   }
 
@@ -1338,29 +1637,45 @@ export class CacheStore {
     const normalizedTag = normalizeTag(tag);
     this.logger.log('info', `Invalidating cache entries with tag: ${normalizedTag}`);
 
-    let invalidated = false;
-
-    // Find all keys that have the specified tag
+    // Collect every tagged entry first, so each one gets its tag_invalidation event even
+    // if it also depends on another tagged entry (otherwise the cascade from that entry
+    // could remove it first and report it as a dependency invalidation instead)
+    const taggedKeys: string[] = [];
     for (const [key, cacheState] of this.cache.entries()) {
       if (cacheState.tags && cacheState.tags.includes(normalizedTag)) {
-        this.logger.log('debug', `Invalidating ${key} due to tag match: ${normalizedTag}`);
-
-        // Emit event before deleting
-        this.eventSystem.emitEvent(
-          EVENT.TAG_INVALIDATION,
-          {
-            key,
-            value: cacheState.value,
-            createdAt: cacheState.createdAt,
-            updatedAt: cacheState.updatedAt,
-            tag: normalizedTag,
-            _params: { tag: normalizedTag },
-          },
-        );
-
-        this.deleteSingle(key);
-        invalidated = true;
+        taggedKeys.push(key);
       }
+    }
+
+    let invalidated = false;
+    for (const key of taggedKeys) {
+      const cacheState = this.cache.get(key);
+      if (!cacheState) continue;
+      this.logger.log('debug', `Invalidating ${key} due to tag match: ${normalizedTag}`);
+
+      // Remove the entry before notifying listeners, so listeners always observe the
+      // invalidated state and can never prevent the invalidation from completing.
+      // Dependents are invalidated in a second pass below.
+      this.removeEntry(key);
+      invalidated = true;
+
+      this.eventSystem.emitEvent(
+        EVENT.TAG_INVALIDATION,
+        {
+          key,
+          value: cacheState.value,
+          ttl: cacheState.ttl,
+          createdAt: cacheState.createdAt,
+          updatedAt: cacheState.updatedAt,
+          tag: normalizedTag,
+          _params: { tag: normalizedTag },
+        },
+      );
+    }
+
+    // Then invalidate whatever depended on the removed entries
+    for (const key of taggedKeys) {
+      this.invalidateDependentsOf(key);
     }
 
     if (invalidated) {
@@ -1386,73 +1701,112 @@ export class CacheStore {
     }
 
     this.logger.log('info', `Invalidating cache entries dependent on key: ${key}`);
+    return this.invalidateDependentsOf(key);
+  }
 
-    let invalidated = false;
+  /**
+   * Removes every entry that depends on `key`, directly or transitively, emitting a
+   * dependency invalidation event for each. `key` itself is left untouched.
+   *
+   * @param {string} key - The key whose dependents should be invalidated
+   * @returns {boolean} - Whether any entries were invalidated
+   */
+  private invalidateDependentsOf(key: string): boolean {
+    // Fast path: no entry declares any dependencies
+    if (!this.dependents.size) {
+      return false;
+    }
+
     const invalidatedKeys = new Set<string>();
+    const queue = [key];
 
-    // First pass: find all keys that directly depend on the specified key
-    for (const [entryKey, cacheState] of this.cache.entries()) {
-      if (cacheState.dependencies && cacheState.dependencies.includes(key)) {
-        this.logger.log('debug', `Invalidating ${entryKey} due to dependency on: ${key}`);
-        invalidatedKeys.add(entryKey);
-        invalidated = true;
+    // Breadth-first walk over the reverse dependency index. The root is never added,
+    // so even a cycle that predates cycle detection cannot remove the root entry.
+    while (queue.length) {
+      const current = queue.shift() as string;
+      for (const dependentKey of this.dependents.get(current) ?? []) {
+        if (dependentKey === key || invalidatedKeys.has(dependentKey)) continue;
+        this.logger.log('debug', `Invalidating ${dependentKey} due to dependency on: ${current}`);
+        invalidatedKeys.add(dependentKey);
+        queue.push(dependentKey);
       }
     }
 
-    // Second pass: look for cascade effects (entries depending on entries we're invalidating)
-    let newDependencies = true;
-    const processedKeys = new Set<string>();
-
-    // Continue finding dependencies until no new ones are found
-    while (newDependencies) {
-      newDependencies = false;
-      const currentKeys = Array.from(invalidatedKeys).filter((k) => !processedKeys.has(k));
-
-      for (const dependentKey of currentKeys) {
-        processedKeys.add(dependentKey);
-
-        // Find any entries that depend on this key
-        for (const [entryKey, cacheState] of this.cache.entries()) {
-          if (invalidatedKeys.has(entryKey)) continue; // Skip already invalidated entries
-
-          if (cacheState.dependencies && cacheState.dependencies.includes(dependentKey)) {
-            this.logger.log('debug', `Cascade invalidating ${entryKey} due to dependency on: ${dependentKey}`);
-            invalidatedKeys.add(entryKey);
-            newDependencies = true;
-            invalidated = true;
-          }
-        }
-      }
-    }
-
-    // Delete all invalidated keys
+    // The full transitive set is known, so remove entries without cascading again
     for (const invalidKey of invalidatedKeys) {
       const cacheState = this.cache.get(invalidKey);
       if (cacheState) {
-        // Emit event before deleting
+        // Remove the entry before notifying listeners (see invalidateByTag). The full
+        // transitive set is already known, so remove it without cascading again.
+        this.removeEntry(invalidKey);
+
         this.eventSystem.emitEvent(
           EVENT.DEPENDENCY_INVALIDATION,
           {
             key: invalidKey,
             value: cacheState.value,
+            ttl: cacheState.ttl,
             createdAt: cacheState.createdAt,
             updatedAt: cacheState.updatedAt,
             dependencyKey: key,
             _params: { dependencyKey: key },
           },
         );
-
-        this.deleteSingle(invalidKey);
       }
     }
 
-    if (invalidated) {
-      this.logger.log('info', `Successfully invalidated ${invalidatedKeys.size} entries dependent on: ${key}`);
+    if (invalidatedKeys.size) {
+      this.logger.log('info', `Invalidated ${invalidatedKeys.size} entries dependent on: ${key}`);
     } else {
       this.logger.log('debug', `No entries found dependent on: ${key}`);
     }
 
-    return invalidated;
+    return invalidatedKeys.size > 0;
+  }
+
+  /**
+   * Returns true if the entry for `fromKey` depends on `targetKey`, directly or through
+   * other entries. Used for cycle detection. Expired entries are treated as absent, as
+   * they are by get(), has() and isDependencyOf().
+   */
+  private dependsTransitively(fromKey: string, targetKey: string, visited = new Set<string>()): boolean {
+    if (fromKey === targetKey) return true;
+    if (visited.has(fromKey)) return false;
+    visited.add(fromKey);
+    const state = this.cache.get(fromKey);
+    if (!state || (state.ttl && isExpired(state.updatedAt, state.ttl))) {
+      return false;
+    }
+    return (state.dependencies ?? []).some((dep) => this.dependsTransitively(dep, targetKey, visited));
+  }
+
+  /**
+   * Records `key` as a dependent of each of its dependencies in the reverse index
+   */
+  private indexDependencies(key: string, dependencies: string[] | undefined): void {
+    for (const dependency of dependencies ?? []) {
+      let set = this.dependents.get(dependency);
+      if (!set) {
+        set = new Set();
+        this.dependents.set(dependency, set);
+      }
+      set.add(key);
+    }
+  }
+
+  /**
+   * Removes `key` from the reverse index entries of its dependencies
+   */
+  private unindexDependencies(key: string, dependencies: string[] | undefined): void {
+    for (const dependency of dependencies ?? []) {
+      const set = this.dependents.get(dependency);
+      if (set) {
+        set.delete(key);
+        if (!set.size) {
+          this.dependents.delete(dependency);
+        }
+      }
+    }
   }
 
   /**
@@ -1484,14 +1838,15 @@ export class CacheStore {
     // Add current target to visited set
     visited.add(targetKey);
 
-    // Check if target key exists and is not expired
-    if (!(await this.hasSingle(targetKey))) {
+    // Check that the target key exists and is not expired. This is a read-only query,
+    // so it must not update access metadata, emit events or remove entries.
+    const cacheState = this.cache.get(targetKey);
+    if (!cacheState || (cacheState.ttl && isExpired(cacheState.updatedAt, cacheState.ttl))) {
       this.logger.log('debug', `Target key ${targetKey} does not exist or is expired`);
       return false;
     }
 
-    const cacheState = this.cache.get(targetKey);
-    if (!cacheState || !cacheState.dependencies || cacheState.dependencies.length === 0) {
+    if (!cacheState.dependencies || cacheState.dependencies.length === 0) {
       return false;
     }
 
@@ -1533,13 +1888,14 @@ export class CacheStore {
     // Clear all timeouts
     for (const cacheItem of this.cache.values()) {
       if (cacheItem?.interval) {
-        clearTimeout(cacheItem.interval);
+        cacheItem.interval.clear();
         cacheItem.interval = undefined;
       }
     }
 
     // Clear the cache
     this.cache.clear();
+    this.dependents.clear();
 
     // Clear all event listeners
     this.clearEventListeners();

@@ -35,7 +35,7 @@ RunCache supports three eviction policies:
 
 1. **NONE**: No automatic eviction (default). Cache entries are only removed via TTL or manual deletion.
 
-2. **LRU (Least Recently Used)**: Removes the least recently accessed entries when the cache exceeds its maximum size. This is ideal for most applications as it preserves frequently accessed data.
+2. **LRU (Least Recently Used)**: Removes the least recently used entries when the cache exceeds its maximum size. Writes and reads both count as a use. This is ideal for most applications as it preserves recently written and recently read data.
 
 3. **LFU (Least Frequently Used)**: Removes the least frequently accessed entries when the cache exceeds its maximum size. When entries have the same access frequency, the oldest entry is removed first. This is useful for applications where access frequency is more important than recency.
 
@@ -76,7 +76,7 @@ RunCache.use(async (value, context, next) => {
 
 ### Using TTL for Automatic Cleanup
 
-Set appropriate TTL (Time-to-Live) values to automatically remove entries that are no longer needed:
+Set appropriate TTL (Time-to-Live) values to automatically remove entries that are no longer needed. Entries holding a plain value are removed from memory as soon as their TTL elapses, even if they are never read again:
 
 ```typescript
 // Set cache entry with TTL
@@ -144,7 +144,9 @@ RunCache uses timers for TTL expiration and automatic refetching. These are mana
 
 ### How Timers Work in RunCache
 
-- **TTL Timers**: RunCache uses lazy expiration, checking if entries have expired only when they're accessed. This avoids the overhead of maintaining timers for every entry.
+- **TTL Timers**: Each entry with a TTL has a timer. When it fires, the `expire` event is emitted and entries without a source function are removed from memory, so keys that are written once and never read again do not accumulate. Entries with a source function stay until they are read or refetched.
+
+- **Process lifetime**: In Node.js, TTL timers and the auto-save interval are `unref()`'d. They never keep the process alive on their own, so a script exits when its other work is done even if cache entries are still pending expiry.
 
 - **Refetch Timers**: For entries with `autoRefetch: true`, RunCache sets up timers to trigger background refreshes when the TTL expires.
 
@@ -217,18 +219,29 @@ RunCache.clearMiddleware();
 
 ## Application Lifecycle Management
 
-### Automatic Cleanup on Termination
+### Cleanup on Termination
 
-RunCache automatically registers handlers for SIGTERM and SIGINT signals in Node.js environments to ensure proper cleanup when the application is shutting down:
+Importing RunCache does not install any process or window handlers. Opt in to have RunCache shut down cleanly when the process or page is terminating:
 
 ```typescript
-// This happens automatically in Node.js environments
-// RunCache registers handlers for:
-// - process.on('SIGTERM', ...)
-// - process.on('SIGINT', ...)
+await RunCache.configure({ handleProcessSignals: true });
 ```
 
-These handlers perform a complete shutdown of RunCache, cleaning up all resources.
+With this option enabled:
+
+- **Node.js**: RunCache listens for `SIGTERM` and `SIGINT`, awaits `RunCache.shutdown()` (which saves to the configured storage adapter), and then re-raises the signal unless your application has its own listener for it. The process therefore exits the same way it would without RunCache. The handlers remove themselves first, so a second signal terminates immediately.
+- **Browsers**: RunCache calls `RunCache.shutdown()` on `beforeunload`. This is best effort, because browsers do not wait for asynchronous work during unload.
+
+Pass `handleProcessSignals: false` to remove the handlers again. `RunCache.shutdown()` also removes them.
+
+If your application already handles termination signals, leave the option off and call RunCache from your own handler:
+
+```typescript
+process.on('SIGTERM', async () => {
+  await RunCache.shutdown();
+  process.exit(0);
+});
+```
 
 ### Manual Shutdown
 

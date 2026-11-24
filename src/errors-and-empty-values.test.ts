@@ -180,4 +180,34 @@ describe('empty values and error reporting', () => {
       await expect(RunCache.refetch('rf')).resolves.toBe(true); // not stuck in "fetching"
     });
   });
+
+  describe('combined with typed values and set() ordering', () => {
+    it('caches null returned by a source function and returns it as null', async () => {
+      await RunCache.set<string | null>({ key: 'nullable', sourceFn: () => null });
+      expect(await RunCache.get('nullable')).toBeNull();
+      expect(await RunCache.has('nullable')).toBe(true);
+    });
+
+    it('does not block an earlier set() when a later sourceFn resolves to undefined', async () => {
+      let release: (value: string) => void = () => {};
+      let started: () => void = () => {};
+      const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+      const first = RunCache.set({
+        key: 'ordered',
+        sourceFn: () => new Promise<string>((resolve) => { release = resolve; started(); }),
+      });
+      await startedPromise;
+
+      await expect(RunCache.set({ key: 'ordered', sourceFn: () => undefined as unknown as string }))
+        .rejects.toBeInstanceOf(SourceFnError);
+
+      release('first');
+      await expect(first).resolves.toBe(true);
+      expect(await RunCache.get('ordered')).toBe('first');
+
+      // The failed call must also release its per-key ordering state
+      const store = (RunCache as unknown as { instance: { inFlightSets: Map<string, number> } }).instance;
+      expect(store.inFlightSets.has('ordered')).toBe(false);
+    });
+  });
 });

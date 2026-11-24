@@ -56,6 +56,19 @@ RunCache.configure({
 });
 ```
 
+Configuring an adapter immediately loads the data it already holds. `RunCache.configure()` returns a promise, so `await` it before reading from the cache:
+
+```typescript
+await RunCache.configure({
+  storageAdapter: new FilesystemAdapter({ storageKey: 'my-app-cache' })
+});
+
+// Entries persisted by a previous run are available now
+const user = await RunCache.get('user:1');
+```
+
+When you switch to a different adapter, RunCache first saves the current entries to the previous adapter and then loads from the new one. If saving to the previous adapter fails, `configure()` rejects and the previous adapter stays attached, so no entries are lost and you can retry. Loading never changes your configuration: the `maxEntries` and `evictionPolicy` stored with the data are ignored. Pass `storageAdapter: undefined` to detach persistence; `RunCache.shutdown()` also detaches the adapter after saving to it.
+
 ### Manual Save and Load
 
 You can manually trigger save and load operations:
@@ -128,26 +141,46 @@ RunCache.configure({
 
 #### Storage Format
 
-The FilesystemAdapter stores data in a JSON file with the following structure:
+All adapters store the same JSON document. The FilesystemAdapter writes it to a file with the following structure:
 
 ```json
 {
+  "version": 1,
+  "timestamp": 1635789600000,
   "entries": {
     "key1": {
       "value": "serialized-value-1",
-      "ttl": 3600000,
+      "createdAt": 1635789000000,
       "updatedAt": 1635789600000,
+      "ttl": 3600000,
+      "autoRefetch": false,
+      "accessCount": 4,
+      "lastAccessed": 1635789650000,
       "tags": ["tag1", "tag2"],
       "dependencies": ["dep1"]
-    },
-    "key2": {
-      "value": "serialized-value-2",
-      "updatedAt": 1635789600000
     }
   },
-  "version": "1.0.0"
+  "config": {
+    "maxEntries": 1000,
+    "evictionPolicy": "LRU"
+  }
 }
 ```
+
+- Entries that have already expired are not written.
+- Source functions are never written to storage. Their code is not persisted, and restored entries have no `sourceFn` (see [Restoring Data](#restoring-data)).
+- The `config` block is informational only and is not applied when the data is loaded.
+- The FilesystemAdapter writes to a temporary file in the same directory and renames it over the target, so a crash during a save never leaves a truncated cache file behind.
+
+### Restoring Data
+
+When data is loaded, whether automatically on attaching an adapter or with `loadFromStorage()`:
+
+- **Stored entries are merged into the cache.** Keys that already exist in memory keep their current value; the stored copy is ignored. Nothing in memory is cleared. To return to exactly the saved state, call `RunCache.flush()` before `RunCache.loadFromStorage()`.
+- **Expired entries are skipped.**
+- **TTLs continue where they left off.** Each restored entry expires after the time remaining on its original TTL, not a fresh TTL, and emits its `expire` event as usual.
+- **Your configuration wins.** `maxEntries`, `evictionPolicy` and other options are whatever you configured, not what was stored. If the restored entries exceed `maxEntries`, the eviction policy is applied.
+- **Source functions must be set again.** Restored entries hold their last value but no `sourceFn`, so they cannot be refetched or auto-refetched until you call `set()` with a source function for them.
 
 ### LocalStorageAdapter
 
@@ -536,7 +569,13 @@ try {
 
 ### 4. Implement Graceful Shutdown
 
-For Node.js applications, ensure cache is saved before shutting down:
+For Node.js applications, ensure cache is saved before shutting down. The simplest option is to let RunCache handle termination signals. It awaits `RunCache.shutdown()`, which saves to the storage adapter, and then lets the process exit as usual:
+
+```typescript
+await RunCache.configure({ handleProcessSignals: true });
+```
+
+If your application already handles these signals, keep the option off and save from your own handlers:
 
 ```typescript
 // Handle process termination signals

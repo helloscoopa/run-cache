@@ -18,16 +18,18 @@ Configures the cache with global settings.
   - `maxEntries?`: `number` - Maximum number of entries before eviction (default: unlimited)
   - `evictionPolicy?`: `EvictionPolicy` - Eviction policy to use (default: NONE)
   - `debug?`: `boolean` - Enable debug logging (default: false)
-  - `storageAdapter?`: `StorageAdapter` - Storage adapter for persistence (default: none)
+  - `handleProcessSignals?`: `boolean` - Shut the cache down (saving to the storage adapter) on `SIGTERM`/`SIGINT` in Node.js and on `beforeunload` in browsers (default: false). In Node.js the signal is re-raised after shutdown unless your application has its own listener, so the process exits as it would without RunCache. Importing RunCache installs no handlers unless this is enabled.
+  - `onListenerError?`: `(error, { event, key }) => void` - Receives errors thrown (or rejected) by event listeners. By default they are written to `console.error`; listener errors never reach the cache operation that emitted the event.
+  - `storageAdapter?`: `StorageAdapter` - Storage adapter for persistence (default: none). Attaching an adapter loads the data it already holds; if a different adapter was attached before, the current entries are saved to it first, and `configure()` rejects (keeping that adapter) if the save fails. The `maxEntries` and `evictionPolicy` stored with the data are not applied. Pass `undefined` to detach persistence.
 
-**Returns:** `void`
+**Returns:** `Promise<void>` - resolves once the configuration is applied, including loading from a newly attached storage adapter
 
 **Example:**
 
 ```typescript
 import { RunCache, EvictionPolicy } from 'run-cache';
 
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU,
   debug: true
@@ -62,21 +64,23 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
 - `options`: `Object` - Cache entry options
   - `key`: `string` - Unique identifier for the cache entry
   - `value?`: `T` - Value to cache (required if no sourceFn). An empty string is a valid value.
-  - `ttl?`: `number` - Time-to-live in milliseconds
+  - `ttl?`: `number` - Time-to-live in milliseconds. Must be a finite, positive number; omit it for entries that never expire. TTLs longer than the `setTimeout` limit (about 24.8 days) are supported.
   - `autoRefetch?`: `boolean` - Automatically refetch on expiry (requires ttl and sourceFn)
   - `sourceFn?`: `() => T | Promise<T>` - Function to generate cache value (required if no value)
   - `tags?`: `string[]` - Array of tags for tag-based invalidation
-  - `dependencies?`: `string[]` - Array of cache keys this entry depends on
+  - `dependencies?`: `string[]` - Array of cache keys this entry depends on. The entry is invalidated automatically when any of them changes. Overwriting an existing key with `set()` also invalidates the entries that depend on it.
   - `metadata?`: `any` - Custom metadata to associate with the entry
   - `validator?`: `TypeValidator<T>` - Optional type validator for runtime checking
   - `validateOnSet?`: `boolean` - Validate value before caching (default: false)
 
-**Returns:** `Promise<boolean>` - Returns `true` if the value was successfully set
+**Returns:** `Promise<boolean>` - Returns `true` if the value was successfully set. Returns `false` if another `set()` for the same key started later and has already written its value while this one was still waiting for its `sourceFn` or middleware; the newer value is kept. A later `set()` that fails does not affect an earlier one. `delete()` and `flush()` act on what is cached when they run, so they do not cancel a `set()` that is still waiting for its value.
 
 **Throws:**
 - `Error` - If key is empty
 - `Error` - If neither value nor sourceFn is provided
 - `Error` - If autoRefetch is true but ttl or sourceFn is not provided
+- `Error` - If ttl is `0` or negative (`` `ttl` cannot be negative ``), not a number or `NaN` (`` `ttl` must be a number ``), or `Infinity` (`` `ttl` must be a finite number ``)
+- `Error` - If `dependencies` contains the key itself, or would create a cycle (`Circular dependency detected`)
 - `SourceFnError` - If the source function throws or rejects (the original error is in `error.cause`), or resolves to `undefined`
 - `MiddlewareError` - If a middleware throws (original error in `error.cause`) or produces `undefined`
 
@@ -154,6 +158,8 @@ Retrieves a cache entry by key or pattern with full type safety.
 **Returns:** `Promise<T | T[] | undefined>`
 - If `key` is a specific key, returns the typed value or undefined if not found
 - If `key` is a pattern, returns an array of matching typed values
+
+Values stored as strings are returned unchanged, even if they look like JSON (`"123"`, `"true"`, `'{"a":1}'`). Only values that were stored from non-string types are deserialized.
 
 **Example:**
 
@@ -269,11 +275,15 @@ Manually refreshes a cache entry or entries matching a pattern.
 - `options?`: `Object` - Optional refresh options
   - `metadata?`: `any` - Custom metadata to include in refetch events
 
-**Returns:** `Promise<void>`
+**Returns:** `Promise<boolean>`
+- `true` if the entry (or, for a pattern, at least one matching entry) was refreshed
+- `false` if the key does not exist, has no source function, is already being refetched, or was changed while its source function was running
+
+If an entry is deleted, flushed, evicted, invalidated or overwritten with `set()` while its refetch is in progress, the refetch result is discarded. The entry is not re-created and no `refetch` event is emitted.
 
 **Throws:**
 - `SourceFnError` - If the source function of a single key throws or resolves to `undefined`. The original error is in `error.cause`, the previous value stays in the cache, and a `refetch_failure` event is emitted with the same error in `event.error`.
-- `MiddlewareError` - If a middleware produces `undefined` for the new value
+- `MiddlewareError` - If a middleware throws (original error in `error.cause`) or produces `undefined` for the new value. The previous value stays in the cache.
 
 **Example:**
 
@@ -311,19 +321,21 @@ RunCache.invalidateByTag('user:1');
 
 ### `invalidateByDependency(key)`
 
-Invalidates a cache entry and all entries that depend on it.
+Invalidates all entries that depend on `key`, directly or indirectly. The entry for `key` itself is kept. Each invalidated entry emits a `dependency_invalidation` event with `dependencyKey` set to `key`.
+
+You only need this to invalidate dependents explicitly. The same cascade runs automatically when `key` is updated with `set()`, refetched, deleted, evicted, invalidated by tag or expires.
 
 **Parameters:**
 
-- `key`: `string` - The key to invalidate
+- `key`: `string` - The key whose dependents should be invalidated
 
-**Returns:** `void`
+**Returns:** `Promise<boolean>` - `true` if at least one entry was invalidated
 
 **Example:**
 
 ```typescript
-// Invalidate 'user:1:profile' and all entries that depend on it
-RunCache.invalidateByDependency('user:1:profile');
+// Invalidate every entry that depends on 'user:1:profile'
+await RunCache.invalidateByDependency('user:1:profile');
 ```
 
 ### `isDependencyOf(key, dependencyKey)`
@@ -335,7 +347,9 @@ Checks if one entry depends on another (directly or indirectly).
 - `key`: `string` - The key to check
 - `dependencyKey`: `string` - The potential dependency key
 
-**Returns:** `Promise<boolean>` - True if key depends on dependencyKey
+**Returns:** `Promise<boolean>` - True if key depends on dependencyKey. Returns false if `key`, or an intermediate entry in the chain, does not exist or has expired.
+
+This is a read-only check: it does not count as an access for eviction, emit events or remove expired entries.
 
 **Example:**
 
@@ -542,12 +556,11 @@ Removes event listeners based on the specified options.
 
 **Parameters:**
 
-- `options?`: `Object` - Options to specify which listeners to remove
-  - `event?`: `EVENT` - The event type to remove listeners for
-  - `key?`: `string` - The key or pattern to remove listeners for
-  - `handler?`: `Function` - The specific handler function to remove
+- `options?`: `Object` - Options to specify which listeners to remove. With no options, every listener is removed; an object that selects nothing (`{}`) removes nothing.
+  - `event?`: `EventName` - The event type to remove listeners for. Only that exact event is affected; for example, clearing `EVENT.REFETCH` keeps `EVENT.REFETCH_FAILURE` listeners.
+  - `key?`: `string` - The key or wildcard pattern to remove listeners for. Without `event`, the key's listeners are removed for every event type. An exact key does not remove wildcard listeners that match it.
 
-**Returns:** `void`
+**Returns:** `Promise<boolean>` - `true` if at least one listener was removed, `false` otherwise
 
 **Example:**
 
@@ -635,9 +648,9 @@ RunCache.setupAutoSave(0);
 
 ### `saveToStorage()`
 
-Manually saves the cache state to persistent storage.
+Manually saves the cache state to persistent storage. Expired entries and source functions are not saved.
 
-**Returns:** `Promise<void>`
+**Returns:** `Promise<boolean>` - `true` if the data was saved, `false` if no storage adapter is configured or the adapter failed
 
 **Example:**
 
@@ -648,9 +661,11 @@ await RunCache.saveToStorage();
 
 ### `loadFromStorage()`
 
-Manually loads the cache state from persistent storage.
+Manually loads the cache state from persistent storage and merges it into the cache. Keys that already exist in memory keep their current value, expired stored entries are skipped, and each restored entry expires after the time remaining on its original TTL. The stored `maxEntries` and `evictionPolicy` are not applied.
 
-**Returns:** `Promise<void>`
+Because loading merges, it does not undo changes made since the last save. To return to exactly the saved state, call `flush()` first, then `loadFromStorage()`.
+
+**Returns:** `Promise<boolean>` - `true` if data was found and loaded, `false` otherwise
 
 **Example:**
 
@@ -711,15 +726,18 @@ const product = await productCache.get('product:456'); // Product | undefined
 
 ### `shutdown()`
 
-Shuts down the cache, clearing all entries, timers, and event listeners.
+Shuts down the cache: saves to the storage adapter (if one is configured), then clears all entries, timers and event listeners, removes any handlers installed with `handleProcessSignals`, and resets the configuration to its defaults.
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
 // Shut down the cache
-RunCache.shutdown();
+await RunCache.shutdown();
+
+// Or let RunCache do it when the process receives SIGTERM/SIGINT
+await RunCache.configure({ handleProcessSignals: true });
 ```
 
 ## Enums

@@ -39,6 +39,19 @@ In this example:
 - `user:1:dashboard` depends on `user:1:profile`
 - If `user:1:profile` is updated or invalidated, `user:1:dashboard` will be automatically invalidated
 
+Dependents (including indirect ones) are invalidated when the entry they depend on is:
+- updated with `set()` (setting a key for the first time does not invalidate anything),
+- refetched, manually with `refetch()` or automatically with `autoRefetch`,
+- deleted, evicted, invalidated by tag, or expired (entries with `autoRefetch` invalidate their dependents when the refetch completes instead).
+
+Two consequences are worth planning for:
+- Any `set()` on an existing parent counts as a change, even if the value is the same, and so does every automatic refetch of a parent with `autoRefetch`. Each one invalidates the parent's dependents.
+- Invalidated dependents are removed, including ones that have their own `sourceFn` and `autoRefetch`. They are not re-created automatically; call `set()` for them again (for example from a `dependency_invalidation` listener) if they should come back.
+
+When an entry is both tagged and a dependent of another tagged entry, `invalidateByTag()` reports it with a `tag_invalidation` event. Only entries removed because of a dependency, and not because of the tag, get `dependency_invalidation` events.
+
+`invalidateByDependency(key)` invalidates the dependents of `key` while leaving `key` itself in the cache. Each invalidated entry emits a `dependency_invalidation` event whose `dependencyKey` is the entry that changed.
+
 ## Multi-Level Dependencies
 
 RunCache supports multi-level dependency chains:
@@ -206,6 +219,8 @@ await RunCache.set({ key: 'product:1:reviews', value: '...', dependencies: ['pro
 await RunCache.set({ key: 'user:1:friends', value: '...', dependencies: ['user:1:profile'] });
 await RunCache.set({ key: 'user:1:profile', value: '...', dependencies: ['user:1:friends'] }); // Circular!
 ```
+
+RunCache rejects circular dependencies: the second `set()` above throws `Circular dependency detected`, and the entry is not written.
 
 ### 2. Avoid Deep Dependency Chains
 

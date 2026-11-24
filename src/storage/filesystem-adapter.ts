@@ -1,11 +1,30 @@
 import { StorageAdapter, StorageAdapterConfig } from '../types/storage-adapter';
 
 /**
+ * Loads a Node.js built-in module on demand.
+ *
+ * The specifier is passed through a variable (and marked with bundler ignore comments)
+ * so browser bundlers do not try to resolve Node built-ins when this file is included
+ * in a bundle. It works from both the CommonJS and the ESM builds.
+ */
+async function loadNodeModule(name: string): Promise<any> {
+  const specifier = name;
+  const mod = await import(/* webpackIgnore: true */ /* @vite-ignore */ specifier);
+  return mod.default ?? mod;
+}
+
+/**
  * Storage adapter implementation for Node.js filesystem.
  * This adapter works in Node.js environments and persists cache data to the filesystem.
  */
 export class FilesystemAdapter implements StorageAdapter {
   private storageKey: string;
+
+  /** Auto-save interval in milliseconds, from the `autoSaveInterval` option (0 disables) */
+  readonly autoSaveInterval: number;
+
+  /** Whether existing data is loaded when the adapter is attached, from the `autoLoadOnInit` option */
+  readonly autoLoadOnInit: boolean;
 
   private fs: any = null;
 
@@ -13,43 +32,47 @@ export class FilesystemAdapter implements StorageAdapter {
 
   private filePath: string = '';
 
+  private configuredFilePath?: string;
+
+  private modulesPromise: Promise<void> | null = null;
+
   /**
    * Creates a new FilesystemAdapter instance
    * @param config Configuration options and filesystem path
    */
   constructor(config?: Partial<StorageAdapterConfig & { filePath?: string }>) {
     this.storageKey = config?.storageKey || 'run-cache-data';
+    this.autoSaveInterval = config?.autoSaveInterval ?? 0;
+    this.autoLoadOnInit = config?.autoLoadOnInit ?? true;
 
     // Check if we're in a Node.js environment
     if (typeof process === 'undefined' || !process.versions || !process.versions.node) {
       throw new Error('FilesystemAdapter can only be used in Node.js environments');
     }
 
-    try {
-      // Dynamic import for Node.js modules to avoid issues in browser environments
-      this.fs = require('fs/promises');
-      this.path = require('path');
-
-      // Set the file path
-      if (config?.filePath) {
-        this.filePath = config.filePath;
-      } else {
-        // Default to current working directory
-        this.filePath = this.path.join(process.cwd(), `${this.storageKey}.json`);
-      }
-    } catch (error) {
-      throw new Error(`Failed to initialize FilesystemAdapter: ${error instanceof Error ? error.message : 'unknown error'}`);
-    }
+    this.configuredFilePath = config?.filePath;
+    this.filePath = config?.filePath ?? '';
   }
 
   /**
-   * Verifies that the adapter is properly initialized
-   * @throws Error if not initialized properly
+   * Loads the `fs/promises` and `path` modules on first use and resolves the file path.
+   * Loading lazily keeps Node.js built-ins out of browser bundles.
+   * @throws Error if the modules cannot be loaded
    */
-  private verifyInitialization(): void {
-    if (!this.fs) {
-      throw new Error('FilesystemAdapter is not properly initialized');
+  private async verifyInitialization(): Promise<void> {
+    if (!this.modulesPromise) {
+      this.modulesPromise = (async () => {
+        this.fs = await loadNodeModule('fs/promises');
+        this.path = await loadNodeModule('path');
+        // Default to current working directory
+        this.filePath = this.configuredFilePath
+          ?? this.path.join(process.cwd(), `${this.storageKey}.json`);
+      })().catch((error) => {
+        this.modulesPromise = null;
+        throw new Error(`Failed to initialize FilesystemAdapter: ${error instanceof Error ? error.message : 'unknown error'}`);
+      });
     }
+    await this.modulesPromise;
   }
 
   /**
@@ -74,14 +97,22 @@ export class FilesystemAdapter implements StorageAdapter {
    * @param data The serialized cache data to store
    */
   async save(data: string): Promise<void> {
-    this.verifyInitialization();
+    await this.verifyInitialization();
 
     try {
       // Ensure directory exists
       await this.ensureDirectory();
 
-      // Write the file
-      await this.fs.writeFile(this.filePath, data, 'utf8');
+      // Write to a temporary file in the same directory, then rename it over the target.
+      // The rename is atomic, so a crash mid-write never leaves a truncated cache file.
+      const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+      try {
+        await this.fs.writeFile(tempPath, data, 'utf8');
+        await this.fs.rename(tempPath, this.filePath);
+      } catch (error) {
+        await this.fs.unlink(tempPath).catch(() => { /* temp file may not exist */ });
+        throw error;
+      }
     } catch (error) {
       throw new Error(
         `Failed to save cache data to filesystem: ${
@@ -96,7 +127,7 @@ export class FilesystemAdapter implements StorageAdapter {
    * @returns The serialized cache data, or null if no data exists
    */
   async load(): Promise<string | null> {
-    this.verifyInitialization();
+    await this.verifyInitialization();
 
     try {
       // Check if the file exists
@@ -126,7 +157,7 @@ export class FilesystemAdapter implements StorageAdapter {
    * Clear stored cache data from the filesystem
    */
   async clear(): Promise<void> {
-    this.verifyInitialization();
+    await this.verifyInitialization();
 
     try {
       // Check if the file exists before trying to delete it

@@ -7,12 +7,20 @@ import { StorageAdapter, StorageAdapterConfig } from '../types/storage-adapter';
 export class LocalStorageAdapter implements StorageAdapter {
   private storageKey: string;
 
+  /** Auto-save interval in milliseconds, from the `autoSaveInterval` option (0 disables) */
+  readonly autoSaveInterval: number;
+
+  /** Whether existing data is loaded when the adapter is attached, from the `autoLoadOnInit` option */
+  readonly autoLoadOnInit: boolean;
+
   /**
    * Creates a new LocalStorageAdapter instance
    * @param config Configuration options
    */
   constructor(config?: Partial<StorageAdapterConfig>) {
     this.storageKey = config?.storageKey || 'run-cache-data';
+    this.autoSaveInterval = config?.autoSaveInterval ?? 0;
+    this.autoLoadOnInit = config?.autoLoadOnInit ?? true;
     this.verifyEnvironment();
   }
 
@@ -53,8 +61,15 @@ export class LocalStorageAdapter implements StorageAdapter {
    */
   async load(): Promise<string | null> {
     this.verifyEnvironment();
-
-    return window.localStorage.getItem(this.storageKey);
+    try {
+      return window.localStorage.getItem(this.storageKey);
+    } catch (error) {
+      throw new Error(
+        `Failed to load cache data from localStorage: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
   }
 
   /**
@@ -62,7 +77,14 @@ export class LocalStorageAdapter implements StorageAdapter {
    */
   async clear(): Promise<void> {
     this.verifyEnvironment();
-
-    window.localStorage.removeItem(this.storageKey);
+    try {
+      window.localStorage.removeItem(this.storageKey);
+    } catch (error) {
+      throw new Error(
+        `Failed to clear cache data from localStorage: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
   }
 }

@@ -29,6 +29,20 @@ interface CacheConfig {
    * Storage adapter for persistence
    */
   storageAdapter?: StorageAdapter;
+
+  /**
+   * Shut the cache down (saving to the storage adapter) on SIGTERM/SIGINT in
+   * Node.js and on `beforeunload` in browsers. The signal is re-raised afterwards
+   * unless the application has its own listener for it.
+   * @default false
+   */
+  handleProcessSignals?: boolean;
+
+  /**
+   * Receives errors thrown or rejected by event listeners.
+   * Defaults to writing them to console.error.
+   */
+  onListenerError?: (error: unknown, context: { event: string; key: string }) => void;
 }
 ```
 
@@ -135,21 +149,26 @@ interface ExpiryEvent {
    * The key of the expired entry
    */
   key: string;
-  
+
+  /**
+   * The stored value at the time it expired
+   */
+  value: string;
+
   /**
    * The TTL value in milliseconds
    */
   ttl: number;
-  
+
+  /**
+   * Timestamp when the entry was created
+   */
+  createdAt: number;
+
   /**
    * Timestamp when the entry was last updated
    */
   updatedAt: number;
-  
-  /**
-   * Optional custom metadata associated with the entry
-   */
-  metadata?: any;
 }
 ```
 
@@ -163,11 +182,22 @@ interface RefetchEvent {
    * The key of the refreshed entry
    */
   key: string;
-  
+
   /**
-   * Optional custom metadata associated with the entry
+   * The value returned by the source function
    */
-  metadata?: any;
+  value: string;
+
+  /**
+   * The entry's TTL in milliseconds, if it has one
+   */
+  ttl?: number;
+
+  /**
+   * Timestamps of the refetch
+   */
+  createdAt: number;
+  updatedAt: number;
 }
 ```
 
@@ -315,6 +345,21 @@ interface StorageAdapter {
    * @returns The stringified cache data or null if not found
    */
   load(): Promise<string | null>;
+
+  /**
+   * Remove the stored cache data
+   */
+  clear(): Promise<void>;
+
+  /**
+   * Optional auto-save interval in milliseconds, applied when the adapter is attached
+   */
+  readonly autoSaveInterval?: number;
+
+  /**
+   * Optional: whether existing data is loaded when the adapter is attached (default: true)
+   */
+  readonly autoLoadOnInit?: boolean;
 }
 ```
 

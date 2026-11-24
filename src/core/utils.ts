@@ -40,9 +40,17 @@ export const isExpired = (cache: CacheState): boolean => {
  * }
  */
 export const validateTTL = (ttl: number | undefined, _keyForLogging?: string): void => {
-  if (ttl !== undefined && ttl <= 0) {
-    // For backward compatibility with existing tests
+  if (ttl === undefined) {
+    return;
+  }
+  if (typeof ttl !== 'number' || Number.isNaN(ttl)) {
+    throw new Error('`ttl` must be a number');
+  }
+  if (ttl <= 0) {
     throw new Error('`ttl` cannot be negative');
+  }
+  if (!Number.isFinite(ttl)) {
+    throw new Error('`ttl` must be a finite number; omit `ttl` for entries that never expire');
   }
 };
 

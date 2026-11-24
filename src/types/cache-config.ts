@@ -47,6 +47,25 @@ export interface CacheConfig {
    * @default false
    */
   debug?: boolean;
+
+  /**
+   * Shut the cache down (saving to the storage adapter, if any) when the process receives
+   * SIGTERM or SIGINT in Node.js, or on `beforeunload` in browsers.
+   * The signal is re-raised after shutdown unless the application has its own listener for it,
+   * so the process still terminates as it would without RunCache.
+   * `RunCache.shutdown()` removes the handlers and resets this option to `false`; set it again
+   * if the application keeps using RunCache after calling `shutdown()`.
+   * @default false
+   */
+  handleProcessSignals?: boolean;
+
+  /**
+   * Called when an event listener throws or its returned promise rejects. Listener errors
+   * never reach the cache operation that emitted the event; by default they are written
+   * to `console.error`. Provide this to route them to your own logging instead.
+   * An exception thrown by this handler itself is written to `console.error`.
+   */
+  onListenerError?: (error: unknown, context: { event: string; key: string }) => void;
 }
 
 /**
