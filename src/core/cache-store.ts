@@ -916,12 +916,14 @@ export class CacheStore {
 
     // Update storage adapter if provided
     if ('storageAdapter' in config) {
-      // If we're replacing the storage adapter, save current data first
-      if (this.storageAdapter) {
-        try {
-          await this.saveToStorage();
-        } catch (error) {
-          this.logger.log('error', 'Failed to save cache data before changing storage adapter', error);
+      // If we're replacing the storage adapter, save current data first. If that
+      // fails, keep the current adapter so no entries are lost and the caller can retry.
+      const previousAdapter = this.storageAdapter;
+      if (previousAdapter && previousAdapter !== config.storageAdapter) {
+        if (!(await this.saveToStorage())) {
+          this.config.storageAdapter = previousAdapter;
+          this.logger.log('error', 'Failed to save cache data before changing storage adapter; keeping the current adapter');
+          throw new Error('Failed to save cache data to the current storage adapter; the storage adapter was not changed');
         }
       }
 
@@ -1113,16 +1115,8 @@ export class CacheStore {
       // Clear existing cache
       this.flush();
 
-      // Restore config
-      if (parsed.config) {
-        if (parsed.config.maxEntries !== undefined) {
-          this.config.maxEntries = parsed.config.maxEntries;
-        }
-
-        if (parsed.config.evictionPolicy) {
-          this.config.evictionPolicy = parsed.config.evictionPolicy as EvictionPolicy;
-        }
-      }
+      // The stored `config` block is not applied: the runtime configuration, including
+      // options passed in the same configure() call, always takes precedence
 
       // Restore entries
       if (parsed.entries) {
@@ -1225,13 +1219,20 @@ export class CacheStore {
    * Loads cache state from storage if a storage adapter is configured
    */
   async loadFromStorage(): Promise<boolean> {
-    if (!this.storageAdapter) {
+    const adapter = this.storageAdapter;
+    if (!adapter) {
       return false;
     }
 
     try {
       // Load from storage
-      const data = await this.storageAdapter.load();
+      const data = await adapter.load();
+
+      // The adapter may have been replaced or detached while loading
+      if (this.storageAdapter !== adapter) {
+        this.logger.log('debug', 'Storage adapter changed during load; discarding loaded data');
+        return false;
+      }
 
       if (!data) {
         this.logger.log('info', 'No cached data found in storage');

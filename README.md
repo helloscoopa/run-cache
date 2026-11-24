@@ -587,7 +587,7 @@ await RunCache.configure({
 });
 ```
 
-Configuring an adapter loads any data it already holds, so `await` the call before reading from the cache. If another adapter was configured before, the current entries are saved to that adapter first. Pass `storageAdapter: undefined` to detach persistence.
+Configuring an adapter loads any data it already holds, so `await` the call before reading from the cache. If another adapter was configured before, the current entries are saved to that adapter first; if that save fails, `configure()` rejects and the current adapter stays attached. The options passed to `configure()` always take precedence over the configuration stored with the data. Pass `storageAdapter: undefined` to detach persistence.
 
 ### Auto-Saving and Manual Control
 

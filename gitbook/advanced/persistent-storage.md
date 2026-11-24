@@ -67,7 +67,7 @@ await RunCache.configure({
 const user = await RunCache.get('user:1');
 ```
 
-When you switch to a different adapter, RunCache first saves the current entries to the previous adapter and then loads from the new one. Pass `storageAdapter: undefined` to detach persistence; `RunCache.shutdown()` also detaches the adapter after saving to it.
+When you switch to a different adapter, RunCache first saves the current entries to the previous adapter and then loads from the new one. If saving to the previous adapter fails, `configure()` rejects and the previous adapter stays attached, so no entries are lost and you can retry. Loading never changes your configuration: the `maxEntries` and `evictionPolicy` stored with the data are ignored. Pass `storageAdapter: undefined` to detach persistence; `RunCache.shutdown()` also detaches the adapter after saving to it.
 
 ### Manual Save and Load
 

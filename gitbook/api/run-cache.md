@@ -18,7 +18,7 @@ Configures the cache with global settings.
   - `maxEntries?`: `number` - Maximum number of entries before eviction (default: unlimited)
   - `evictionPolicy?`: `EvictionPolicy` - Eviction policy to use (default: NONE)
   - `debug?`: `boolean` - Enable debug logging (default: false)
-  - `storageAdapter?`: `StorageAdapter` - Storage adapter for persistence (default: none). Attaching an adapter loads the data it already holds; if a different adapter was attached before, the current entries are saved to it first. Pass `undefined` to detach persistence.
+  - `storageAdapter?`: `StorageAdapter` - Storage adapter for persistence (default: none). Attaching an adapter loads the data it already holds; if a different adapter was attached before, the current entries are saved to it first, and `configure()` rejects (keeping that adapter) if the save fails. The `maxEntries` and `evictionPolicy` stored with the data are not applied. Pass `undefined` to detach persistence.
 
 **Returns:** `Promise<void>` - resolves once the configuration is applied, including loading from a newly attached storage adapter
 
