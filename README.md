@@ -580,12 +580,14 @@ To use a storage adapter, first import the adapter you want to use, then configu
 import { RunCache, LocalStorageAdapter } from 'run-cache';
 
 // Configure RunCache with LocalStorage persistence
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new LocalStorageAdapter({
     storageKey: 'my-app-cache' // Optional custom key
   })
 });
 ```
+
+Configuring an adapter loads any data it already holds, so `await` the call before reading from the cache. If another adapter was configured before, the current entries are saved to that adapter first. Pass `storageAdapter: undefined` to detach persistence.
 
 ### Auto-Saving and Manual Control
 
