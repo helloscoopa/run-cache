@@ -157,6 +157,8 @@ function UserProfile({ userId }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let active = true;
+
     async function loadUser() {
       setLoading(true);
       const cacheKey = `user:${userId}`;
@@ -177,18 +179,23 @@ function UserProfile({ userId }) {
         });
       }
 
+      if (!active) return; // the effect was cleaned up while loading
       setUser(userData);
       setLoading(false);
     }
 
-    // Register the refresh listener, then do the initial load
-    const ready = RunCache.onKeyRefetch(`user:${userId}`, loadUser).then(loadUser);
+    // subscribeToRefetch() is the shared-listener helper from the Events guide
+    // ("UI Updates" in advanced/event-system.md). Do not call clearEventListeners() here:
+    // it removes every refetch listener for the key, including one registered by a
+    // newer effect run or another component showing the same user.
+    const unsubscribe = subscribeToRefetch(`user:${userId}`, () => {
+      loadUser().catch(console.error);
+    });
+    loadUser().catch(console.error);
 
     return () => {
-      ready.then(() => RunCache.clearEventListeners({
-        event: 'refetch',
-        key: `user:${userId}`
-      }));
+      active = false;
+      unsubscribe();
     };
   }, [userId]);
 
@@ -255,7 +262,7 @@ await RunCache.use(async (value, context, next) => {
 Common issues include:
 1. Not providing a required parameter (key or value/sourceFn)
 2. Exception in source function
-3. Incorrect value format (must be a string)
+3. A value that cannot be serialized (values must be strings or JSON-serializable; `BigInt` and circular structures throw)
 4. Exceeding maximum cache size with eviction policy
 
 Solution:

@@ -450,18 +450,45 @@ await RunCache.onRefetchFailure((event) => {
 
     setTimeout(() => {
       RunCache.refetch(event.key)
-        .then((ok) => { if (ok) retryCounts.delete(event.key); })
         .catch(() => { /* reported again through onRefetchFailure */ });
     }, delay);
   } else {
     console.error(`Failed to refresh ${event.key} after ${retryCount} attempts`);
   }
 });
+
+// Any successful refresh (a retry, a manual refetch or an automatic one) resets the
+// count, so a key that recovers gets a full retry sequence the next time it fails.
+await RunCache.onRefetch((event) => {
+  retryCounts.delete(event.key);
+});
 ```
 
 ### 3. UI Updates
 
 ```typescript
+// One RunCache listener per key, shared by every component that shows that key.
+// clearEventListeners() removes *all* listeners for an event and key, so a component
+// that clears on unmount would also remove the listener of another component, or of
+// a newer effect run, watching the same key. Components subscribe here instead and
+// remove only their own callback.
+const refetchSubscribers = new Map<string, Set<() => void>>();
+
+function subscribeToRefetch(key: string, callback: () => void): () => void {
+  let callbacks = refetchSubscribers.get(key);
+  if (!callbacks) {
+    const created = new Set<() => void>();
+    callbacks = created;
+    refetchSubscribers.set(key, created);
+    // Registered once per key and kept; it does nothing while no callback is subscribed.
+    RunCache.onKeyRefetch(key, () => created.forEach((cb) => cb()))
+      .catch((error) => console.error(`Could not watch ${key}`, error));
+  }
+  const own = callbacks;
+  own.add(callback);
+  return () => { own.delete(callback); };
+}
+
 // React component example
 function UserProfile({ userId }) {
   const [profile, setProfile] = useState(null);
@@ -469,18 +496,22 @@ function UserProfile({ userId }) {
   useEffect(() => {
     const key = `user:${userId}:profile`;
 
+    let active = true;
+
     // get() returns the stored object, no parsing needed
     const load = async () => {
       const data = await RunCache.get(key);
-      if (data !== undefined) setProfile(data);
+      if (active && data !== undefined) setProfile(data);
     };
 
-    // Register the listener, then do the initial load
-    const ready = RunCache.onKeyRefetch(key, load).then(load);
+    // This effect run owns only its own callback; the cleanup removes just that one,
+    // so a newer run (or another component) watching the same key keeps its updates.
+    const unsubscribe = subscribeToRefetch(key, () => { load().catch(console.error); });
+    load().catch(console.error);
 
-    // Clean up on unmount, once the listener has been registered
     return () => {
-      ready.then(() => RunCache.clearEventListeners({ event: EVENT.REFETCH, key }));
+      active = false; // ignore a load that finishes after cleanup
+      unsubscribe();
     };
   }, [userId]);
 
