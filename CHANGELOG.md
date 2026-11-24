@@ -6,6 +6,8 @@ Add an entry under **Unreleased** in the same pull request as the change. When a
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-24
+
 ### Added
 - Values of any JSON-serializable type can be cached; strings are stored as-is and other values are serialized on `set()` and parsed again by `get()`. `RunCache.createTypedCache<T>()` returns a typed wrapper ([#39](https://github.com/helloscoopa/run-cache/pull/39), [#67](https://github.com/helloscoopa/run-cache/pull/67)).
 - `RunCacheError`, `SourceFnError` and `MiddlewareError` are exported; they keep the original error as `cause`, and `refetch_failure` events carry it as `error` ([#80](https://github.com/helloscoopa/run-cache/pull/80)).
@@ -90,7 +92,8 @@ Add an entry under **Unreleased** in the same pull request as the change. When a
 
 - Initial release.
 
-[Unreleased]: https://github.com/helloscoopa/run-cache/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/helloscoopa/run-cache/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/helloscoopa/run-cache/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/helloscoopa/run-cache/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/helloscoopa/run-cache/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/helloscoopa/run-cache/compare/v1.4.1...v1.5.0
