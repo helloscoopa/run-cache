@@ -39,6 +39,13 @@ In this example:
 - `user:1:dashboard` depends on `user:1:profile`
 - If `user:1:profile` is updated or invalidated, `user:1:dashboard` will be automatically invalidated
 
+Dependents (including indirect ones) are invalidated when the entry they depend on is:
+- updated with `set()` (setting a key for the first time does not invalidate anything),
+- refetched, manually with `refetch()` or automatically with `autoRefetch`,
+- deleted, evicted, invalidated by tag, or expired (entries with `autoRefetch` invalidate their dependents when the refetch completes instead).
+
+`invalidateByDependency(key)` invalidates the dependents of `key` while leaving `key` itself in the cache. Each invalidated entry emits a `dependency_invalidation` event whose `dependencyKey` is the entry that changed.
+
 ## Multi-Level Dependencies
 
 RunCache supports multi-level dependency chains:
@@ -206,6 +213,8 @@ await RunCache.set({ key: 'product:1:reviews', value: '...', dependencies: ['pro
 await RunCache.set({ key: 'user:1:friends', value: '...', dependencies: ['user:1:profile'] });
 await RunCache.set({ key: 'user:1:profile', value: '...', dependencies: ['user:1:friends'] }); // Circular!
 ```
+
+RunCache rejects circular dependencies: the second `set()` above throws `Circular dependency detected`, and the entry is not written.
 
 ### 2. Avoid Deep Dependency Chains
 

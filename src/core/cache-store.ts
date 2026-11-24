@@ -248,6 +248,13 @@ export class CacheStore {
         );
         throw new Error('A key cannot depend on itself');
       }
+
+      // Reject longer cycles (A -> B -> A), which would make invalidation ambiguous
+      const cycleVia = dependencies.find((dep) => this.dependsTransitively(dep, key));
+      if (cycleVia !== undefined) {
+        this.logger.log('error', `Circular dependency detected for key: ${key} via ${cycleVia}`);
+        throw new Error(`Circular dependency detected: "${cycleVia}" already depends on "${key}"`);
+      }
     }
 
     const time = Date.now();
@@ -292,6 +299,10 @@ export class CacheStore {
             this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
             /* Ignore as the event is already emitted inside the function */
           });
+        } else if (this.cache.get(key)?.interval === interval) {
+          // The entry is no longer valid, so neither is anything derived from it.
+          // Auto-refetched entries invalidate their dependents when the refetch lands.
+          this.invalidateDependentsOf(key);
         }
       }, ttl);
     }
@@ -373,6 +384,11 @@ export class CacheStore {
       tags: finalTags,
       dependencies: finalDependencies,
     });
+
+    // An updated entry invalidates everything derived from its previous value
+    if (existingCache) {
+      this.invalidateDependentsOf(key);
+    }
 
     // Double-check after adding to ensure we're not over the limit
     this.enforceEvictionPolicy();
@@ -747,6 +763,8 @@ export class CacheStore {
             this.refetchSingle(key).catch((e) => {
               this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
             });
+          } else if (this.cache.get(key)?.interval === newInterval) {
+            this.invalidateDependentsOf(key);
           }
         }, cached.ttl);
       }
@@ -761,6 +779,9 @@ export class CacheStore {
       });
 
       this.logger.log('debug', `Successfully refetched key: ${key}`);
+
+      // Entries derived from the previous value are now stale
+      this.invalidateDependentsOf(key);
 
       return true;
     } catch (e) {
@@ -804,9 +825,21 @@ export class CacheStore {
   }
 
   /**
-   * Helper method to delete a single key
+   * Deletes a single key and invalidates every entry that depends on it.
+   * Used for explicit deletes, eviction, expiry and tag invalidation.
    */
   private deleteSingle(key: string): boolean {
+    if (!this.removeEntry(key)) {
+      return false;
+    }
+    this.invalidateDependentsOf(key);
+    return true;
+  }
+
+  /**
+   * Removes a single key without touching its dependents
+   */
+  private removeEntry(key: string): boolean {
     const cache = this.cache.get(key);
     if (!cache) {
       this.logger.log('debug', `Delete failed: key not found: ${key}`);
@@ -885,13 +918,9 @@ export class CacheStore {
         },
       );
 
-      // Clean up expired entry to prevent memory leaks
-      if (cached.interval) {
-        this.logger.log('debug', `Clearing timeout for expired key: ${key}`);
-        clearTimeout(cached.interval);
-      }
+      // Clean up expired entry to prevent memory leaks (also invalidates its dependents)
       this.logger.log('debug', `Removing expired key during has() check: ${key}`);
-      this.cache.delete(key);
+      this.deleteSingle(key);
 
       return false;
     }
@@ -1352,50 +1381,40 @@ export class CacheStore {
     }
 
     this.logger.log('info', `Invalidating cache entries dependent on key: ${key}`);
+    return this.invalidateDependentsOf(key);
+  }
 
-    let invalidated = false;
+  /**
+   * Removes every entry that depends on `key`, directly or transitively, emitting a
+   * dependency invalidation event for each. `key` itself is left untouched.
+   *
+   * @param {string} key - The key whose dependents should be invalidated
+   * @returns {boolean} - Whether any entries were invalidated
+   */
+  private invalidateDependentsOf(key: string): boolean {
     const invalidatedKeys = new Set<string>();
+    const queue = [key];
 
-    // First pass: find all keys that directly depend on the specified key
-    for (const [entryKey, cacheState] of this.cache.entries()) {
-      if (cacheState.dependencies && cacheState.dependencies.includes(key)) {
-        this.logger.log('debug', `Invalidating ${entryKey} due to dependency on: ${key}`);
-        invalidatedKeys.add(entryKey);
-        invalidated = true;
-      }
-    }
-
-    // Second pass: look for cascade effects (entries depending on entries we're invalidating)
-    let newDependencies = true;
-    const processedKeys = new Set<string>();
-
-    // Continue finding dependencies until no new ones are found
-    while (newDependencies) {
-      newDependencies = false;
-      const currentKeys = Array.from(invalidatedKeys).filter((k) => !processedKeys.has(k));
-
-      for (const dependentKey of currentKeys) {
-        processedKeys.add(dependentKey);
-
-        // Find any entries that depend on this key
-        for (const [entryKey, cacheState] of this.cache.entries()) {
-          if (invalidatedKeys.has(entryKey)) continue; // Skip already invalidated entries
-
-          if (cacheState.dependencies && cacheState.dependencies.includes(dependentKey)) {
-            this.logger.log('debug', `Cascade invalidating ${entryKey} due to dependency on: ${dependentKey}`);
-            invalidatedKeys.add(entryKey);
-            newDependencies = true;
-            invalidated = true;
-          }
+    // Breadth-first walk over the reverse dependency graph. The root is never added,
+    // so even a cycle that predates cycle detection cannot remove the root entry.
+    while (queue.length) {
+      const current = queue.shift() as string;
+      for (const [entryKey, cacheState] of this.cache.entries()) {
+        if (entryKey === key || invalidatedKeys.has(entryKey)) continue;
+        if (cacheState.dependencies && cacheState.dependencies.includes(current)) {
+          this.logger.log('debug', `Invalidating ${entryKey} due to dependency on: ${current}`);
+          invalidatedKeys.add(entryKey);
+          queue.push(entryKey);
         }
       }
     }
 
-    // Delete all invalidated keys
+    // The full transitive set is known, so remove entries without cascading again
     for (const invalidKey of invalidatedKeys) {
       const cacheState = this.cache.get(invalidKey);
       if (cacheState) {
-        // Emit event before deleting
+        this.removeEntry(invalidKey);
+
         this.eventSystem.emitEvent(
           EVENT.DEPENDENCY_INVALIDATION,
           {
@@ -1407,18 +1426,28 @@ export class CacheStore {
             _params: { dependencyKey: key },
           },
         );
-
-        this.deleteSingle(invalidKey);
       }
     }
 
-    if (invalidated) {
-      this.logger.log('info', `Successfully invalidated ${invalidatedKeys.size} entries dependent on: ${key}`);
+    if (invalidatedKeys.size) {
+      this.logger.log('info', `Invalidated ${invalidatedKeys.size} entries dependent on: ${key}`);
     } else {
       this.logger.log('debug', `No entries found dependent on: ${key}`);
     }
 
-    return invalidated;
+    return invalidatedKeys.size > 0;
+  }
+
+  /**
+   * Returns true if the stored entry for `fromKey` depends on `targetKey`, directly or
+   * through other stored entries. Used for cycle detection; ignores expiry.
+   */
+  private dependsTransitively(fromKey: string, targetKey: string, visited = new Set<string>()): boolean {
+    if (fromKey === targetKey) return true;
+    if (visited.has(fromKey)) return false;
+    visited.add(fromKey);
+    const deps = this.cache.get(fromKey)?.dependencies ?? [];
+    return deps.some((dep) => this.dependsTransitively(dep, targetKey, visited));
   }
 
   /**
@@ -1450,14 +1479,15 @@ export class CacheStore {
     // Add current target to visited set
     visited.add(targetKey);
 
-    // Check if target key exists and is not expired
-    if (!(await this.hasSingle(targetKey))) {
+    // Check that the target key exists and is not expired. This is a read-only query,
+    // so it must not update access metadata, emit events or remove entries.
+    const cacheState = this.cache.get(targetKey);
+    if (!cacheState || (cacheState.ttl && isExpired(cacheState.updatedAt, cacheState.ttl))) {
       this.logger.log('debug', `Target key ${targetKey} does not exist or is expired`);
       return false;
     }
 
-    const cacheState = this.cache.get(targetKey);
-    if (!cacheState || !cacheState.dependencies || cacheState.dependencies.length === 0) {
+    if (!cacheState.dependencies || cacheState.dependencies.length === 0) {
       return false;
     }
 
