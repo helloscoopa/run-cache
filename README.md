@@ -27,6 +27,21 @@ A dependency-free, lightweight runtime caching library for JavaScript and TypeSc
 npm install run-cache
 ```
 
+RunCache ships CommonJS and ES module builds and works in Node.js and in browsers:
+
+```typescript
+import { RunCache } from 'run-cache';        // ES modules and bundlers (webpack, Vite, Rollup, esbuild)
+const { RunCache } = require('run-cache');   // CommonJS
+```
+
+For use without a bundler, a minified ES module build is available from a CDN:
+
+```html
+<script type="module">
+  import { RunCache } from 'https://unpkg.com/run-cache/dist/index.min.js';
+</script>
+```
+
 ## Quick Start
 
 ```typescript

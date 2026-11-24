@@ -20,21 +20,40 @@ yarn add run-cache
 pnpm add run-cache
 ```
 
+## Module Formats
+
+The package provides both CommonJS and ES module builds, selected automatically through the `exports` field in `package.json`:
+
+| How you load it | File used |
+| --- | --- |
+| `import { RunCache } from 'run-cache'` (Node.js ESM, bundlers) | `dist/index.mjs` |
+| `require('run-cache')` | `dist/index.js` |
+| `<script type="module">` from a CDN | `dist/index.min.js` |
+
+TypeScript declarations (`dist/index.d.ts`) are used for both.
+
+The CommonJS and ES module builds are separate copies of the library. If one application loads RunCache through both `import` and `require`, it gets two independent caches, so use one style throughout.
+
 ## Browser Usage
 
-RunCache works in both Node.js and browser environments. For browser usage, you can either:
+RunCache works in both Node.js and browser environments, with no Node.js built-ins required in the browser. For browser usage, you can either:
 
-1. Use a bundler like webpack, Rollup, or Parcel
-2. Import from a CDN like unpkg or jsDelivr
+1. Use a bundler like webpack, Vite, Rollup, Parcel or esbuild. No polyfills or extra configuration are needed.
+2. Import from a CDN like unpkg or jsDelivr.
+
+`FilesystemAdapter` is exported from the same entry point, but it loads Node.js's `fs` and `path` modules only when it is used, so browser bundles do not try to include them.
 
 ### CDN Usage Example
 
 ```html
 <script type="module">
-  import { RunCache } from 'https://unpkg.com/run-cache@{version}/dist/index.min.js';
-  
+  import { RunCache, LocalStorageAdapter } from 'https://unpkg.com/run-cache@{version}/dist/index.min.js';
+
   // Now you can use RunCache in your code
-  RunCache.set({ key: 'example', value: 'Hello, world!' });
+  await RunCache.set({ key: 'example', value: 'Hello, world!' });
+
+  // The browser storage adapters are included in the CDN build
+  await RunCache.configure({ storageAdapter: new LocalStorageAdapter() });
 </script>
 ```
 
