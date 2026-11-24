@@ -7,6 +7,12 @@ import { StorageAdapter, StorageAdapterConfig } from '../types/storage-adapter';
 export class FilesystemAdapter implements StorageAdapter {
   private storageKey: string;
 
+  /** Auto-save interval in milliseconds, from the `autoSaveInterval` option (0 disables) */
+  readonly autoSaveInterval: number;
+
+  /** Whether existing data is loaded when the adapter is attached, from the `autoLoadOnInit` option */
+  readonly autoLoadOnInit: boolean;
+
   private fs: any = null;
 
   private path: any = null;
@@ -19,6 +25,8 @@ export class FilesystemAdapter implements StorageAdapter {
    */
   constructor(config?: Partial<StorageAdapterConfig & { filePath?: string }>) {
     this.storageKey = config?.storageKey || 'run-cache-data';
+    this.autoSaveInterval = config?.autoSaveInterval ?? 0;
+    this.autoLoadOnInit = config?.autoLoadOnInit ?? true;
 
     // Check if we're in a Node.js environment
     if (typeof process === 'undefined' || !process.versions || !process.versions.node) {
@@ -80,8 +88,16 @@ export class FilesystemAdapter implements StorageAdapter {
       // Ensure directory exists
       await this.ensureDirectory();
 
-      // Write the file
-      await this.fs.writeFile(this.filePath, data, 'utf8');
+      // Write to a temporary file in the same directory, then rename it over the target.
+      // The rename is atomic, so a crash mid-write never leaves a truncated cache file.
+      const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+      try {
+        await this.fs.writeFile(tempPath, data, 'utf8');
+        await this.fs.rename(tempPath, this.filePath);
+      } catch (error) {
+        await this.fs.unlink(tempPath).catch(() => { /* temp file may not exist */ });
+        throw error;
+      }
     } catch (error) {
       throw new Error(
         `Failed to save cache data to filesystem: ${

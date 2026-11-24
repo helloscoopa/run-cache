@@ -21,6 +21,19 @@ export interface StorageAdapter {
    * @returns Promise that resolves when the data is successfully cleared
    */
   clear(): Promise<void>;
+
+  /**
+   * Optional auto-save interval in milliseconds. When set to a positive value, the cache
+   * saves to this adapter at that interval once the adapter is attached.
+   * The built-in adapters take it from their `autoSaveInterval` option.
+   */
+  readonly autoSaveInterval?: number;
+
+  /**
+   * Whether the cache loads existing data from this adapter when the adapter is attached.
+   * Treated as `true` when not set. The built-in adapters take it from their `autoLoadOnInit` option.
+   */
+  readonly autoLoadOnInit?: boolean;
 }
 
 /**

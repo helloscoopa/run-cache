@@ -110,4 +110,24 @@ describe('LocalStorageAdapter', () => {
       await expect(adapter.clear()).rejects.toThrow('Clear error');
     });
   });
+
+  describe('storage errors', () => {
+    it('wraps errors thrown by localStorage.getItem', async () => {
+      mockLocalStorage.getItem.mockImplementationOnce(() => {
+        throw new Error('SecurityError');
+      });
+      await expect(adapter.load()).rejects.toThrow(
+        'Failed to load cache data from localStorage: SecurityError',
+      );
+    });
+
+    it('wraps errors thrown by localStorage.removeItem', async () => {
+      mockLocalStorage.removeItem.mockImplementationOnce(() => {
+        throw new Error('SecurityError');
+      });
+      await expect(adapter.clear()).rejects.toThrow(
+        'Failed to clear cache data from localStorage: SecurityError',
+      );
+    });
+  });
 });
