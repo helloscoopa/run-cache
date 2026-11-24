@@ -407,7 +407,7 @@ export class RunCache {
    * @param {EventName} [params.event] - Optional event name to clear listeners for.
    * @param {string} [params.key] - Optional key to clear listeners for.
    * 
-   * @returns {boolean} - Returns `true` if any listeners were cleared, `false` otherwise.
+   * @returns {boolean} - Returns `true` if at least one listener was removed, `false` otherwise.
    */
   static async clearEventListeners(params?: {
     event?: EventName;
