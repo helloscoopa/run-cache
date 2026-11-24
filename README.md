@@ -495,9 +495,17 @@ Wildcard support is implemented for all key-based operations:
 
 RunCache is designed to properly manage resources throughout the application lifecycle.
 
-### Automatic Cleanup on Termination
+### Cleanup on Termination
 
-RunCache automatically registers handlers for SIGTERM and SIGINT signals in Node.js environments to ensure proper cleanup of all resources when the application is shutting down. This prevents memory leaks and ensures a clean shutdown.
+Importing RunCache does not install any process or window handlers. To have RunCache shut down (and save to its storage adapter) when the process is terminating, opt in:
+
+```typescript
+await RunCache.configure({ handleProcessSignals: true });
+```
+
+In Node.js this listens for SIGTERM and SIGINT, awaits `RunCache.shutdown()`, and then re-raises the signal unless your application has its own listener for it, so the process exits the same way it would without RunCache. In browsers it calls `RunCache.shutdown()` on `beforeunload` (best effort, since browsers do not wait for asynchronous work during unload).
+
+If your application already handles these signals, leave the option off and call `await RunCache.shutdown()` from your own handler instead.
 
 ### Manual Shutdown
 
