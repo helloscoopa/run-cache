@@ -30,7 +30,9 @@ The package provides both CommonJS and ES module builds, selected automatically 
 | `require('run-cache')` | `dist/index.js` |
 | `<script type="module">` from a CDN | `dist/index.min.js` |
 
-TypeScript declarations (`dist/index.d.ts`) are used for both.
+TypeScript declarations are provided for both: `dist/index.d.mts` for `import` (with `moduleResolution` set to `node16`, `nodenext` or `bundler`) and `dist/index.d.ts` for `require`.
+
+Deep imports such as `run-cache/dist/storage` or `run-cache/dist/run-cache` continue to work, with or without the `.js` extension.
 
 The CommonJS and ES module builds are separate copies of the library. If one application loads RunCache through both `import` and `require`, it gets two independent caches, so use one style throughout.
 
