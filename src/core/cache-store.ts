@@ -262,37 +262,6 @@ export class CacheStore {
       hasDependencies: dependencies !== undefined && dependencies.length > 0,
     });
 
-    // Clear existing interval if the key already exists
-    const existingCache = this.cache.get(key);
-    if (existingCache?.interval) {
-      this.logger.log('debug', `Clearing existing interval for key: ${key}`);
-      clearTimeout(existingCache.interval);
-    }
-
-    let interval: ReturnType<typeof setTimeout> | null = null;
-
-    if (ttl !== undefined) {
-      this.logger.log('debug', `Setting expiry interval for key: ${key}, ttl: ${ttl}ms`);
-      interval = setTimeout(() => {
-        // Only act if this timer still belongs to the live entry; it may have been
-        // replaced, or the set() that created this timer may never have completed.
-        const current = this.cache.get(key);
-        if (!current || current.interval !== interval) {
-          return;
-        }
-        this.logger.log('debug', `TTL expired for key: ${key}`);
-        this.emitExpiry(key, current);
-
-        if (typeof sourceFn === 'function' && autoRefetch) {
-          this.logger.log('debug', `Auto-refetching key: ${key}`);
-          this.refetchSingle(key).catch((e) => {
-            this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
-            /* Ignore as the event is already emitted inside the function */
-          });
-        }
-      }, ttl);
-    }
-
     let cacheValue = value;
 
     if (value === undefined && typeof sourceFn === 'function') {
@@ -327,6 +296,40 @@ export class CacheStore {
     } catch (error) {
       this.logger.log('error', `Middleware execution failed for key: ${key}`, error);
       throw new Error(`Middleware execution failed for key: '${key}'`);
+    }
+
+    // The value is resolved, so nothing below can fail. Only now replace the
+    // existing entry's timer: a failed sourceFn or middleware above must leave the
+    // current entry, including its expiry timer, untouched and create no new timer.
+    // The entry is read here (not before the awaits) so it reflects the live state.
+    const existingCache = this.cache.get(key);
+    if (existingCache?.interval) {
+      this.logger.log('debug', `Clearing existing interval for key: ${key}`);
+      clearTimeout(existingCache.interval);
+    }
+
+    let interval: ReturnType<typeof setTimeout> | null = null;
+
+    if (ttl !== undefined) {
+      this.logger.log('debug', `Setting expiry interval for key: ${key}, ttl: ${ttl}ms`);
+      interval = setTimeout(() => {
+        // Only act if this timer still belongs to the live entry; it may have been
+        // replaced by a later set() or refetch.
+        const current = this.cache.get(key);
+        if (!current || current.interval !== interval) {
+          return;
+        }
+        this.logger.log('debug', `TTL expired for key: ${key}`);
+        this.emitExpiry(key, current);
+
+        if (typeof sourceFn === 'function' && autoRefetch) {
+          this.logger.log('debug', `Auto-refetching key: ${key}`);
+          this.refetchSingle(key).catch((e) => {
+            this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
+            /* Ignore as the event is already emitted inside the function */
+          });
+        }
+      }, ttl);
     }
 
     // Check if adding this entry will exceed max size and enforce eviction if needed
