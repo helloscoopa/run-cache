@@ -190,7 +190,7 @@ RunCache.onDependencyInvalidation((event) => {
 await RunCache.set({
   key: string,                         // Required: Unique identifier for the cache entry
   value?: string,                      // Optional: String value to cache (required if no sourceFn)
-  ttl?: number,                        // Optional: Time-to-live in milliseconds
+  ttl?: number,                        // Optional: Time-to-live in milliseconds (finite and > 0; any length, including > 24.8 days)
   autoRefetch?: boolean,               // Optional: Automatically refetch on expiry (requires ttl and sourceFn)
   sourceFn?: () => string | Promise<string>, // Optional: Function to generate cache value (required if no value)
   tags?: string[],                     // Optional: Array of tags for tag-based invalidation
@@ -217,6 +217,8 @@ await RunCache.refetch("cache-key");
 // Refresh multiple entries using wildcards
 await RunCache.refetch("api-data-*");
 ```
+
+`refetch()` resolves to `false` (and stores nothing) if the entry is deleted, invalidated or overwritten while its source function is running.
 
 #### Removing Cache Entries
 
@@ -588,12 +590,14 @@ To use a storage adapter, first import the adapter you want to use, then configu
 import { RunCache, LocalStorageAdapter } from 'run-cache';
 
 // Configure RunCache with LocalStorage persistence
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new LocalStorageAdapter({
     storageKey: 'my-app-cache' // Optional custom key
   })
 });
 ```
+
+Configuring an adapter loads any data it already holds, so `await` the call before reading from the cache. If another adapter was configured before, the current entries are saved to that adapter first; if that save fails, `configure()` rejects and the current adapter stays attached. The options passed to `configure()` always take precedence over the configuration stored with the data. Pass `storageAdapter: undefined` to detach persistence.
 
 ### Auto-Saving and Manual Control
 
