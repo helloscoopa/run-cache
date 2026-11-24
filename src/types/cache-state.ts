@@ -1,4 +1,4 @@
-import { ExpiryTimer } from '../core/timer';
+import type { ExpiryTimer } from './timer';
 
 /**
  * @file Defines TypeScript types for the internal cache state representation.

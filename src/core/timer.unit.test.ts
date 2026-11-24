@@ -75,4 +75,52 @@ describe('createExpiryTimer', () => {
     timer.clear();
     expect(() => timer.clear()).not.toThrow();
   });
+
+  describe('unref()', () => {
+    type FakeHandle = { callback: () => void; unref: jest.Mock };
+
+    /** Replaces setTimeout with one that returns Node-style handles we can inspect */
+    function captureHandles() {
+      const handles: FakeHandle[] = [];
+      const setSpy = jest.spyOn(global, 'setTimeout').mockImplementation(((callback: () => void) => {
+        const handle = { callback, unref: jest.fn() };
+        handles.push(handle);
+        return handle;
+      }) as unknown as typeof setTimeout);
+      const clearSpy = jest.spyOn(global, 'clearTimeout').mockImplementation(() => {});
+      return { handles, restore: () => { setSpy.mockRestore(); clearSpy.mockRestore(); } };
+    }
+
+    it('unrefs the current underlying timeout', () => {
+      const { handles, restore } = captureHandles();
+      try {
+        createExpiryTimer(jest.fn(), 1000).unref();
+        expect(handles).toHaveLength(1);
+        expect(handles[0].unref).toHaveBeenCalledTimes(1);
+      } finally {
+        restore();
+      }
+    });
+
+    it('re-applies unref to timeouts armed later for long delays', () => {
+      const { handles, restore } = captureHandles();
+      try {
+        const callback = jest.fn();
+        createExpiryTimer(callback, MAX_TIMEOUT_MS * 2).unref();
+
+        handles[0].callback(); // the first chunk elapses early relative to the target
+        expect(handles).toHaveLength(2);
+        expect(handles[1].unref).toHaveBeenCalledTimes(1);
+        expect(callback).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('does nothing where timer handles have no unref (browsers)', () => {
+      const timer = createExpiryTimer(jest.fn(), 100);
+      expect(() => timer.unref()).not.toThrow();
+      timer.clear();
+    });
+  });
 });

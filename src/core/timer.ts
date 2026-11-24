@@ -1,15 +1,20 @@
+import type { ExpiryTimer } from '../types/timer';
+
 /**
  * Largest delay accepted by `setTimeout` in Node.js and browsers (2^31 - 1 ms, about 24.8 days).
  * Longer delays are clamped to 1 ms by the runtime, so they must be split up.
  */
 export const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
+export type { ExpiryTimer };
+
 /**
- * A cancellable one-shot timer that supports delays longer than {@link MAX_TIMEOUT_MS}.
+ * Calls `unref()` on a timeout handle when the runtime supports it (Node.js).
  */
-export interface ExpiryTimer {
-  /** Cancels the timer. Safe to call more than once. */
-  clear(): void;
+function unrefHandle(handle: unknown): void {
+  if (handle && typeof handle === 'object' && typeof (handle as { unref?: unknown }).unref === 'function') {
+    (handle as { unref: () => void }).unref();
+  }
 }
 
 /**
@@ -24,6 +29,7 @@ export function createExpiryTimer(callback: () => void, delayMs: number): Expiry
   const target = Date.now() + delayMs;
   let handle: ReturnType<typeof setTimeout> | undefined;
   let cleared = false;
+  let unrefed = false;
 
   const arm = (delay: number): void => {
     handle = setTimeout(() => {
@@ -36,6 +42,9 @@ export function createExpiryTimer(callback: () => void, delayMs: number): Expiry
       }
       callback();
     }, delay);
+    if (unrefed) {
+      unrefHandle(handle);
+    }
   };
 
   arm(Math.min(Math.max(delayMs, 0), MAX_TIMEOUT_MS));
@@ -47,6 +56,10 @@ export function createExpiryTimer(callback: () => void, delayMs: number): Expiry
         clearTimeout(handle);
         handle = undefined;
       }
+    },
+    unref() {
+      unrefed = true;
+      unrefHandle(handle);
     },
   };
 }
