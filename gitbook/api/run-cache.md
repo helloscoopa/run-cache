@@ -19,6 +19,7 @@ Configures the cache with global settings.
   - `evictionPolicy?`: `EvictionPolicy` - Eviction policy to use (default: NONE)
   - `debug?`: `boolean` - Enable debug logging (default: false)
   - `handleProcessSignals?`: `boolean` - Shut the cache down (saving to the storage adapter) on `SIGTERM`/`SIGINT` in Node.js and on `beforeunload` in browsers (default: false). In Node.js the signal is re-raised after shutdown unless your application has its own listener, so the process exits as it would without RunCache. Importing RunCache installs no handlers unless this is enabled.
+  - `onListenerError?`: `(error, { event, key }) => void` - Receives errors thrown (or rejected) by event listeners. By default they are written to `console.error`; listener errors never reach the cache operation that emitted the event.
   - `storageAdapter?`: `StorageAdapter` - Storage adapter for persistence (default: none). Attaching an adapter loads the data it already holds; if a different adapter was attached before, the current entries are saved to it first, and `configure()` rejects (keeping that adapter) if the save fails. The `maxEntries` and `evictionPolicy` stored with the data are not applied. Pass `undefined` to detach persistence.
 
 **Returns:** `Promise<void>` - resolves once the configuration is applied, including loading from a newly attached storage adapter

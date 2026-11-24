@@ -37,6 +37,12 @@ interface CacheConfig {
    * @default false
    */
   handleProcessSignals?: boolean;
+
+  /**
+   * Receives errors thrown or rejected by event listeners.
+   * Defaults to writing them to console.error.
+   */
+  onListenerError?: (error: unknown, context: { event: string; key: string }) => void;
 }
 ```
 

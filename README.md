@@ -288,6 +288,8 @@ const config = RunCache.getConfig();
 
 RunCache provides a comprehensive event system to monitor cache lifecycle events.
 
+Listeners are isolated from cache operations: if a listener throws or rejects, the error is logged with `console.error`, the other listeners still run, and the cache operation completes normally. For invalidation events, the entry has already been removed when the listener runs.
+
 #### Expiry Events
 
 ```typescript

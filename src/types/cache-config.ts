@@ -58,6 +58,14 @@ export interface CacheConfig {
    * @default false
    */
   handleProcessSignals?: boolean;
+
+  /**
+   * Called when an event listener throws or its returned promise rejects. Listener errors
+   * never reach the cache operation that emitted the event; by default they are written
+   * to `console.error`. Provide this to route them to your own logging instead.
+   * An exception thrown by this handler itself is written to `console.error`.
+   */
+  onListenerError?: (error: unknown, context: { event: string; key: string }) => void;
 }
 
 /**

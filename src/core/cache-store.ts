@@ -1502,7 +1502,11 @@ export class CacheStore {
       if (cacheState.tags && cacheState.tags.includes(normalizedTag)) {
         this.logger.log('debug', `Invalidating ${key} due to tag match: ${normalizedTag}`);
 
-        // Emit event before deleting
+        // Remove the entry before notifying listeners, so listeners always observe the
+        // invalidated state and can never prevent the invalidation from completing
+        this.deleteSingle(key);
+        invalidated = true;
+
         this.eventSystem.emitEvent(
           EVENT.TAG_INVALIDATION,
           {
@@ -1515,9 +1519,6 @@ export class CacheStore {
             _params: { tag: normalizedTag },
           },
         );
-
-        this.deleteSingle(key);
-        invalidated = true;
       }
     }
 
@@ -1587,7 +1588,9 @@ export class CacheStore {
     for (const invalidKey of invalidatedKeys) {
       const cacheState = this.cache.get(invalidKey);
       if (cacheState) {
-        // Emit event before deleting
+        // Remove the entry before notifying listeners (see invalidateByTag)
+        this.deleteSingle(invalidKey);
+
         this.eventSystem.emitEvent(
           EVENT.DEPENDENCY_INVALIDATION,
           {
@@ -1600,8 +1603,6 @@ export class CacheStore {
             _params: { dependencyKey: key },
           },
         );
-
-        this.deleteSingle(invalidKey);
       }
     }
 
