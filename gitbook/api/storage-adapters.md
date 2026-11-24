@@ -179,7 +179,7 @@ RunCache.configure({
 
 ### Limitations
 
-- Only available in Node.js environments
+- Only available in Node.js environments. The constructor throws elsewhere. The `fs` and `path` modules are loaded on first use rather than at import time, so importing `run-cache` in a browser bundle is safe.
 - Requires appropriate file system permissions
 - May have performance implications with very frequent writes
 

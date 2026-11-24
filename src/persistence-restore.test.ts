@@ -133,6 +133,20 @@ describe('restoring persisted entries', () => {
     expect(restored.getConfig().maxEntries).toBe(Number.POSITIVE_INFINITY);
   });
 
+  it('restores dependency links, so restored dependents are still invalidated', async () => {
+    const adapter = new MemoryAdapter();
+    const source = await create({ storageAdapter: adapter });
+    await source.set({ key: 'parent', value: 'p' });
+    await source.set({ key: 'child', value: 'c', dependencies: ['parent'] });
+    await source.saveToStorage();
+
+    const restored = await create({ storageAdapter: adapter });
+    expect(await restored.get('child')).toBe('c');
+    await restored.set({ key: 'parent', value: 'p2' });
+
+    expect(await restored.has('child')).toBe(false);
+  });
+
   describe('adapter options', () => {
     it('auto-saves at the adapter autoSaveInterval', async () => {
       const adapter = new MemoryAdapter(30);
@@ -161,13 +175,9 @@ describe('restoring persisted entries', () => {
   });
 
   describe('auto-save started by an adapter', () => {
-    /**
-     * Switches the store's adapter. On main, configure() reacts to a misspelled `storage`
-     * key (fixed by #41/#66 to `storageAdapter`); passing both keeps these tests valid
-     * before and after that fix.
-     */
+    /** Switches the store's storage adapter */
     const switchAdapter = (store: CacheStore, adapter: StorageAdapter | undefined) => store.configure(
-      { storage: adapter, storageAdapter: adapter } as unknown as Parameters<CacheStore['configure']>[0],
+      { storageAdapter: adapter },
     );
     const intervalOf = (store: CacheStore) => (store as unknown as { autoSaveInterval: unknown }).autoSaveInterval;
 

@@ -193,6 +193,8 @@ RunCache.onKeyTagInvalidation("user:*:profile", (event) => {
 });
 ```
 
+Each entry is removed before its event is emitted, so listeners see the cache in its invalidated state: `RunCache.has(event.key)` returns `false`, while `event.value` still holds the removed value. An error thrown by a listener does not stop the remaining entries from being invalidated. The same applies to dependency invalidation events.
+
 ## Combining Tags with Other Features
 
 ### Tags with TTL
