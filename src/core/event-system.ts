@@ -231,23 +231,36 @@ export class EventSystem {
    *
    * @param {Object} [params] - Optional parameters to specify which listeners to clear
    * @param {EventName} [params.event] - The event type for which to clear listeners
-   * @param {string} [params.key] - The key pattern for which to clear listeners
-   * @returns {boolean} true if listeners were removed, false if no action was taken
-   * @throws {Error} If key is provided without an event
+   * @param {string} [params.key] - The key pattern for which to clear listeners. When given without
+   *   `event`, listeners for that key (or pattern) are cleared for every event type. An exact key
+   *   only clears listeners registered for that exact key, not wildcard listeners that match it.
+   * @returns {boolean} true if at least one listener was removed, false otherwise
    */
   clearEventListeners(params?: {
     event?: EventName;
     key?: string;
   }): boolean {
     if (!params) {
-      this.logger.log('info', 'Clearing all event listeners');
+      const total = this.emitter.eventNames()
+        .reduce((count, eventName) => count + this.emitter.listenerCount(eventName), 0);
+      this.logger.log('info', `Clearing all event listeners (${total})`);
       this.emitter.removeAllListeners();
       this.wildcardListeners = [];
-      return true;
+      return total > 0;
+    }
+
+    // An options object that selects nothing (`{}`, `{ event: undefined }`) is a no-op,
+    // so a filter built from optional values never clears every listener by accident
+    if (params.event === undefined && params.key === undefined) {
+      return false;
     }
 
     if (params.key && !params.event) {
-      throw Error('`key` cannot be provided without `event`');
+      let removedAny = false;
+      for (const event of Object.values(EVENT)) {
+        removedAny = this.clearKeyEventListeners(event, params.key) || removedAny;
+      }
+      return removedAny;
     }
 
     if (params.event && params.key) {
@@ -347,12 +360,13 @@ export class EventSystem {
       const totalMessage = `Cleared ${removedCount + wildcardRemoved} total listeners for event: ${event}, `
         + `key pattern: ${key}`;
       this.logger.log('info', totalMessage);
-    } else {
-      const count = this.emitter.listenerCount(`${event}-${key}`);
-      this.emitter.removeAllListeners(`${event}-${key}`);
-      this.logger.log('info', `Cleared ${count} listeners for event: ${event}, exact key: ${key}`);
+      return removedCount + wildcardRemoved > 0;
     }
-    return true;
+
+    const count = this.emitter.listenerCount(`${event}-${key}`);
+    this.emitter.removeAllListeners(`${event}-${key}`);
+    this.logger.log('info', `Cleared ${count} listeners for event: ${event}, exact key: ${key}`);
+    return count > 0;
   }
 
   /**
@@ -363,41 +377,29 @@ export class EventSystem {
    * @private
    */
   private clearEventTypeListeners(event: string): boolean {
+    // Root listeners include the wrappers registered for wildcard key patterns
     const rootCount = this.emitter.listenerCount(event);
     this.logger.log('debug', `Clearing ${rootCount} root listeners for event: ${event}`);
     this.emitter.removeAllListeners(event);
 
-    // Remove all namespaced events
+    // Remove key-specific listeners, which are registered as `${event}-${key}`.
+    // Matching on the full prefix (including the separator) matters: event names can
+    // share a prefix, e.g. 'refetch' and 'refetch_failure'.
+    const prefix = `${event}-`;
     let namespacedCount = 0;
     this.emitter.eventNames().forEach((eventName) => {
-      if (
-        typeof eventName === 'string'
-        && eventName.startsWith(event)
-      ) {
-        const count = this.emitter.listenerCount(eventName);
-        namespacedCount += count;
+      if (typeof eventName === 'string' && eventName.startsWith(prefix)) {
+        namespacedCount += this.emitter.listenerCount(eventName);
         this.emitter.removeAllListeners(eventName);
       }
     });
     this.logger.log('debug', `Cleared ${namespacedCount} namespaced listeners for event: ${event}`);
 
-    // Remove all wildcard listeners for this event
-    const remaining: typeof this.wildcardListeners = [];
-    let wildcardCount = 0;
-    for (const entry of this.wildcardListeners) {
-      if (entry.event === event) {
-        // Already removed by removeAllListeners(event) above
-        wildcardCount++;
-      } else {
-        remaining.push(entry);
-      }
-    }
-    this.wildcardListeners = remaining;
-    this.logger.log('debug', `Removed ${wildcardCount} wildcard listener references for event: ${event}`);
+    // Forget the wildcard wrappers for this event; they were removed with the root listeners
+    this.wildcardListeners = this.wildcardListeners.filter((entry) => entry.event !== event);
 
-    const totalMessage = `Cleared all listeners (${rootCount + namespacedCount + wildcardCount} total) `
-      + `for event: ${event}`;
-    this.logger.log('info', totalMessage);
-    return true;
+    const total = rootCount + namespacedCount;
+    this.logger.log('info', `Cleared all listeners (${total} total) for event: ${event}`);
+    return total > 0;
   }
 }

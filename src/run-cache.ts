@@ -404,12 +404,15 @@ export class RunCache {
    * If only event is provided, clears all listeners for that event.
    * If only key is provided, clears all event listeners for that key.
    * If both event and key are provided, clears only listeners for that specific combination.
+   * An options object with neither `event` nor `key` (for example `{}`) removes nothing.
+   * An exact key only clears listeners registered for that key; wildcard listeners such as
+   * `user:*` stay registered even if they match it. Pass the pattern itself to clear them.
    * 
    * @param {Object} [params] - Optional parameters to specify which event listeners to clear.
    * @param {EventName} [params.event] - Optional event name to clear listeners for.
    * @param {string} [params.key] - Optional key to clear listeners for.
    * 
-   * @returns {boolean} - Returns `true` if any listeners were cleared, `false` otherwise.
+   * @returns {boolean} - Returns `true` if at least one listener was removed, `false` otherwise.
    */
   static async clearEventListeners(params?: {
     event?: EventName;
