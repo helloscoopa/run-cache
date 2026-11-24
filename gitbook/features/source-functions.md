@@ -23,7 +23,7 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.example.com/users/1');
     const data = await response.json();
-    return JSON.stringify(data);
+    return data;
   }
 });
 ```
@@ -46,7 +46,7 @@ await RunCache.set({
   key: 'computed-value',
   sourceFn: () => {
     const result = performExpensiveCalculation();
-    return JSON.stringify(result);
+    return result;
   }
 });
 ```
@@ -59,7 +59,7 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.example.com/data');
     const data = await response.json();
-    return JSON.stringify(data);
+    return data;
   }
 });
 ```
@@ -76,7 +76,7 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.weather.com/current');
     const data = await response.json();
-    return JSON.stringify(data);
+    return data;
   },
   ttl: 30 * 60 * 1000 // 30 minutes
 });
@@ -97,7 +97,7 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.example.com/stocks');
     const data = await response.json();
-    return JSON.stringify(data);
+    return data;
   },
   ttl: 60000, // 1 minute
   autoRefetch: true
@@ -153,9 +153,9 @@ If the source function throws during an automatic refetch:
 
 ```typescript
 // Register for refetch failure events
-RunCache.onRefetchFailure((event) => {
+await RunCache.onRefetchFailure((event) => {
   console.error(`Failed to refresh ${event.key}:`, event.error);
-  
+
   // Implement retry logic
   setTimeout(() => RunCache.refetch(event.key), 30000);
 });
@@ -172,8 +172,7 @@ You can create source functions that use parameters from the cache key:
 function createUserProfileSource(userId) {
   return async () => {
     const response = await fetch(`https://api.example.com/users/${userId}`);
-    const data = await response.json();
-    return JSON.stringify(data);
+    return response.json();
   };
 }
 
@@ -196,27 +195,26 @@ You can create a wrapper to automatically cache function results:
 ```typescript
 async function cachedFetch(url, options = {}) {
   const cacheKey = `fetch:${url}`;
-  
+
   // Try to get from cache first
   const cachedResponse = await RunCache.get(cacheKey);
-  if (cachedResponse) {
-    return JSON.parse(cachedResponse);
+  if (cachedResponse !== undefined) { // false and 0 are valid cached responses
+    return cachedResponse;
   }
-  
+
   // Set up cache with source function
   await RunCache.set({
     key: cacheKey,
     sourceFn: async () => {
       const response = await fetch(url, options);
       const data = await response.json();
-      return JSON.stringify(data);
+      return data;
     },
     ttl: options.ttl || 60000 // Default 1 minute TTL
   });
-  
+
   // Get the newly cached value
-  const freshResponse = await RunCache.get(cacheKey);
-  return JSON.parse(freshResponse);
+  return RunCache.get(cacheKey);
 }
 
 // Usage
@@ -228,13 +226,17 @@ const userData = await cachedFetch('https://api.example.com/users/1', { ttl: 300
 You can create source functions that depend on other cached values:
 
 ```typescript
+interface UserProfile {
+  preferences: string[];
+}
+
 // Primary data
 await RunCache.set({
   key: 'user:1:profile',
   sourceFn: async () => {
     const response = await fetch('https://api.example.com/users/1');
     const data = await response.json();
-    return JSON.stringify(data);
+    return data;
   }
 });
 
@@ -243,15 +245,17 @@ await RunCache.set({
   key: 'user:1:recommendations',
   sourceFn: async () => {
     // Get the user profile from cache first
-    const profileJson = await RunCache.get('user:1:profile');
-    const profile = JSON.parse(profileJson);
-    
+    const profile = await RunCache.get<UserProfile>('user:1:profile');
+    if (!profile || Array.isArray(profile)) {
+      throw new Error('User profile is not cached');
+    }
+
     // Use profile data to fetch recommendations
     const response = await fetch(`https://api.example.com/recommendations?preferences=${profile.preferences.join(',')}`);
     const recommendations = await response.json();
-    return JSON.stringify(recommendations);
+    return recommendations;
   },
-  dependencies: ['user:1:profile'] // Will be invalidated when profile changes
+  dependencies: ['user:1:profile'] // Removed by invalidateByDependency('user:1:profile')
 });
 ```
 
@@ -293,7 +297,7 @@ await RunCache.set({
         throw new Error(`API returned ${response.status}`);
       }
       const data = await response.json();
-      return JSON.stringify(data);
+      return data;
     } catch (error) {
       console.error('Source function error:', error);
       throw error; // Rethrow to let RunCache handle it
@@ -306,6 +310,7 @@ await RunCache.set({
 
 A source function can return a string or any serializable value. Whatever it returns is what `get()` gives back:
 
+<!-- docs-check-ignore: the second example returns a JSON string on purpose -->
 ```typescript
 // Returns an object: get() returns the object
 await RunCache.set<UserData>({
@@ -338,7 +343,7 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.example.com/users/1');
     const user = await response.json();
-    return JSON.stringify(user.name); // Only needed the name
+    return user.name; // Only needed the name
   }
 });
 

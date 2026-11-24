@@ -57,7 +57,7 @@ When using RunCache in your projects, you should:
 Example attribution text:
 
 ```
-This project uses RunCache (https://github.com/example/run-cache), 
+This project uses RunCache (https://github.com/example/run-cache),
 licensed under the MIT License.
 ```
 

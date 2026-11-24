@@ -24,13 +24,13 @@ To establish a dependency relationship, use the `dependencies` parameter when se
 // Primary data
 await RunCache.set({
   key: 'user:1:profile',
-  value: JSON.stringify({ name: 'John Doe', email: 'john@example.com' })
+  value: { name: 'John Doe', email: 'john@example.com' }
 });
 
 // Dependent data
 await RunCache.set({
   key: 'user:1:dashboard',
-  value: JSON.stringify({ widgets: [...] }),
+  value: { widgets: [...] },
   dependencies: ['user:1:profile'] // This entry depends on the profile
 });
 ```
@@ -60,20 +60,20 @@ RunCache supports multi-level dependency chains:
 // Primary data
 await RunCache.set({
   key: 'user:1:profile',
-  value: JSON.stringify({ name: 'John Doe' })
+  value: { name: 'John Doe' }
 });
 
 // First-level dependent data
 await RunCache.set({
   key: 'user:1:recommendations',
-  value: JSON.stringify([...]),
+  value: [...],
   dependencies: ['user:1:profile']
 });
 
 // Second-level dependent data
 await RunCache.set({
   key: 'home:feed',
-  value: JSON.stringify([...]),
+  value: [...],
   dependencies: ['user:1:recommendations']
 });
 ```
@@ -89,14 +89,14 @@ A cache entry can depend on multiple other entries:
 
 ```typescript
 // Primary data sources
-await RunCache.set({ key: 'products', value: JSON.stringify([...]) });
-await RunCache.set({ key: 'categories', value: JSON.stringify([...]) });
-await RunCache.set({ key: 'user:1:preferences', value: JSON.stringify({...}) });
+await RunCache.set({ key: 'products', value: [...] });
+await RunCache.set({ key: 'categories', value: [...] });
+await RunCache.set({ key: 'user:1:preferences', value: {...} });
 
 // Dependent data that relies on multiple sources
 await RunCache.set({
   key: 'user:1:product-recommendations',
-  value: JSON.stringify([...]),
+  value: [...],
   dependencies: ['products', 'categories', 'user:1:preferences']
 });
 ```
@@ -121,18 +121,19 @@ console.log(isNotDependency); // false (no dependency relationship)
 
 ## Manual Dependency Invalidation
 
-You can manually invalidate a cache entry and all its dependents using the `invalidateByDependency` method:
+You can invalidate an entry's dependents without changing the entry itself using the `invalidateByDependency` method:
 
 ```typescript
-// Invalidate an entry and all its dependents
-RunCache.invalidateByDependency('user:1:profile');
+// Invalidate everything that depends on the profile
+await RunCache.invalidateByDependency('user:1:profile');
 ```
 
 This will:
-1. Invalidate the specified entry (`user:1:profile`)
-2. Invalidate all entries that directly depend on it (`user:1:recommendations`)
-3. Invalidate all entries that depend on those entries (`home:feed`)
-4. And so on, following the dependency chain
+1. Invalidate all entries that directly depend on it (`user:1:recommendations`)
+2. Invalidate all entries that depend on those entries (`home:feed`)
+3. And so on, following the dependency chain
+
+The specified entry (`user:1:profile`) itself is kept.
 
 ## Monitoring Dependency Invalidations
 
@@ -140,17 +141,17 @@ RunCache provides events to monitor dependency invalidations:
 
 ```typescript
 // Global dependency invalidation event
-RunCache.onDependencyInvalidation((event) => {
+await RunCache.onDependencyInvalidation((event) => {
   console.log(`Cache entry ${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
 });
 
 // Specific key dependency invalidation
-RunCache.onKeyDependencyInvalidation("user:1:dashboard", (event) => {
+await RunCache.onKeyDependencyInvalidation("user:1:dashboard", (event) => {
   console.log(`Dashboard cache was invalidated due to dependency on: ${event.dependencyKey}`);
 });
 
 // Pattern-based dependency invalidation events
-RunCache.onKeyDependencyInvalidation("home:*", (event) => {
+await RunCache.onKeyDependencyInvalidation("home:*", (event) => {
   console.log(`Home page component ${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
 });
 ```
@@ -171,25 +172,26 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.example.com/users/1');
     const data = await response.json();
-    return JSON.stringify(data);
+    return data;
   },
   ttl: 300000, // 5 minutes
   autoRefetch: true
 });
 
 // Dependent data with source function
+async function fetchRecommendations() {
+  // Get the user profile from cache
+  const profile = (await RunCache.get('user:1:profile')) as { preferences: string[] };
+
+  // Use profile data to fetch recommendations
+  const response = await fetch(`https://api.example.com/recommendations?preferences=${profile.preferences.join(',')}`);
+  const recommendations = await response.json();
+  return recommendations;
+}
+
 await RunCache.set({
   key: 'user:1:recommendations',
-  sourceFn: async () => {
-    // Get the user profile from cache
-    const profileJson = await RunCache.get('user:1:profile');
-    const profile = JSON.parse(profileJson);
-    
-    // Use profile data to fetch recommendations
-    const response = await fetch(`https://api.example.com/recommendations?preferences=${profile.preferences.join(',')}`);
-    const recommendations = await response.json();
-    return JSON.stringify(recommendations);
-  },
+  sourceFn: fetchRecommendations,
   dependencies: ['user:1:profile'],
   ttl: 600000, // 10 minutes
   autoRefetch: true
@@ -197,11 +199,21 @@ await RunCache.set({
 ```
 
 In this example:
-1. When `user:1:profile` is refreshed (automatically or manually), its dependents are invalidated
-2. When `user:1:recommendations` is next accessed, its source function will be called
-3. The source function will use the fresh profile data to generate new recommendations
+1. When `user:1:profile` is refreshed (automatically or manually), `user:1:recommendations` is invalidated and removed from the cache
+2. It is not re-created on its own: the next `get('user:1:recommendations')` returns `undefined`
+3. Set it again with its source function when it is next needed (or from a `dependency_invalidation` listener), and it is computed from the fresh profile
 
-This creates a powerful pattern for maintaining consistency while still benefiting from caching.
+```typescript
+await RunCache.onKeyDependencyInvalidation('user:1:recommendations', async () => {
+  await RunCache.set({
+    key: 'user:1:recommendations',
+    sourceFn: fetchRecommendations,
+    dependencies: ['user:1:profile'],
+    ttl: 600000,
+    autoRefetch: true
+  });
+});
+```
 
 ## Dependency Best Practices
 
@@ -243,16 +255,16 @@ Define dependencies as specifically as possible:
 
 ```typescript
 // Too broad - invalidates too much
-await RunCache.set({ 
-  key: 'user:1:dashboard', 
-  value: '...', 
+await RunCache.set({
+  key: 'user:1:dashboard',
+  value: '...',
   dependencies: ['global:data'] // Very broad dependency
 });
 
 // Better - more specific dependencies
-await RunCache.set({ 
-  key: 'user:1:dashboard', 
-  value: '...', 
+await RunCache.set({
+  key: 'user:1:dashboard',
+  value: '...',
   dependencies: ['user:1:profile', 'user:1:preferences'] // Only what's needed
 });
 ```
@@ -273,9 +285,9 @@ await RunCache.set({
 // Different invalidation options:
 // 1. Invalidate when profile changes (automatic via dependency)
 // 2. Invalidate all user:1 data (via tag)
-RunCache.invalidateByTag('user:1');
+await RunCache.invalidateByTag('user:1');
 // 3. Invalidate all feeds (via tag)
-RunCache.invalidateByTag('feed');
+await RunCache.invalidateByTag('feed');
 ```
 
 ### 5. Monitor Invalidation Patterns
@@ -284,7 +296,7 @@ Use events to monitor and understand how your dependencies behave:
 
 ```typescript
 // Track dependency invalidations
-RunCache.onDependencyInvalidation((event) => {
+await RunCache.onDependencyInvalidation((event) => {
   console.log(`${event.key} invalidated due to ${event.dependencyKey}`);
   // Track metrics about invalidation frequency
   trackMetric('cache.dependency.invalidation', {
@@ -306,18 +318,18 @@ async function cacheArticleWithRelatedContent(articleId) {
   const article = await fetchArticle(articleId);
   await RunCache.set({
     key: `article:${articleId}`,
-    value: JSON.stringify(article)
+    value: article
   });
-  
+
   // Determine related content IDs from the article
   const relatedIds = article.relatedArticles;
-  
+
   // Cache related content with dependencies
   for (const relatedId of relatedIds) {
     const relatedArticle = await fetchArticle(relatedId);
     await RunCache.set({
       key: `article:${relatedId}`,
-      value: JSON.stringify(relatedArticle),
+      value: relatedArticle,
       dependencies: [`article:${articleId}`] // Dynamic dependency
     });
   }
@@ -326,29 +338,50 @@ async function cacheArticleWithRelatedContent(articleId) {
 
 ### 2. Dependency-Aware Refresh
 
-Implement smart refreshing that considers dependencies:
+Refreshing a parent removes every entry that depends on it, so a dependent cannot be brought back with `refetch()` afterwards: it is no longer in the cache. To refresh a key together with its parents, refresh the parents first and then set the key again from its source function. RunCache cannot list keys or hand back an entry's source function, so keep the definitions of the entries you refresh this way:
 
 ```typescript
-async function smartRefresh(key) {
-  // First, check if this key has dependencies
-  const allKeys = await RunCache.get('*'); // Get all cache keys
-  const dependencyKeys = [];
-  
-  for (const cacheKey of allKeys) {
-    if (await RunCache.isDependencyOf(key, cacheKey)) {
-      dependencyKeys.push(cacheKey);
-    }
-  }
-  
-  // Refresh dependencies first (from furthest to closest)
-  for (const depKey of dependencyKeys.reverse()) {
-    await RunCache.refetch(depKey);
-  }
-  
-  // Then refresh the target key
-  await RunCache.refetch(key);
+interface EntryDefinition {
+  sourceFn: () => Promise<unknown>;
+  dependencies?: string[];
+  ttl?: number;
 }
+
+// Your own record of how each entry is built
+const definitions = new Map<string, EntryDefinition>([
+  ['user:1:profile', { sourceFn: fetchProfile, ttl: 300000 }],
+  ['user:1:recommendations', {
+    sourceFn: fetchRecommendations,
+    dependencies: ['user:1:profile'],
+    ttl: 600000
+  }]
+]);
+
+async function smartRefresh(key: string, refreshed = new Set<string>()) {
+  if (refreshed.has(key)) return;
+  const definition = definitions.get(key);
+
+  if (!definition) {
+    // Not defined here: refresh it in place (it needs a source function)
+    await RunCache.refetch(key);
+    refreshed.add(key);
+    return;
+  }
+
+  // Refresh the parents first. Each one removes `key` and its other dependents.
+  for (const parent of definition.dependencies ?? []) {
+    await smartRefresh(parent, refreshed);
+  }
+
+  // Then recreate `key`, so its source function runs against the fresh parents
+  await RunCache.set({ key, ...definition });
+  refreshed.add(key);
+}
+
+await smartRefresh('user:1:recommendations');
 ```
+
+`refreshed` makes sure a parent shared by several keys is refreshed once: refreshing it again later would remove the dependents that were just recreated.
 
 ### 3. Conditional Dependencies
 

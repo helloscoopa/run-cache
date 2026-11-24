@@ -16,7 +16,7 @@ Middleware functions are added to the RunCache using the `use()` method:
 import { RunCache } from 'run-cache';
 
 // Add a simple middleware that logs all cache operations
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   console.log(`Cache operation: ${context.operation} for key: ${context.key}`);
   return next(value);
 });
@@ -32,7 +32,7 @@ Middleware functions have the following signature:
 
 Where:
 
-- `value`: The current value being processed
+- `value`: The stored (string) form of the value being processed
 - `context`: Object containing metadata about the operation
 - `next`: Function to call the next middleware in the chain
 
@@ -49,6 +49,18 @@ interface MiddlewareContext {
 }
 ```
 
+### When middleware runs
+
+| Operation | Runs when | `value` is | The result is |
+| --- | --- | --- | --- |
+| `set` | A value is set, directly or from a `sourceFn` | The new value | Stored |
+| `refetch` | A `sourceFn` runs again (`refetch()` or auto-refetch) | The fresh value | Stored |
+| `get` | A key is read **and found** | The stored value | Returned to the caller |
+
+Although the type also lists `delete` and `has`, middleware is not called for them, nor for a `get()` that misses, for events, or when the cache is saved to or loaded from a storage adapter.
+
+A middleware that transforms values (encryption, compression) must therefore apply the transform on both `set` and `refetch`, and reverse it on `get`. If it only handles `set`, refetched values are stored untransformed and `get` then fails to reverse them.
+
 ## Examples
 
 ### Encryption Middleware
@@ -58,11 +70,11 @@ import { RunCache } from 'run-cache';
 import { encrypt, decrypt } from './your-crypto-lib';
 
 // Add encryption middleware
-RunCache.use(async (value, context, next) => {
-  if (context.operation === 'set' && value) {
+await RunCache.use(async (value, context, next) => {
+  if ((context.operation === 'set' || context.operation === 'refetch') && value) {
     // Encrypt the value before storing
     return next(encrypt(value));
-  } else if (context.operation === 'get' || context.operation === 'refetch') {
+  } else if (context.operation === 'get') {
     // Decrypt the value after retrieval
     const encrypted = await next(value);
     return encrypted ? decrypt(encrypted) : undefined;
@@ -81,7 +93,7 @@ const value = await RunCache.get('sensitive-data'); // Returns decrypted 'secret
 import { RunCache } from 'run-cache';
 
 // Add validation middleware
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   if (context.operation === 'set') {
     if (!value || value.length < 3) {
       // Reject invalid values
@@ -105,40 +117,17 @@ try {
 }
 ```
 
-### JSON Serialization Middleware
+### Objects and Middleware
+
+You do not need middleware to store objects: RunCache converts non-string values to JSON before the middleware chain runs on `set`, and parses them after it runs on `get` (see [Value Serialization](serialization-adapters.md)). Middleware therefore always receives a string, so any string transform such as the encryption above works for objects too:
 
 ```javascript
-import { RunCache } from 'run-cache';
-
-// Add JSON serialization middleware
-RunCache.use(async (value, context, next) => {
-  if (context.operation === 'set' && value && typeof value === 'object') {
-    // Serialize objects to JSON strings
-    return next(JSON.stringify(value));
-  } else if ((context.operation === 'get' || context.operation === 'refetch') && value) {
-    const result = await next(value);
-    if (result) {
-      try {
-        // Try to parse the result as JSON
-        return JSON.parse(result);
-      } catch (e) {
-        // If parsing fails, return the raw string
-        return result;
-      }
-    }
-    return result;
-  }
-  return next(value);
+await RunCache.set({
+  key: 'user',
+  value: { id: 123, name: 'John Doe', email: 'john@example.com' }
 });
 
-// Store complex objects directly
-await RunCache.set({ 
-  key: 'user', 
-  value: { id: 123, name: 'John Doe', email: 'john@example.com' } 
-});
-
-// Retrieve the object
-const user = await RunCache.get('user'); // Returns the parsed object: { id: 123, name: 'John Doe', ... }
+const user = await RunCache.get('user'); // { id: 123, name: 'John Doe', ... }
 ```
 
 ## Chaining Multiple Middleware
@@ -147,8 +136,8 @@ Middleware functions are executed in the order they are added. Each middleware c
 
 ```javascript
 // First middleware compresses the data
-RunCache.use(async (value, context, next) => {
-  if (context.operation === 'set' && value) {
+await RunCache.use(async (value, context, next) => {
+  if ((context.operation === 'set' || context.operation === 'refetch') && value) {
     return next(compress(value));
   } else if (context.operation === 'get') {
     const compressed = await next(value);
@@ -158,8 +147,8 @@ RunCache.use(async (value, context, next) => {
 });
 
 // Second middleware encrypts the data
-RunCache.use(async (value, context, next) => {
-  if (context.operation === 'set' && value) {
+await RunCache.use(async (value, context, next) => {
+  if ((context.operation === 'set' || context.operation === 'refetch') && value) {
     return next(encrypt(value));
   } else if (context.operation === 'get') {
     const encrypted = await next(value);
@@ -185,13 +174,13 @@ When getting a value:
 To remove all middleware functions:
 
 ```javascript
-RunCache.clearMiddleware();
+await RunCache.clearMiddleware();
 ```
 
 ## Best Practices
 
 1. **Keep middleware functions focused**: Each middleware should have a single responsibility.
-2. **Handle all operations**: Make sure to handle all relevant operations (get, set, refetch) for consistency.
+2. **Handle all operations**: Treat `refetch` like `set` (values going into the cache) and `get` as the way out.
 3. **Always call next()**: Ensure you call `next(value)` to continue the middleware chain, unless you explicitly want to short-circuit it.
 4. **Error handling**: Properly handle errors in your middleware to avoid breaking the cache functionality.
 5. **Performance**: Be mindful of performance implications, especially for computationally expensive operations like encryption.

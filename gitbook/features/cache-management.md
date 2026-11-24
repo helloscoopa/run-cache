@@ -36,13 +36,13 @@ await RunCache.set({
 // Store a simple string
 await RunCache.set({ key: 'greeting', value: 'Hello, World!' });
 
-// Store a JSON object (must be stringified)
+// Store an object (serialized for you)
 const user = { id: 1, name: 'John Doe' };
-await RunCache.set({ key: 'user:1', value: JSON.stringify(user) });
+await RunCache.set({ key: 'user:1', value: user });
 
 // Store with expiration (TTL)
-await RunCache.set({ 
-  key: 'temporary-data', 
+await RunCache.set({
+  key: 'temporary-data',
   value: 'This will expire soon',
   ttl: 60000 // 1 minute
 });
@@ -57,21 +57,21 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.example.com/data');
     const data = await response.json();
-    return JSON.stringify(data);
+    return data;
   }
 });
 
 // Store with tags for group invalidation
 await RunCache.set({
   key: 'user:1:profile',
-  value: JSON.stringify({ name: 'John Doe' }),
+  value: { name: 'John Doe' },
   tags: ['user:1', 'profile']
 });
 
 // Store with dependencies
 await RunCache.set({
   key: 'dashboard:1',
-  value: JSON.stringify({ widgets: [...] }),
+  value: { widgets: [...] },
   dependencies: ['user:1:profile']
 });
 ```
@@ -91,10 +91,10 @@ const value = await RunCache.get(key);
 const greeting = await RunCache.get('greeting');
 console.log(greeting); // Output: Hello, World!
 
-// Get and parse a JSON object
-const userJson = await RunCache.get('user:1');
-if (userJson) {
-  const user = JSON.parse(userJson);
+// Get an object: it comes back parsed
+// (get() is typed T | T[] | undefined, because a key may be a wildcard pattern)
+const user = (await RunCache.get('user:1')) as { name: string } | undefined;
+if (user) {
   console.log(user.name); // Output: John Doe
 }
 ```
@@ -143,17 +143,17 @@ if (hasUserData) {
 The `delete` method removes entries from the cache:
 
 ```typescript
-RunCache.delete(key);
+await RunCache.delete(key);
 ```
 
 ### Examples
 
 ```typescript
 // Delete a specific entry
-RunCache.delete('greeting');
+await RunCache.delete('greeting');
 
 // Delete multiple entries using a pattern
-RunCache.delete('user:1:*'); // Deletes all entries that match the pattern
+await RunCache.delete('user:1:*'); // Deletes all entries that match the pattern
 ```
 
 ## Clearing the Entire Cache
@@ -161,7 +161,7 @@ RunCache.delete('user:1:*'); // Deletes all entries that match the pattern
 The `flush` method removes all entries from the cache:
 
 ```typescript
-RunCache.flush();
+await RunCache.flush();
 ```
 
 This is useful for:

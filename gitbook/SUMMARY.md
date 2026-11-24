@@ -22,8 +22,8 @@
 * [Middleware](advanced/middleware.md)
 * [Persistent Storage](advanced/persistent-storage.md)
 * [Resource Management](advanced/resource-management.md)
-* [Serialization Adapters](advanced/serialization-adapters.md)
-* [Type Validation](advanced/type-validation.md)
+* [Value Serialization](advanced/serialization-adapters.md)
+* [Type Safety](advanced/type-validation.md)
 
 ## API Reference
 * [RunCache](api/run-cache.md)
@@ -31,7 +31,6 @@
 * [Events](api/events.md)
 * [Types](api/types.md)
 * [Typed Cache Interface](api/typed-cache-interface.md)
-* [Serialization System](api/serialization-system.md)
 
 ## Guides
 * [Best Practices](guides/best-practices.md)

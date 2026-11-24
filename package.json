@@ -36,7 +36,8 @@
     "test:coverage": "jest --coverage",
     "lint": "eslint src/**/*.ts",
     "prepare": "npm run build && npm run lint",
-    "lint:fix": "eslint src/**/*.ts --fix"
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "docs:check": "node scripts/check-docs.mjs"
   },
   "repository": {
     "type": "git",

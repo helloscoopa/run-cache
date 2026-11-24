@@ -21,7 +21,7 @@ You can limit the maximum number of entries in the cache using the `maxEntries` 
 import { RunCache, EvictionPolicy } from 'run-cache';
 
 // Configure cache with a maximum size of 1000 entries
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU // Least Recently Used
 });
@@ -41,13 +41,13 @@ RunCache supports three eviction policies:
 
 ```typescript
 // Configure with LRU policy
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU
 });
 
 // Configure with LFU policy
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LFU
 });
@@ -59,7 +59,7 @@ You can monitor evictions by setting up a custom middleware:
 
 ```typescript
 // Add middleware to track evictions
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   if (context.operation === 'evict') {
     console.log(`Cache entry ${context.key} was evicted due to size limits`);
     // Track metrics about evictions
@@ -82,7 +82,7 @@ Set appropriate TTL (Time-to-Live) values to automatically remove entries that a
 // Set cache entry with TTL
 await RunCache.set({
   key: 'temporary-data',
-  value: JSON.stringify(largeDataObject),
+  value: largeDataObject,
   ttl: 3600000 // 1 hour
 });
 ```
@@ -93,13 +93,13 @@ For immediate cleanup of specific entries or groups of entries:
 
 ```typescript
 // Delete specific entries
-RunCache.delete('large-data-key');
+await RunCache.delete('large-data-key');
 
 // Delete groups of entries using patterns
-RunCache.delete('temp:*');
+await RunCache.delete('temp:*');
 
 // Clear the entire cache
-RunCache.flush();
+await RunCache.flush();
 ```
 
 ### Optimizing Value Size
@@ -110,30 +110,30 @@ Minimize the size of cached values:
 // Bad - storing unnecessary data
 await RunCache.set({
   key: 'user-profile',
-  value: JSON.stringify({
+  value: {
     name: 'John Doe',
     email: 'john@example.com',
     avatar: largeBase64EncodedImage, // Unnecessarily large
     fullHistory: completeUserHistory, // Rarely needed data
     // ...more data
-  })
+  }
 });
 
 // Better - store only what's needed
 await RunCache.set({
   key: 'user-profile',
-  value: JSON.stringify({
+  value: {
     name: 'John Doe',
     email: 'john@example.com',
     avatarUrl: '/avatars/john.jpg', // Just the URL, not the image
     // ...essential data only
-  })
+  }
 });
 
 // Store rarely needed data separately
 await RunCache.set({
   key: 'user-profile:full-history',
-  value: JSON.stringify(completeUserHistory),
+  value: completeUserHistory,
   ttl: 3600000 // With shorter TTL
 });
 ```
@@ -156,10 +156,10 @@ When you delete a cache entry or flush the cache, RunCache automatically cleans 
 
 ```typescript
 // This automatically cleans up any timers for this entry
-RunCache.delete('api-data');
+await RunCache.delete('api-data');
 
 // This cleans up all timers for all entries
-RunCache.flush();
+await RunCache.flush();
 ```
 
 ## Event Listener Management
@@ -170,15 +170,15 @@ As your application grows, you might accumulate many event listeners. It's impor
 
 ```typescript
 // Remove all event listeners
-RunCache.clearEventListeners();
+await RunCache.clearEventListeners();
 
 // Remove listeners for a specific event type
-RunCache.clearEventListeners({
+await RunCache.clearEventListeners({
   event: EVENT.EXPIRE
 });
 
 // Remove listeners for a specific key
-RunCache.clearEventListeners({
+await RunCache.clearEventListeners({
   event: EVENT.REFETCH,
   key: 'api-data'
 });
@@ -188,24 +188,23 @@ RunCache.clearEventListeners({
 
 ```typescript
 // In a component or module
-function initializeComponent() {
+async function initializeComponent() {
   // Set up event listeners
-  RunCache.onKeyRefetch('component-data', handleRefetch);
-  
+  await RunCache.onKeyRefetch('component-data', handleRefetch);
+
   // Return cleanup function
-  return () => {
+  return () =>
     RunCache.clearEventListeners({
       event: EVENT.REFETCH,
       key: 'component-data'
     });
-  };
 }
 
 // When component mounts
-const cleanup = initializeComponent();
+const cleanup = await initializeComponent();
 
 // When component unmounts
-cleanup();
+await cleanup();
 ```
 
 ## Middleware Management
@@ -214,7 +213,7 @@ Middleware functions can accumulate over time and impact performance. Clean them
 
 ```typescript
 // Remove all middleware
-RunCache.clearMiddleware();
+await RunCache.clearMiddleware();
 ```
 
 ## Application Lifecycle Management
@@ -249,7 +248,7 @@ You can also manually trigger a complete shutdown of RunCache:
 
 ```typescript
 // Manually shut down the cache
-RunCache.shutdown();
+await RunCache.shutdown();
 ```
 
 The `shutdown` method:
@@ -268,12 +267,12 @@ When using persistent storage adapters, it's important to manage storage resourc
 import { RunCache, FilesystemAdapter } from 'run-cache';
 
 // Configure with storage adapter
-RunCache.configure({
-  storageAdapter: new FilesystemAdapter({
-    storageKey: 'my-app-cache',
-    autoSaveInterval: 300000 // Save every 5 minutes
-  })
+await RunCache.configure({
+  storageAdapter: new FilesystemAdapter({ storageKey: 'my-app-cache' })
 });
+
+// Save every 5 minutes
+await RunCache.setupAutoSave(300000);
 
 // Manual save
 await RunCache.saveToStorage();
@@ -282,7 +281,7 @@ await RunCache.saveToStorage();
 await RunCache.loadFromStorage();
 
 // Disable auto-save
-RunCache.setupAutoSave(0);
+await RunCache.setupAutoSave(0);
 ```
 
 ### Storage Cleanup
@@ -291,7 +290,7 @@ To clean up persistent storage:
 
 ```typescript
 // Clear cache and save empty state to storage
-RunCache.flush();
+await RunCache.flush();
 await RunCache.saveToStorage();
 ```
 
@@ -305,21 +304,21 @@ Match TTL values to data volatility:
 // Frequently changing data
 await RunCache.set({
   key: 'stock-prices',
-  value: JSON.stringify(prices),
+  value: prices,
   ttl: 60000 // 1 minute
 });
 
 // Relatively stable data
 await RunCache.set({
   key: 'product-catalog',
-  value: JSON.stringify(catalog),
+  value: catalog,
   ttl: 3600000 // 1 hour
 });
 
 // Very stable data
 await RunCache.set({
   key: 'app-configuration',
-  value: JSON.stringify(config),
+  value: config,
   ttl: 86400000 // 1 day
 });
 ```
@@ -356,7 +355,7 @@ for (const id of userIds) {
 
 // More efficient - batch processing
 async function batchSetProfiles(profiles) {
-  const operations = Object.entries(profiles).map(([id, profile]) => 
+  const operations = Object.entries(profiles).map(([id, profile]) =>
     RunCache.set({ key: `user:${id}:profile`, value: profile })
   );
   await Promise.all(operations);
@@ -387,22 +386,22 @@ Pre-populate critical cache entries on application startup:
 ```typescript
 async function warmCache() {
   console.log('Warming cache...');
-  
+
   // Check if entries already exist
   const hasConfig = await RunCache.has('app:config');
   const hasGlobalData = await RunCache.has('app:global-data');
-  
+
   // Warm up only what's missing
   if (!hasConfig) {
     const config = await fetchAppConfig();
-    await RunCache.set({ key: 'app:config', value: JSON.stringify(config) });
+    await RunCache.set({ key: 'app:config', value: config });
   }
-  
+
   if (!hasGlobalData) {
     const globalData = await fetchGlobalData();
-    await RunCache.set({ key: 'app:global-data', value: JSON.stringify(globalData) });
+    await RunCache.set({ key: 'app:global-data', value: globalData });
   }
-  
+
   console.log('Cache warming complete');
 }
 
@@ -420,10 +419,10 @@ const handleRefetch = (event) => {
   console.log(`Refreshed: ${event.key}`);
 };
 
-RunCache.onRefetch(handleRefetch);
+await RunCache.onRefetch(handleRefetch);
 
 // Later, when no longer needed
-RunCache.clearEventListeners({
+await RunCache.clearEventListeners({
   event: EVENT.REFETCH,
   handler: handleRefetch // Remove specific handler
 });
@@ -434,21 +433,16 @@ RunCache.clearEventListeners({
 Be careful with metadata that might create reference cycles:
 
 ```typescript
-// Potentially problematic - circular reference
+// Fails - non-string values are stored as JSON, which cannot represent cycles
 const obj = {};
 obj.self = obj;
 
-await RunCache.set({
-  key: 'data',
-  value: 'value',
-  metadata: { circular: obj } // Creates a reference cycle
-});
+await RunCache.set({ key: 'data', value: obj }); // throws: circular structure
 
-// Better - avoid circular references
+// Better - cache plain data without back-references
 await RunCache.set({
   key: 'data',
-  value: 'value',
-  metadata: { id: 123, type: 'example' } // Simple metadata
+  value: { id: 123, type: 'example' }
 });
 ```
 
@@ -458,15 +452,15 @@ Implement memory usage monitoring:
 
 ```typescript
 // Periodically check memory usage
-setInterval(() => {
+setInterval(async () => {
   if (process.memoryUsage) {
     const memUsage = process.memoryUsage();
     console.log(`Memory usage: ${Math.round(memUsage.heapUsed / 1024 / 1024)} MB`);
-    
+
     // If memory usage is too high, clear some cache
     if (memUsage.heapUsed > MEMORY_THRESHOLD) {
       console.log('Memory usage too high, clearing temporary cache entries');
-      RunCache.delete('temp:*');
+      await RunCache.delete('temp:*');
     }
   }
 }, 60000); // Check every minute

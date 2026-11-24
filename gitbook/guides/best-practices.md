@@ -55,21 +55,21 @@ Set TTL values based on how frequently the underlying data changes:
 // Frequently changing data
 await RunCache.set({
   key: 'stock-price',
-  value: JSON.stringify(price),
+  value: price,
   ttl: 60 * 1000 // 1 minute
 });
 
 // Relatively stable data
 await RunCache.set({
   key: 'product-catalog',
-  value: JSON.stringify(catalog),
+  value: catalog,
   ttl: 60 * 60 * 1000 // 1 hour
 });
 
 // Very stable data
 await RunCache.set({
   key: 'app-configuration',
-  value: JSON.stringify(config),
+  value: config,
   ttl: 24 * 60 * 60 * 1000 // 1 day
 });
 ```
@@ -150,7 +150,7 @@ await RunCache.set({
         throw new Error(`API returned ${response.status}`);
       }
       const data = await response.json();
-      return JSON.stringify(data);
+      return data;
     } catch (error) {
       console.error('Source function error:', error);
       throw error; // Rethrow to let RunCache handle it
@@ -173,7 +173,7 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.example.com/users/1');
     const user = await response.json();
-    return JSON.stringify(user.name); // Only needed the name
+    return user.name; // Only needed the name
   }
 });
 
@@ -220,18 +220,22 @@ await RunCache.set({
 Always handle potential failures in automatic refetching:
 
 ```typescript
-RunCache.onRefetchFailure((event) => {
+// Attempts per key; RunCache events carry no custom metadata
+const retryCounts = new Map<string, number>();
+
+await RunCache.onRefetchFailure((event) => {
   // Log the error
   console.error(`Refetch failed for ${event.key}:`, event.error);
-  
+
   // Implement exponential backoff retry
-  const retryCount = (event.metadata?.retryCount || 0) + 1;
+  const retryCount = (retryCounts.get(event.key) ?? 0) + 1;
+  retryCounts.set(event.key, retryCount);
   const delay = Math.min(1000 * Math.pow(2, retryCount), 30000); // Max 30 seconds
-  
+
   setTimeout(() => {
-    RunCache.refetch(event.key, { 
-      metadata: { retryCount } 
-    });
+    RunCache.refetch(event.key)
+      .then((ok) => { if (ok) retryCounts.delete(event.key); })
+      .catch(() => { /* reported again through onRefetchFailure */ });
   }, delay);
 });
 ```
@@ -273,20 +277,20 @@ Tags are ideal for grouping related cache entries that need to be invalidated to
 
 ```typescript
 // Set entries with tags
-await RunCache.set({ 
-  key: 'user:1:profile', 
-  value: '...', 
+await RunCache.set({
+  key: 'user:1:profile',
+  value: '...',
   tags: ['user:1', 'profile']
 });
 
-await RunCache.set({ 
-  key: 'user:1:settings', 
-  value: '...', 
+await RunCache.set({
+  key: 'user:1:settings',
+  value: '...',
   tags: ['user:1', 'settings']
 });
 
 // Later, invalidate all user:1 data
-RunCache.invalidateByTag('user:1');
+await RunCache.invalidateByTag('user:1');
 ```
 
 ### Use Dependencies for Derived Data
@@ -297,13 +301,13 @@ Dependencies are ideal for derived data that depends on base data:
 // Primary data
 await RunCache.set({
   key: 'user:1:profile',
-  value: JSON.stringify({ name: 'John Doe' })
+  value: { name: 'John Doe' }
 });
 
 // Dependent data
 await RunCache.set({
   key: 'user:1:dashboard',
-  value: JSON.stringify({ widgets: [...] }),
+  value: { widgets: [...] },
   dependencies: ['user:1:profile'] // This entry depends on the profile
 });
 
@@ -331,12 +335,12 @@ Event handlers should be fast and non-blocking:
 
 ```typescript
 // Good - lightweight handler
-RunCache.onExpiry((event) => {
+await RunCache.onExpiry((event) => {
   console.log(`Cache expired: ${event.key}`);
 });
 
 // Avoid - heavy processing in handler
-RunCache.onExpiry(async (event) => {
+await RunCache.onExpiry(async (event) => {
   // DON'T do this - blocks the event loop
   await heavyProcessing();
   await networkRequest();
@@ -351,23 +355,22 @@ Remove event listeners when they're no longer needed:
 
 ```typescript
 // In a component or module initialization
-function initializeModule() {
+async function initializeModule() {
   // Set up event listeners
-  RunCache.onKeyRefetch('module-data', handleRefetch);
-  
+  await RunCache.onKeyRefetch('module-data', handleRefetch);
+
   // Return cleanup function
-  return () => {
+  return () =>
     RunCache.clearEventListeners({
       event: EVENT.REFETCH,
       key: 'module-data'
     });
-  };
 }
 
 // Later, when shutting down
-const cleanup = initializeModule();
+const cleanup = await initializeModule();
 // When module is unloaded
-cleanup();
+await cleanup();
 ```
 
 ## Memory Management
@@ -378,7 +381,7 @@ Configure maximum cache size based on your application's memory constraints:
 
 ```typescript
 // Configure cache with size limits
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000, // Limit to 1000 entries
   evictionPolicy: EvictionPolicy.LRU
 });
@@ -394,13 +397,13 @@ Select an eviction policy that matches your access patterns:
 
 ```typescript
 // For most applications
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU
 });
 
 // For frequency-based patterns
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LFU
 });
@@ -414,30 +417,30 @@ Minimize the size of cached values:
 // Bad - storing unnecessary data
 await RunCache.set({
   key: 'user-profile',
-  value: JSON.stringify({
+  value: {
     name: 'John Doe',
     email: 'john@example.com',
     avatar: largeBase64EncodedImage, // Unnecessarily large
     fullHistory: completeUserHistory, // Rarely needed data
     // ...more data
-  })
+  }
 });
 
 // Better - store only what's needed
 await RunCache.set({
   key: 'user-profile',
-  value: JSON.stringify({
+  value: {
     name: 'John Doe',
     email: 'john@example.com',
     avatarUrl: '/avatars/john.jpg', // Just the URL, not the image
     // ...essential data only
-  })
+  }
 });
 
 // Store rarely needed data separately
 await RunCache.set({
   key: 'user-profile:full-history',
-  value: JSON.stringify(completeUserHistory),
+  value: completeUserHistory,
   ttl: 3600000 // With shorter TTL
 });
 ```
@@ -454,17 +457,17 @@ Select the appropriate storage adapter based on your environment and requirement
 
 ```typescript
 // For browser with small data
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new LocalStorageAdapter()
 });
 
 // For browser with larger data
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new IndexedDBAdapter()
 });
 
 // For Node.js applications
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new FilesystemAdapter()
 });
 ```
@@ -489,10 +492,10 @@ Balance between data freshness and performance:
 
 ```typescript
 // For frequently changing data, save more often
-RunCache.setupAutoSave(60000); // 1 minute
+await RunCache.setupAutoSave(60000); // 1 minute
 
 // For relatively stable data, save less frequently
-RunCache.setupAutoSave(3600000); // 1 hour
+await RunCache.setupAutoSave(3600000); // 1 hour
 ```
 
 ## Error Handling
@@ -504,15 +507,14 @@ Always handle potential cache misses:
 ```typescript
 // Good - handles cache miss
 const userData = await RunCache.get('user:1');
-if (userData) {
-  // Cache hit
-  const user = JSON.parse(userData);
-  displayUser(user);
+if (userData !== undefined) {
+  // Cache hit: objects come back parsed
+  displayUser(userData);
 } else {
   // Cache miss
   showLoadingIndicator();
   const user = await fetchUserFromApi(1);
-  await RunCache.set({ key: 'user:1', value: JSON.stringify(user) });
+  await RunCache.set({ key: 'user:1', value: user });
   displayUser(user);
 }
 ```
@@ -531,15 +533,15 @@ async function getCachedData(key) {
     // Circuit is open, bypass cache
     return fetchDataFromSource(key);
   }
-  
+
   try {
     const data = await RunCache.get(key);
-    if (data) return JSON.parse(data);
-    
+    if (data !== undefined) return data;
+
     // Cache miss, fetch from source
     const sourceData = await fetchDataFromSource(key);
     try {
-      await RunCache.set({ key, value: JSON.stringify(sourceData) });
+      await RunCache.set({ key, value: sourceData });
     } catch (error) {
       cacheFailures++;
       if (cacheFailures === FAILURE_THRESHOLD) {
@@ -573,7 +575,7 @@ for (const id of userIds) {
 
 // More efficient - batch processing
 async function batchSetProfiles(profiles) {
-  const operations = Object.entries(profiles).map(([id, profile]) => 
+  const operations = Object.entries(profiles).map(([id, profile]) =>
     RunCache.set({ key: `user:${id}:profile`, value: profile })
   );
   await Promise.all(operations);
@@ -589,22 +591,22 @@ Pre-populate critical cache entries on application startup:
 ```typescript
 async function warmCache() {
   console.log('Warming cache...');
-  
+
   // Check if entries already exist
   const hasConfig = await RunCache.has('app:config');
   const hasGlobalData = await RunCache.has('app:global-data');
-  
+
   // Warm up only what's missing
   if (!hasConfig) {
     const config = await fetchAppConfig();
-    await RunCache.set({ key: 'app:config', value: JSON.stringify(config) });
+    await RunCache.set({ key: 'app:config', value: config });
   }
-  
+
   if (!hasGlobalData) {
     const globalData = await fetchGlobalData();
-    await RunCache.set({ key: 'app:global-data', value: JSON.stringify(globalData) });
+    await RunCache.set({ key: 'app:global-data', value: globalData });
   }
-  
+
   console.log('Cache warming complete');
 }
 
@@ -618,18 +620,18 @@ Implement middleware for functionality that applies to all cache operations:
 
 ```typescript
 // Add logging middleware
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   const start = Date.now();
   const result = await next(value);
   const duration = Date.now() - start;
-  
+
   console.log(`${context.operation} operation for key: ${context.key} took ${duration}ms`);
   return result;
 });
 
 // Add encryption middleware
-RunCache.use(async (value, context, next) => {
-  if (context.operation === 'set' && value) {
+await RunCache.use(async (value, context, next) => {
+  if ((context.operation === 'set' || context.operation === 'refetch') && value) {
     return next(encrypt(value));
   } else if (context.operation === 'get' && value) {
     const encrypted = await next(value);
@@ -666,24 +668,24 @@ export function mockRunCache() {
   RunCache.get = jest.fn(async (key) => {
     return mockData.get(key);
   });
-  
+
   // Mock set
   RunCache.set = jest.fn(async (options) => {
     mockData.set(options.key, options.value);
     return true;
   });
-  
+
   // Mock delete
   RunCache.delete = jest.fn(async (key) => {
     mockData.delete(key);
     return true;
   });
-  
+
   // Mock flush
   RunCache.flush = jest.fn(async () => {
     mockData.clear();
   });
-  
+
   // Helper to set mock data directly
   return {
     setMockData: (key, value) => mockData.set(key, value),
@@ -703,33 +705,45 @@ export function mockRunCache() {
 Test the cache with actual storage adapters:
 
 ```typescript
-// Use in-memory adapter for tests
-import { RunCache, MemoryStorageAdapter } from 'run-cache';
+import { RunCache, type StorageAdapter } from 'run-cache';
+
+// A minimal in-memory adapter for tests (RunCache does not ship one)
+class MemoryStorageAdapter implements StorageAdapter {
+  private data: string | null = null;
+  async save(data: string) { this.data = data; }
+  async load() { return this.data; }
+  async clear() { this.data = null; }
+}
 
 describe('Cache Integration Tests', () => {
   beforeEach(async () => {
     // Set up fresh cache for each test
-    RunCache.configure({
+    await RunCache.configure({
       storageAdapter: new MemoryStorageAdapter()
     });
     await RunCache.flush();
   });
-  
+
+  afterEach(async () => {
+    // Clears entries, timers and listeners, and detaches the adapter
+    await RunCache.shutdown();
+  });
+
   test('should store and retrieve values', async () => {
     await RunCache.set({ key: 'test-key', value: 'test-value' });
     const value = await RunCache.get('test-key');
     expect(value).toBe('test-value');
   });
-  
+
   test('should respect TTL', async () => {
     await RunCache.set({ key: 'expiring-key', value: 'value', ttl: 100 });
-    
+
     // Should exist initially
     expect(await RunCache.has('expiring-key')).toBe(true);
-    
+
     // Wait for expiration
     await new Promise(resolve => setTimeout(resolve, 150));
-    
+
     // Should be gone after TTL
     expect(await RunCache.has('expiring-key')).toBe(false);
   });
@@ -753,7 +767,7 @@ let metrics = {
 };
 
 // Add monitoring middleware
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   if (context.operation === 'get') {
     const result = await next(value);
     if (result) {
@@ -767,16 +781,16 @@ RunCache.use(async (value, context, next) => {
 });
 
 // Monitor events
-RunCache.onExpiry(() => metrics.expirations++);
-RunCache.onRefetch(() => metrics.refetches++);
-RunCache.onRefetchFailure(() => metrics.errors++);
+await RunCache.onExpiry(() => metrics.expirations++);
+await RunCache.onRefetch(() => metrics.refetches++);
+await RunCache.onRefetchFailure(() => metrics.errors++);
 
 // Report metrics periodically
 setInterval(() => {
   const hitRatio = metrics.hits / (metrics.hits + metrics.misses || 1);
   console.log(`Cache performance: ${(hitRatio * 100).toFixed(2)}% hit ratio`);
   console.log(`Expirations: ${metrics.expirations}, Refetches: ${metrics.refetches}, Errors: ${metrics.errors}`);
-  
+
   // Send to monitoring system
   sendMetricsToMonitoring({
     cacheHitRatio: hitRatio,
@@ -784,7 +798,7 @@ setInterval(() => {
     cacheRefetches: metrics.refetches,
     cacheErrors: metrics.errors
   });
-  
+
   // Reset counters
   metrics = { hits: 0, misses: 0, expirations: 0, refetches: 0, errors: 0 };
 }, 60000); // Every minute
@@ -796,21 +810,21 @@ Use middleware and events for comprehensive logging:
 
 ```typescript
 // Log all cache operations
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   console.log(`Cache operation: ${context.operation}, Key: ${context.key}`);
   return next(value);
 });
 
 // Log cache events
-RunCache.onExpiry((event) => {
+await RunCache.onExpiry((event) => {
   console.log(`Cache expired: ${event.key}`);
 });
 
-RunCache.onRefetch((event) => {
+await RunCache.onRefetch((event) => {
   console.log(`Cache refreshed: ${event.key}`);
 });
 
-RunCache.onRefetchFailure((event) => {
+await RunCache.onRefetchFailure((event) => {
   console.error(`Cache refresh failed: ${event.key}`, event.error);
 });
 ```

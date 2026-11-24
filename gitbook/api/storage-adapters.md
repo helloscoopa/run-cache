@@ -12,20 +12,13 @@ Storage adapters implement a common interface to save and load cache data to/fro
 
 ## Common Configuration Options
 
-All storage adapters accept the following common options:
+All storage adapters accept the following options (`FilesystemAdapter` also accepts `filePath`):
 
-```typescript
-interface StorageAdapterConfig {
-  // Storage key/filename to use
-  storageKey?: string; // Default: "run-cache-data"
-  
-  // Auto-save interval in milliseconds
-  autoSaveInterval?: number; // Default: 0 (disabled)
-  
-  // Whether to load cache automatically when adapter is initialized
-  autoLoadOnInit?: boolean; // Default: true
-}
-```
+- `storageKey?`: `string` - The key to store under (for `FilesystemAdapter`, the file name). Default: `"run-cache-data"`
+- `autoSaveInterval?`: `number` - Save at this interval in milliseconds while the adapter is attached. Default: `0` (off)
+- `autoLoadOnInit?`: `boolean` - Load existing data when the adapter is attached. Default: `true`
+
+Loaded entries are merged into the cache, keep the time remaining on their TTL, and have no source function. See [Restoring Data](../advanced/persistent-storage.md#restoring-data).
 
 These options take effect when the adapter is attached with `RunCache.configure({ storageAdapter })`. With `autoLoadOnInit: false`, existing data is only loaded when you call `RunCache.loadFromStorage()`. A positive `autoSaveInterval` starts saving at that interval. That interval belongs to the adapter: it stops when the adapter is replaced or detached, unlike one started explicitly with `RunCache.setupAutoSave(interval)`, which keeps running. Auto-save intervals never keep a Node.js process alive on their own.
 
@@ -42,30 +35,26 @@ import { RunCache, LocalStorageAdapter } from 'run-cache';
 ### Constructor
 
 ```typescript
-constructor(config?: StorageAdapterConfig)
+constructor(config?: Partial<StorageAdapterConfig>)
 ```
 
 #### Parameters
 
 - `config?`: `StorageAdapterConfig` - Optional configuration options
   - `storageKey?`: `string` - Key to use in localStorage (default: "run-cache-data")
-  - `autoSaveInterval?`: `number` - Auto-save interval in milliseconds (default: 0)
-  - `autoLoadOnInit?`: `boolean` - Whether to load cache automatically when adapter is initialized (default: true)
 
 ### Example Usage
 
 ```typescript
 // Basic usage with default options
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new LocalStorageAdapter()
 });
 
 // With custom options
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new LocalStorageAdapter({
     storageKey: 'my-app-cache',
-    autoSaveInterval: 300000, // 5 minutes
-    autoLoadOnInit: true
   })
 });
 ```
@@ -89,30 +78,26 @@ import { RunCache, IndexedDBAdapter } from 'run-cache';
 ### Constructor
 
 ```typescript
-constructor(config?: StorageAdapterConfig)
+constructor(config?: Partial<StorageAdapterConfig>)
 ```
 
 #### Parameters
 
 - `config?`: `StorageAdapterConfig` - Optional configuration options
   - `storageKey?`: `string` - Database and store name (default: "run-cache-data")
-  - `autoSaveInterval?`: `number` - Auto-save interval in milliseconds (default: 0)
-  - `autoLoadOnInit?`: `boolean` - Whether to load cache automatically when adapter is initialized (default: true)
 
 ### Example Usage
 
 ```typescript
 // Basic usage with default options
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new IndexedDBAdapter()
 });
 
 // With custom options
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new IndexedDBAdapter({
     storageKey: 'my-app-cache',
-    autoSaveInterval: 300000, // 5 minutes
-    autoLoadOnInit: true
   })
 });
 ```
@@ -148,25 +133,21 @@ constructor(config?: FilesystemAdapterConfig)
 
 - `config?`: `FilesystemAdapterConfig` - Optional configuration options
   - `storageKey?`: `string` - Filename to use (default: "run-cache-data")
-  - `autoSaveInterval?`: `number` - Auto-save interval in milliseconds (default: 0)
-  - `autoLoadOnInit?`: `boolean` - Whether to load cache automatically when adapter is initialized (default: true)
   - `filePath?`: `string` - Custom file path (default: current working directory)
 
 ### Example Usage
 
 ```typescript
 // Basic usage with default options
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new FilesystemAdapter()
 });
 
 // With custom options
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new FilesystemAdapter({
     storageKey: 'my-app-cache',
     filePath: '/path/to/cache/directory',
-    autoSaveInterval: 300000, // 5 minutes
-    autoLoadOnInit: true
   })
 });
 ```
@@ -193,7 +174,7 @@ interface StorageAdapter {
   load(): Promise<string | null>;
   clear(): Promise<void>;
 
-  // Optional: picked up when the adapter is attached with configure() or create()
+  // Optional: picked up when the adapter is attached with configure()
   readonly autoSaveInterval?: number; // Save at this interval (ms) when > 0
   readonly autoLoadOnInit?: boolean;  // Load existing data on attach (default: true)
 }
@@ -204,7 +185,7 @@ interface StorageAdapter {
 Here's an example of a custom adapter that uses a RESTful API for storage:
 
 ```typescript
-import { StorageAdapter } from 'run-cache';
+import type { StorageAdapter } from 'run-cache';
 
 class ApiStorageAdapter implements StorageAdapter {
   private apiUrl: string;
@@ -238,11 +219,11 @@ class ApiStorageAdapter implements StorageAdapter {
           'Authorization': `Bearer ${this.apiKey}`
         }
       });
-      
+
       if (!response.ok) {
         return null;
       }
-      
+
       const result = await response.json();
       return result.data;
     } catch (error) {
@@ -250,10 +231,21 @@ class ApiStorageAdapter implements StorageAdapter {
       return null;
     }
   }
+
+  async clear(): Promise<void> {
+    const response = await fetch(`${this.apiUrl}/cache`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${this.apiKey}` }
+    });
+    // fetch() resolves on HTTP errors too; report them so callers can retry
+    if (!response.ok) {
+      throw new Error(`Failed to clear remote cache: HTTP ${response.status}`);
+    }
+  }
 }
 
 // Usage
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new ApiStorageAdapter('https://api.example.com', 'your-api-key')
 });
 ```
@@ -278,20 +270,23 @@ Configure automatic saving at regular intervals:
 
 ```typescript
 // Save cache to storage every 5 minutes
-RunCache.setupAutoSave(300000);
+await RunCache.setupAutoSave(300000);
 
 // Disable auto-saving
-RunCache.setupAutoSave(0);
+await RunCache.setupAutoSave(0);
 ```
 
 ### Storage Cleanup
 
-To clear persistent storage:
+To clear persistent storage, either save an empty cache or clear the adapter directly:
 
 ```typescript
 // Clear cache and save empty state to storage
-RunCache.flush();
+await RunCache.flush();
 await RunCache.saveToStorage();
+
+// Or remove the stored data, keeping the in-memory entries
+await adapter.clear(); // the adapter instance passed to configure()
 ```
 
 ## Best Practices
@@ -304,15 +299,15 @@ await RunCache.saveToStorage();
 
 ### 2. Handle Storage Errors
 
-Always handle potential storage errors:
+`saveToStorage()` and `loadFromStorage()` do not throw on adapter errors; they return `false`. Check the result, and turn on `debug` to see the underlying error:
 
 ```typescript
-try {
-  await RunCache.loadFromStorage();
-  console.log('Cache loaded successfully');
-} catch (error) {
-  console.error('Failed to load cache:', error);
-  // Implement fallback mechanism
+if (!(await RunCache.loadFromStorage())) {
+  console.warn('No cache data loaded; starting with an empty cache');
+}
+
+if (!(await RunCache.saveToStorage())) {
+  console.error('Saving the cache failed (storage full or unavailable?)');
 }
 ```
 
@@ -322,7 +317,7 @@ Be mindful of storage limits, especially in browsers:
 
 ```typescript
 // Configure cache with size limits
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000, // Limit to 1000 entries
   evictionPolicy: EvictionPolicy.LRU,
   storageAdapter: new LocalStorageAdapter()
@@ -335,10 +330,10 @@ Balance between data freshness and performance:
 
 ```typescript
 // For frequently changing data, save more often
-RunCache.setupAutoSave(60000); // 1 minute
+await RunCache.setupAutoSave(60000); // 1 minute
 
 // For relatively stable data, save less frequently
-RunCache.setupAutoSave(3600000); // 1 hour
+await RunCache.setupAutoSave(3600000); // 1 hour
 ```
 
 ### 5. Consider Data Serialization

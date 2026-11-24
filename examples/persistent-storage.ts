@@ -5,7 +5,7 @@ async function localStorageExample() {
   console.log('Running localStorage persistence example...');
   
   // Configure RunCache with localStorage adapter
-  RunCache.configure({
+  await RunCache.configure({
     maxEntries: 100,
     evictionPolicy: EvictionPolicy.LRU,
     storageAdapter: new LocalStorageAdapter({
@@ -14,11 +14,11 @@ async function localStorageExample() {
   });
   
   // Set up auto-save every 30 seconds
-  RunCache.setupAutoSave(30000);
+  await RunCache.setupAutoSave(30000);
   
   // Set some data in the cache
-  await RunCache.set({ key: 'user:1', value: JSON.stringify({ name: 'John Doe', email: 'john@example.com' }) });
-  await RunCache.set({ key: 'settings', value: JSON.stringify({ theme: 'dark', notifications: true }) });
+  await RunCache.set({ key: 'user:1', value: { name: 'John Doe', email: 'john@example.com' } });
+  await RunCache.set({ key: 'settings', value: { theme: 'dark', notifications: true } });
   
   console.log('Cache data set and persisted to localStorage');
   console.log('Manually saving to storage...');
@@ -37,7 +37,7 @@ async function indexedDBExample() {
   console.log('Running IndexedDB persistence example...');
   
   // Configure RunCache with IndexedDB adapter
-  RunCache.configure({
+  await RunCache.configure({
     maxEntries: 1000,
     evictionPolicy: EvictionPolicy.LFU,
     storageAdapter: new IndexedDBAdapter({
@@ -46,11 +46,11 @@ async function indexedDBExample() {
   });
   
   // Set some data in the cache
-  await RunCache.set({ key: 'products', value: JSON.stringify([
+  await RunCache.set({ key: 'products', value: [
     { id: 1, name: 'Product 1', price: 10.99 },
     { id: 2, name: 'Product 2', price: 19.99 },
     { id: 3, name: 'Product 3', price: 5.99 }
-  ])});
+  ]});
   
   console.log('Cache data set and persisted to IndexedDB');
   console.log('Manually saving to storage...');
@@ -69,7 +69,7 @@ async function filesystemExample() {
   console.log('Running filesystem persistence example...');
   
   // Configure RunCache with filesystem adapter
-  RunCache.configure({
+  await RunCache.configure({
     maxEntries: 500,
     evictionPolicy: EvictionPolicy.LRU,
     storageAdapter: new FilesystemAdapter({
@@ -78,15 +78,15 @@ async function filesystemExample() {
   });
   
   // Set some data in the cache
-  await RunCache.set({ key: 'logs', value: JSON.stringify([
+  await RunCache.set({ key: 'logs', value: [
     { timestamp: Date.now(), message: 'Application started' },
     { timestamp: Date.now() + 1000, message: 'User logged in' }
-  ])});
+  ]});
   
   // Set data with TTL (will be restored with correct TTL)
   await RunCache.set({ 
     key: 'session', 
-    value: JSON.stringify({ token: 'abc123', user: 'admin' }),
+    value: { token: 'abc123', user: 'admin' },
     ttl: 3600000 // 1 hour
   });
   

@@ -8,7 +8,7 @@
 [![ci-tests](https://img.shields.io/github/actions/workflow/status/helloscoopa/run-cache/tests.yml?label=tests)](https://github.com/helloscoopa/run-cache/actions/workflows/tests.yml)
 [![coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fhelloscoopa%2Frun-cache%2Fbadges%2Fcoverage.json)](https://github.com/helloscoopa/run-cache/actions/workflows/tests.yml)
 
-RunCache allows you to cache string values with configurable time-to-live (TTL) settings and supports automatic value regeneration through source functions. It's designed to be easy to use while providing powerful features for advanced caching scenarios.
+RunCache allows you to cache strings and other JSON-serializable values with configurable time-to-live (TTL) settings and supports automatic value regeneration through source functions. It's designed to be easy to use while providing powerful features for advanced caching scenarios.
 
 ## Key Features
 
@@ -31,20 +31,20 @@ RunCache allows you to cache string values with configurable time-to-live (TTL) 
 import { RunCache } from "run-cache";
 
 // Basic caching
-await RunCache.set({ key: "user-profile", value: JSON.stringify({ name: "John Doe" }) });
+await RunCache.set({ key: "user-profile", value: { name: "John Doe" } });
 const profile = await RunCache.get("user-profile");
 
 // Cache with expiration (TTL in milliseconds)
-await RunCache.set({ 
-  key: "api-data", 
-  value: JSON.stringify({ data: [1, 2, 3] }),
+await RunCache.set({
+  key: "api-data",
+  value: { data: [1, 2, 3] },
   ttl: 60000 // 1 minute
 });
 
 // Cache with automatic refresh
 await RunCache.set({
   key: "weather-data",
-  sourceFn: async () => JSON.stringify(await fetchWeatherData()),
+  sourceFn: async () => await fetchWeatherData(),
   ttl: 300000, // 5 minutes
   autoRefetch: true
 });

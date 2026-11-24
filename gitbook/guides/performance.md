@@ -24,7 +24,7 @@ Configure appropriate size limits and eviction policies for your use case:
 import { RunCache, EvictionPolicy } from 'run-cache';
 
 // For most applications
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000, // Limit to 1000 entries
   evictionPolicy: EvictionPolicy.LRU
 });
@@ -55,7 +55,7 @@ setInterval(() => {
 let hits = 0;
 let misses = 0;
 
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   if (context.operation === 'get') {
     const result = await next(value);
     if (result) {
@@ -88,9 +88,9 @@ Key design significantly impacts performance:
 await RunCache.set({ key: `user:${userId}:preferences:theme:color:mode:${mode}:variant:${variant}`, value: '...' });
 
 // More efficient - simpler keys with structured data
-await RunCache.set({ 
+await RunCache.set({
   key: `user:${userId}:theme-settings`,
-  value: JSON.stringify({ mode, variant, color })
+  value: { mode, variant, color }
 });
 ```
 
@@ -121,7 +121,7 @@ await RunCache.set({
     const transformed = complexTransformation(rawData);
     const filtered = filterData(transformed);
     const sorted = sortData(filtered);
-    return JSON.stringify(sorted);
+    return sorted;
   }
 });
 
@@ -130,7 +130,7 @@ await RunCache.set({
   key: 'data',
   sourceFn: async () => {
     const data = await fetchData();
-    return JSON.stringify(data);
+    return data;
   }
 });
 
@@ -150,7 +150,7 @@ For expensive source functions, consider memoization:
 function createMemoizedSourceFn(fn, maxAge = 60000) {
   let cachedResult = null;
   let cachedAt = 0;
-  
+
   return async () => {
     const now = Date.now();
     if (!cachedResult || now - cachedAt > maxAge) {
@@ -163,8 +163,7 @@ function createMemoizedSourceFn(fn, maxAge = 60000) {
 
 // Usage
 const expensiveDataFetch = createMemoizedSourceFn(async () => {
-  const data = await fetchExpensiveData();
-  return JSON.stringify(data);
+  return fetchExpensiveData();
 });
 
 await RunCache.set({
@@ -247,7 +246,7 @@ const userValues = await batchGet(userKeys);
 // Batch set
 const entries = userIds.map(id => ({
   key: `user:${id}`,
-  value: JSON.stringify({ name: `User ${id}` })
+  value: { name: `User ${id}` }
 }));
 await batchSet(entries);
 ```
@@ -260,7 +259,7 @@ Keep middleware functions simple and focused:
 
 ```typescript
 // Less efficient - complex middleware
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   console.log(`Start ${context.operation} for ${context.key}`);
   const start = Date.now();
   try {
@@ -281,15 +280,15 @@ RunCache.use(async (value, context, next) => {
 });
 
 // More efficient - simpler middleware
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   const start = Date.now();
   const result = await next(value);
   const duration = Date.now() - start;
-  
+
   if (duration > 100) { // Only log slow operations
     console.log(`Slow operation: ${context.operation} for ${context.key}, took ${duration}ms`);
   }
-  
+
   return result;
 });
 ```
@@ -300,12 +299,12 @@ Order middleware for optimal performance:
 
 ```typescript
 // Less efficient - expensive middleware runs first
-RunCache.use(expensiveMiddleware); // Runs for all operations
-RunCache.use(filterMiddleware);    // Could have filtered out some operations
+await RunCache.use(expensiveMiddleware); // Runs for all operations
+await RunCache.use(filterMiddleware);    // Could have filtered out some operations
 
 // More efficient - filtering middleware runs first
-RunCache.use(filterMiddleware);    // Filters out operations
-RunCache.use(expensiveMiddleware); // Only runs for filtered operations
+await RunCache.use(filterMiddleware);    // Filters out operations
+await RunCache.use(expensiveMiddleware); // Only runs for filtered operations
 ```
 
 ## Optimizing Event Listeners
@@ -316,13 +315,13 @@ Use specific event listeners rather than global ones:
 
 ```typescript
 // Less efficient - global listener for all events
-RunCache.onExpiry((event) => {
+await RunCache.onExpiry((event) => {
   // Process all expiry events, even for keys we don't care about
   console.log(`Key expired: ${event.key}`);
 });
 
 // More efficient - specific listener
-RunCache.onKeyExpiry('important-data', (event) => {
+await RunCache.onKeyExpiry('important-data', (event) => {
   // Only process events for 'important-data'
   console.log('Important data expired');
 });
@@ -334,12 +333,12 @@ Be specific with event listener patterns:
 
 ```typescript
 // Less efficient - very broad pattern
-RunCache.onKeyExpiry('*', (event) => {
+await RunCache.onKeyExpiry('*', (event) => {
   // Triggered for ALL expiry events
 });
 
 // More efficient - more specific pattern
-RunCache.onKeyExpiry('user:*', (event) => {
+await RunCache.onKeyExpiry('user:*', (event) => {
   // Only triggered for user-related expirations
 });
 ```
@@ -354,29 +353,29 @@ Minimize the size of cached values:
 // Less efficient - storing large objects
 await RunCache.set({
   key: 'large-report',
-  value: JSON.stringify({
+  value: {
     fullData: largeDataSet,       // Unnecessary complete dataset
     processedResults: results,
     generatedAt: new Date().toISOString(),
     generatedBy: 'system',
     version: '1.0',
     // ... many more fields
-  })
+  }
 });
 
 // More efficient - store only essential data
 await RunCache.set({
   key: 'report-summary',
-  value: JSON.stringify({
+  value: {
     highlights: summaryResults,
     timestamp: Date.now()
-  })
+  }
 });
 
 // Store additional data separately if needed
 await RunCache.set({
   key: 'report-details',
-  value: JSON.stringify(detailedResults),
+  value: detailedResults,
   ttl: 3600000 // Shorter TTL for detailed data
 });
 ```
@@ -389,32 +388,32 @@ Use appropriate TTL values to prevent memory bloat:
 // Strategy: Use shorter TTL for larger data
 await RunCache.set({
   key: 'small-config',
-  value: JSON.stringify(smallConfig),
+  value: smallConfig,
   ttl: 86400000 // 24 hours for small data
 });
 
 await RunCache.set({
   key: 'large-dataset',
-  value: JSON.stringify(largeDataset),
+  value: largeDataset,
   ttl: 3600000 // 1 hour for large data
 });
 
 // Strategy: Tiered caching with different TTLs
 await RunCache.set({
   key: 'user:summary',
-  value: JSON.stringify(userSummary),
+  value: userSummary,
   ttl: 86400000 // 24 hours for summary
 });
 
 await RunCache.set({
   key: 'user:details',
-  value: JSON.stringify(userDetails),
+  value: userDetails,
   ttl: 3600000 // 1 hour for details
 });
 
 await RunCache.set({
   key: 'user:activity',
-  value: JSON.stringify(userActivity),
+  value: userActivity,
   ttl: 300000 // 5 minutes for activity
 });
 ```
@@ -427,17 +426,17 @@ Select the most appropriate storage adapter for your needs:
 
 ```typescript
 // For browser environments with small data
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new LocalStorageAdapter()
 });
 
 // For browser environments with larger data
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new IndexedDBAdapter()
 });
 
 // For Node.js environments
-RunCache.configure({
+await RunCache.configure({
   storageAdapter: new FilesystemAdapter()
 });
 ```
@@ -448,13 +447,13 @@ Balance persistence needs with performance:
 
 ```typescript
 // Too frequent - performance impact
-RunCache.setupAutoSave(1000); // Save every second
+await RunCache.setupAutoSave(1000); // Save every second
 
 // More balanced
-RunCache.setupAutoSave(300000); // Save every 5 minutes
+await RunCache.setupAutoSave(300000); // Save every 5 minutes
 
 // For mostly read-only data
-RunCache.setupAutoSave(3600000); // Save every hour
+await RunCache.setupAutoSave(3600000); // Save every hour
 ```
 
 ## Advanced Performance Techniques
@@ -476,40 +475,40 @@ const metrics = {
 };
 
 // Performance middleware
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   const start = performance.now();
   const result = await next(value);
   const duration = performance.now() - start;
-  
+
   // Track operation time
   if (metrics.operations[context.operation]) {
     metrics.operations[context.operation].count++;
     metrics.operations[context.operation].totalTime += duration;
   }
-  
+
   // Track hits/misses
   if (context.operation === 'get') {
     if (result) metrics.hits++;
     else metrics.misses++;
   }
-  
+
   return result;
 });
 
 // Report metrics periodically
 setInterval(() => {
   const hitRatio = metrics.hits / (metrics.hits + metrics.misses || 1);
-  
+
   console.log(`Cache Performance Metrics:`);
   console.log(`Hit ratio: ${(hitRatio * 100).toFixed(2)}%`);
-  
+
   for (const [op, data] of Object.entries(metrics.operations)) {
     if (data.count > 0) {
       const avgTime = data.totalTime / data.count;
       console.log(`${op}: ${data.count} operations, avg ${avgTime.toFixed(2)}ms`);
     }
   }
-  
+
   // Reset metrics
   for (const op in metrics.operations) {
     metrics.operations[op] = { count: 0, totalTime: 0 };
@@ -528,16 +527,16 @@ For very large caches, implement a sharding strategy:
 class ShardedCache {
   private shards: Map<string, typeof RunCache>[] = [];
   private shardCount: number;
-  
+
   constructor(shardCount = 16) {
     this.shardCount = shardCount;
-    
+
     // Initialize shards
     for (let i = 0; i < shardCount; i++) {
       this.shards.push(new Map());
     }
   }
-  
+
   private getShardIndex(key: string): number {
     // Simple hash function for shard selection
     let hash = 0;
@@ -547,19 +546,19 @@ class ShardedCache {
     }
     return Math.abs(hash) % this.shardCount;
   }
-  
+
   async get(key: string): Promise<string | undefined> {
     const shardIndex = this.getShardIndex(key);
     // Implement actual logic to get from the appropriate RunCache instance
     // This is a simplified example
     return "implementation";
   }
-  
+
   async set(options: any): Promise<void> {
     const shardIndex = this.getShardIndex(options.key);
     // Implement actual logic to set in the appropriate RunCache instance
   }
-  
+
   // Additional methods as needed
 }
 
@@ -578,33 +577,33 @@ Create benchmarks to test different cache configurations:
 ```typescript
 async function benchmarkCache() {
   console.log('Starting cache benchmark...');
-  
+
   // Prepare test data
   const testData = Array.from({ length: 1000 }, (_, i) => ({
     key: `test:${i}`,
-    value: JSON.stringify({ id: i, data: `Test data ${i}` })
+    value: { id: i, data: `Test data ${i}` }
   }));
-  
+
   // Benchmark set operations
   const setStart = performance.now();
-  await Promise.all(testData.map(item => 
+  await Promise.all(testData.map(item =>
     RunCache.set({ key: item.key, value: item.value })
   ));
   const setTime = performance.now() - setStart;
   console.log(`Set 1000 items: ${setTime.toFixed(2)}ms (${(setTime / 1000).toFixed(2)}ms per item)`);
-  
+
   // Benchmark get operations (existing keys)
   const getStart = performance.now();
   await Promise.all(testData.map(item => RunCache.get(item.key)));
   const getTime = performance.now() - getStart;
   console.log(`Get 1000 existing items: ${getTime.toFixed(2)}ms (${(getTime / 1000).toFixed(2)}ms per item)`);
-  
+
   // Benchmark pattern matching
   const patternStart = performance.now();
   await RunCache.get('test:*');
   const patternTime = performance.now() - patternStart;
   console.log(`Pattern match 1000 items: ${patternTime.toFixed(2)}ms`);
-  
+
   // Benchmark delete operations
   const deleteStart = performance.now();
   await Promise.all(testData.map(item => RunCache.delete(item.key)));

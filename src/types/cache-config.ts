@@ -25,8 +25,8 @@ export interface CacheConfig {
   maxEntries?: number;
 
   /**
-   * Default time-to-live in milliseconds for cache entries
-   * @default Infinity
+   * Not implemented: entries set without a `ttl` never expire, whatever this is set to.
+   * @deprecated Pass `ttl` to `RunCache.set()` for each entry instead.
    */
   defaultTTL?: number;
 

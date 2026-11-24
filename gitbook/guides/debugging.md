@@ -14,7 +14,7 @@ To enable debug logging:
 import { RunCache } from 'run-cache';
 
 // Enable debug logging
-RunCache.configure({
+await RunCache.configure({
   debug: true
 });
 ```
@@ -25,7 +25,7 @@ When debug mode is enabled, RunCache logs detailed information about:
 - Refetch operations and failures
 - Configuration changes
 
-All logs include timestamps and operation details.
+All logs include timestamps and operation details. Nothing is logged, not even errors, while debug mode is off.
 
 ### Disabling debug Mode
 
@@ -33,7 +33,7 @@ To disable debug logging when you're done debugging:
 
 ```typescript
 // Disable debug logging
-RunCache.configure({
+await RunCache.configure({
   debug: false
 });
 ```
@@ -48,9 +48,9 @@ You can implement more detailed custom logging using middleware.
 import { RunCache } from 'run-cache';
 
 // Add logging middleware
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   console.log(`[RunCache] ${context.operation.toUpperCase()} operation for key: ${context.key}`);
-  
+
   try {
     const result = await next(value);
     console.log(`[RunCache] ${context.operation.toUpperCase()} completed for key: ${context.key}`);
@@ -67,21 +67,21 @@ RunCache.use(async (value, context, next) => {
 For more advanced logging with performance metrics:
 
 ```typescript
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   const start = performance.now();
   const operation = context.operation.toUpperCase();
-  
+
   console.log(`[RunCache] START ${operation} - Key: ${context.key}`);
-  
+
   try {
     const result = await next(value);
-    
+
     const duration = performance.now() - start;
     console.log(
       `[RunCache] END ${operation} - Key: ${context.key}, Duration: ${duration.toFixed(2)}ms, ` +
       `Result: ${result ? 'success' : 'empty'}`
     );
-    
+
     return result;
   } catch (error) {
     const duration = performance.now() - start;
@@ -89,7 +89,7 @@ RunCache.use(async (value, context, next) => {
       `[RunCache] ERROR ${operation} - Key: ${context.key}, Duration: ${duration.toFixed(2)}ms, ` +
       `Error: ${error.message}`
     );
-    
+
     throw error;
   }
 });
@@ -114,23 +114,23 @@ const logger = winston.createLogger({
 });
 
 // Add winston logging middleware
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   logger.info({
     message: 'Cache operation started',
     operation: context.operation,
     key: context.key
   });
-  
+
   try {
     const result = await next(value);
-    
+
     logger.info({
       message: 'Cache operation completed',
       operation: context.operation,
       key: context.key,
       success: !!result
     });
-    
+
     return result;
   } catch (error) {
     logger.error({
@@ -140,7 +140,7 @@ RunCache.use(async (value, context, next) => {
       error: error.message,
       stack: error.stack
     });
-    
+
     throw error;
   }
 });
@@ -156,30 +156,32 @@ The event system provides another way to debug and monitor cache operations.
 import { RunCache, EVENT } from 'run-cache';
 
 // Monitor expiry events
-RunCache.onExpiry((event) => {
+await RunCache.onExpiry((event) => {
   console.log(`[RunCache] Key expired: ${event.key}, TTL: ${event.ttl}ms`);
 });
 
 // Monitor refetch events
-RunCache.onRefetch((event) => {
+await RunCache.onRefetch((event) => {
   console.log(`[RunCache] Key refreshed: ${event.key}`);
 });
 
 // Monitor refetch failures
-RunCache.onRefetchFailure((event) => {
+await RunCache.onRefetchFailure((event) => {
   console.error(`[RunCache] Refresh failed for key: ${event.key}`, event.error);
 });
 
 // Monitor tag invalidations
-RunCache.onTagInvalidation((event) => {
+await RunCache.onTagInvalidation((event) => {
   console.log(`[RunCache] Key invalidated by tag: ${event.key}, Tag: ${event.tag}`);
 });
 
 // Monitor dependency invalidations
-RunCache.onDependencyInvalidation((event) => {
+await RunCache.onDependencyInvalidation((event) => {
   console.log(`[RunCache] Key invalidated by dependency: ${event.key}, Dependency: ${event.dependencyKey}`);
 });
 ```
+
+Event payloads contain `key`, `value` (the stored string), `ttl`, `createdAt` and `updatedAt`, plus `tag` or `dependencyKey` for invalidation events. Refetch failure events also have `error`, set to what the source function threw. A manual `refetch()` additionally rejects with a `SourceFnError` whose `cause` is that error.
 
 ### Monitoring Specific Keys
 
@@ -187,16 +189,16 @@ For debugging issues with specific keys:
 
 ```typescript
 // Monitor operations on a specific key
-RunCache.onKeyExpiry('important-data', (event) => {
+await RunCache.onKeyExpiry('important-data', (event) => {
   console.log(`[RunCache] Important data expired at ${new Date().toISOString()}`);
 });
 
-RunCache.onKeyRefetch('important-data', (event) => {
+await RunCache.onKeyRefetch('important-data', (event) => {
   console.log(`[RunCache] Important data refreshed at ${new Date().toISOString()}`);
 });
 
-RunCache.onKeyRefetchFailure('important-data', (event) => {
-  console.error(`[RunCache] Important data refresh failed:`, event.error);
+await RunCache.onKeyRefetchFailure('important-data', (event) => {
+  console.error(`[RunCache] Important data refresh failed: ${event.key}`);
 });
 ```
 
@@ -206,12 +208,12 @@ You can use patterns to monitor groups of related keys:
 
 ```typescript
 // Monitor all user-related expirations
-RunCache.onKeyExpiry('user:*', (event) => {
+await RunCache.onKeyExpiry('user:*', (event) => {
   console.log(`[RunCache] User data expired: ${event.key}`);
 });
 
 // Monitor all API-related refresh failures
-RunCache.onKeyRefetchFailure('api:*', (event) => {
+await RunCache.onKeyRefetchFailure('api:*', (event) => {
   console.error(`[RunCache] API data refresh failed: ${event.key}`, event.error);
 });
 ```
@@ -220,34 +222,35 @@ RunCache.onKeyRefetchFailure('api:*', (event) => {
 
 ### Diagnosing Cache Misses
 
-If you're experiencing unexpected cache misses:
+Middleware only runs for `get` on a hit, so it cannot see misses. `debug: true` logs every read with the reason:
 
 ```typescript
-// Debug cache misses with middleware
-RunCache.use(async (value, context, next) => {
-  if (context.operation === 'get') {
-    const result = await next(value);
-    if (!result) {
-      console.log(`[RunCache] Cache miss for key: ${context.key}`);
-      
-      // Check if the key exists but is expired
-      // Note: This is internal API usage for debugging only
-      const internalCache = RunCache.getInternalCache();
-      if (internalCache.has(context.key)) {
-        const entry = internalCache.get(context.key);
-        if (entry && entry.ttl && Date.now() > entry.updatedAt + entry.ttl) {
-          console.log(`[RunCache] Key ${context.key} exists but has expired. ` +
-                      `Expired at ${new Date(entry.updatedAt + entry.ttl).toISOString()}`);
-        } else {
-          console.log(`[RunCache] Key ${context.key} exists but returned no value.`);
-        }
-      }
-    }
-    return result;
-  }
-  return next(value);
-});
+await RunCache.configure({ debug: true });
+
+await RunCache.get('user:1');
+// RunCache [2026-01-01T00:00:00.000Z] [DEBUG]: Cache miss for key: user:1   (never set, deleted or evicted)
+// RunCache [...] [DEBUG]: Cache expired for key: user:1                       (TTL passed)
+// RunCache [...] [DEBUG]: Removing expired entry for key: user:1
 ```
+
+To count or log misses in your own code, wrap `get()`:
+
+```typescript
+async function getWithMissLog<T>(key: string) {
+  const value = await RunCache.get<T>(key);
+  if (value === undefined) {
+    console.log(`[RunCache] Cache miss for key: ${key}`);
+  }
+  return value;
+}
+```
+
+Common causes of unexpected misses:
+
+- The TTL is in seconds instead of milliseconds.
+- `maxEntries` is set and the entry was evicted.
+- The entry was removed by `invalidateByTag()`, or because an entry it depends on was updated, refetched, deleted, evicted or expired; listen with `onTagInvalidation`/`onDependencyInvalidation` to confirm.
+- The process restarted and the entry was not saved before exit (see [Persistent Storage](../advanced/persistent-storage.md)).
 
 ### Debugging TTL Issues
 
@@ -255,7 +258,7 @@ If entries are expiring too soon or not expiring when expected:
 
 ```typescript
 // Add TTL debugging middleware
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   if (context.operation === 'set' && context.ttl) {
     console.log(
       `[RunCache] Setting key ${context.key} with TTL ${context.ttl}ms, ` +
@@ -266,7 +269,7 @@ RunCache.use(async (value, context, next) => {
 });
 
 // Monitor all expiry events
-RunCache.onExpiry((event) => {
+await RunCache.onExpiry((event) => {
   console.log(
     `[RunCache] Key ${event.key} expired. ` +
     `TTL was ${event.ttl}ms. ` +
@@ -278,34 +281,17 @@ RunCache.onExpiry((event) => {
 
 ### Debugging Automatic Refetching
 
-If automatic refetching isn't working as expected:
+`set()` throws when `autoRefetch` is given without a `ttl`. Without a `sourceFn`, `autoRefetch` has no effect and the entry is simply removed when it expires. Entries restored from a storage adapter have no `sourceFn`, so they are not refetched until you `set()` them again with one.
+
+Auto-refetch runs when the TTL timer fires, or when a read finds the entry expired first; in the second case the read returns the stale value while the refetch runs.
 
 ```typescript
-// Debug auto-refetch setup
-RunCache.use(async (value, context, next) => {
-  if (context.operation === 'set' && context.autoRefetch) {
-    console.log(
-      `[RunCache] Setting up auto-refetch for key ${context.key}. ` +
-      `TTL: ${context.ttl}ms, Source function provided: ${!!context.sourceFn}`
-    );
-    
-    if (!context.ttl) {
-      console.warn(`[RunCache] Warning: Auto-refetch enabled for ${context.key} but no TTL provided.`);
-    }
-    
-    if (!context.sourceFn) {
-      console.warn(`[RunCache] Warning: Auto-refetch enabled for ${context.key} but no source function provided.`);
-    }
-  }
-  return next(value);
-});
-
 // Monitor refetch events and failures
-RunCache.onRefetch((event) => {
+await RunCache.onRefetch((event) => {
   console.log(`[RunCache] Auto-refetch successful for key: ${event.key}`);
 });
 
-RunCache.onRefetchFailure((event) => {
+await RunCache.onRefetchFailure((event) => {
   console.error(`[RunCache] Auto-refetch failed for key: ${event.key}:`, event.error);
 });
 ```
@@ -320,13 +306,13 @@ function debugSourceFn(key, fn) {
   return async () => {
     console.log(`[RunCache] Executing source function for key: ${key}`);
     const start = performance.now();
-    
+
     try {
       const result = await fn();
       const duration = performance.now() - start;
       console.log(
         `[RunCache] Source function for key ${key} completed in ${duration.toFixed(2)}ms. ` +
-        `Result length: ${result ? result.length : 0}`
+        `Result: ${typeof result}`
       );
       return result;
     } catch (error) {
@@ -345,8 +331,7 @@ await RunCache.set({
   key: 'data',
   sourceFn: debugSourceFn('data', async () => {
     const response = await fetch('https://api.example.com/data');
-    const data = await response.json();
-    return JSON.stringify(data);
+    return response.json();
   }),
   ttl: 60000,
   autoRefetch: true
@@ -355,39 +340,28 @@ await RunCache.set({
 
 ### Debugging Storage Adapters
 
-If you're having issues with persistent storage:
+With `debug: true`, RunCache logs each save (with its size) and load, and any adapter errors. `saveToStorage()` and `loadFromStorage()` return `false` instead of throwing when the adapter fails. For more detail, wrap the adapter:
 
 ```typescript
-// Add storage debugging
-const originalSave = storageAdapter.save;
-const originalLoad = storageAdapter.load;
+import { RunCache, FilesystemAdapter, type StorageAdapter } from 'run-cache';
 
-storageAdapter.save = async function(data) {
-  console.log(`[RunCache] Saving ${data.length} bytes to storage`);
-  try {
-    await originalSave.call(this, data);
-    console.log(`[RunCache] Successfully saved to storage`);
-  } catch (error) {
-    console.error(`[RunCache] Failed to save to storage:`, error);
-    throw error;
-  }
-};
+function withLogging(adapter: StorageAdapter): StorageAdapter {
+  return {
+    async save(data) {
+      console.log(`[RunCache] Saving ${data.length} bytes to storage`);
+      await adapter.save(data);
+    },
+    async load() {
+      const data = await adapter.load();
+      console.log(`[RunCache] Loaded ${data ? data.length : 0} bytes from storage`);
+      return data;
+    },
+    clear: () => adapter.clear()
+  };
+}
 
-storageAdapter.load = async function() {
-  console.log(`[RunCache] Loading from storage`);
-  try {
-    const data = await originalLoad.call(this);
-    console.log(`[RunCache] Successfully loaded ${data ? data.length : 0} bytes from storage`);
-    return data;
-  } catch (error) {
-    console.error(`[RunCache] Failed to load from storage:`, error);
-    throw error;
-  }
-};
-
-// Then configure RunCache with the patched adapter
-RunCache.configure({
-  storageAdapter: storageAdapter
+await RunCache.configure({
+  storageAdapter: withLogging(new FilesystemAdapter({ storageKey: 'my-app-cache' }))
 });
 ```
 
@@ -411,14 +385,14 @@ class CacheLogger {
       trace: 4
     };
   }
-  
+
   shouldLog(level) {
     return this.levels[level] <= this.levels[this.level];
   }
-  
+
   log(level, message, data = {}) {
     if (!this.shouldLog(level)) return;
-    
+
     const timestamp = new Date().toISOString();
     const logObj = {
       timestamp,
@@ -426,7 +400,7 @@ class CacheLogger {
       message,
       ...data
     };
-    
+
     for (const transport of this.transports) {
       if (typeof transport[level] === 'function') {
         transport[level](message, logObj);
@@ -435,7 +409,7 @@ class CacheLogger {
       }
     }
   }
-  
+
   error(message, data) { this.log('error', message, data); }
   warn(message, data) { this.log('warn', message, data); }
   info(message, data) { this.log('info', message, data); }
@@ -453,24 +427,24 @@ export const logger = new CacheLogger({ level: process.env.LOG_LEVEL || 'info' }
 import { RunCache } from 'run-cache';
 import { logger } from './logger';
 
-export function setupCacheLogging() {
-  // Add logging middleware
-  RunCache.use(async (value, context, next) => {
-    logger.debug(`Operation ${context.operation} started for key: ${context.key}`, { 
+export async function setupCacheLogging() {
+  // Add logging middleware (runs on set, refetch and get hits)
+  await RunCache.use(async (value, context, next) => {
+    logger.debug(`Operation ${context.operation} started for key: ${context.key}`, {
       operation: context.operation,
       key: context.key
     });
-    
+
     try {
       const result = await next(value);
-      logger.debug(`Operation ${context.operation} completed for key: ${context.key}`, { 
+      logger.debug(`Operation ${context.operation} completed for key: ${context.key}`, {
         operation: context.operation,
         key: context.key,
         success: !!result
       });
       return result;
     } catch (error) {
-      logger.error(`Operation ${context.operation} failed for key: ${context.key}`, { 
+      logger.error(`Operation ${context.operation} failed for key: ${context.key}`, {
         operation: context.operation,
         key: context.key,
         error: error.message,
@@ -479,43 +453,42 @@ export function setupCacheLogging() {
       throw error;
     }
   });
-  
+
   // Set up event logging
-  RunCache.onExpiry((event) => {
-    logger.debug(`Key expired: ${event.key}`, { 
+  await RunCache.onExpiry((event) => {
+    logger.debug(`Key expired: ${event.key}`, {
       event: 'expire',
       key: event.key,
       ttl: event.ttl,
       updatedAt: event.updatedAt
     });
   });
-  
-  RunCache.onRefetch((event) => {
-    logger.debug(`Key refreshed: ${event.key}`, { 
+
+  await RunCache.onRefetch((event) => {
+    logger.debug(`Key refreshed: ${event.key}`, {
       event: 'refetch',
       key: event.key
     });
   });
-  
-  RunCache.onRefetchFailure((event) => {
-    logger.error(`Refresh failed for key: ${event.key}`, { 
+
+  await RunCache.onRefetchFailure((event) => {
+    logger.error(`Refresh failed for key: ${event.key}`, {
       event: 'refetch_failure',
       key: event.key,
-      error: event.error.message,
-      stack: event.error.stack
+      error: event.error
     });
   });
-  
-  RunCache.onTagInvalidation((event) => {
-    logger.debug(`Key invalidated by tag: ${event.key}`, { 
+
+  await RunCache.onTagInvalidation((event) => {
+    logger.debug(`Key invalidated by tag: ${event.key}`, {
       event: 'tag_invalidation',
       key: event.key,
       tag: event.tag
     });
   });
-  
-  RunCache.onDependencyInvalidation((event) => {
-    logger.debug(`Key invalidated by dependency: ${event.key}`, { 
+
+  await RunCache.onDependencyInvalidation((event) => {
+    logger.debug(`Key invalidated by dependency: ${event.key}`, {
       event: 'dependency_invalidation',
       key: event.key,
       dependencyKey: event.dependencyKey
@@ -532,7 +505,7 @@ For browser environments:
 
 ```typescript
 // Enable detailed console output
-RunCache.configure({ debug: true });
+await RunCache.configure({ debug: true });
 
 // Use browser dev tools
 // 1. Set breakpoints in source functions
@@ -541,16 +514,16 @@ RunCache.configure({ debug: true });
 // 4. Watch for errors in the console
 
 // Add a global debug function
-window.__debugRunCache = function(pattern = '*') {
+window.__debugRunCache = async function(pattern = '*') {
   return {
-    entries: RunCache.get(pattern),
-    config: RunCache.getConfig(),
+    entries: await RunCache.get(pattern),
+    config: await RunCache.getConfig(),
     // Add any other debug info you need
   };
 };
 
 // In browser console, you can now run:
-// > window.__debugRunCache('user:*')
+// > await window.__debugRunCache('user:*')
 ```
 
 ### Node.js Debugging
@@ -562,15 +535,15 @@ For Node.js environments:
 // Start Node with: node --inspect your-script.js
 
 // Add debug endpoints to Express app
-app.get('/debug/cache', (req, res) => {
+app.get('/debug/cache', async (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     return res.status(403).send('Not available in production');
   }
-  
+
   const pattern = req.query.pattern || '*';
-  const entries = RunCache.get(pattern);
-  const config = RunCache.getConfig();
-  
+  const entries = await RunCache.get(pattern);
+  const config = await RunCache.getConfig();
+
   res.json({
     pattern,
     entries,
@@ -584,68 +557,97 @@ app.get('/debug/cache', (req, res) => {
 
 ### Cache Inspector Utility
 
-Create a utility for inspecting the cache:
+RunCache has no public API for listing keys or reading entry metadata. `get()` with a pattern returns the matching values (not their keys), and `has()` tells you whether a pattern matches anything:
 
 ```typescript
 // cache-inspector.js
 export class CacheInspector {
-  static async getEntries(pattern = '*') {
-    const entries = await RunCache.get(pattern);
-    return Array.isArray(entries) ? entries : [entries].filter(Boolean);
+  static async getValues(pattern = '*') {
+    const values = await RunCache.get(pattern);
+    if (values === undefined) return [];
+    // Only a wildcard query returns a list of results; an exact key that stores
+    // an array is still one value
+    const isWildcard = pattern.includes('*');
+    return isWildcard && Array.isArray(values) ? values : [values];
   }
-  
-  static async getKeys(pattern = '*') {
-    // Implementation depends on internal APIs
-    // This is for illustration purposes
-    const internalCache = RunCache.getInternalCache();
-    return Array.from(internalCache.keys())
-      .filter(key => key.includes(pattern.replace('*', '')));
+
+  static async countMatching(pattern = '*') {
+    return (await this.getValues(pattern)).length;
   }
-  
-  static async getStats() {
-    const keys = await this.getKeys();
-    const values = await Promise.all(keys.map(key => RunCache.get(key)));
-    
-    const totalSize = values.reduce((size, value) => {
-      return size + (value ? value.length : 0);
-    }, 0);
-    
-    return {
-      entryCount: keys.length,
-      totalSize,
-      averageSize: keys.length ? totalSize / keys.length : 0
-    };
-  }
-  
-  static async analyzePatterns() {
-    const keys = await this.getKeys();
-    const patterns = {};
-    
-    // Simple pattern analysis
-    keys.forEach(key => {
-      const parts = key.split(':');
-      const prefix = parts[0];
-      patterns[prefix] = (patterns[prefix] || 0) + 1;
-    });
-    
-    return patterns;
+
+  static async approximateSize(pattern = '*') {
+    const values = await this.getValues(pattern);
+    return values.reduce((size, value) => size + JSON.stringify(value).length, 0);
   }
 }
 ```
 
+If you need key-level detail, keep your own registry of the keys you set, or use the `debug` log output.
+
 ### Performance Monitoring Utility
 
-Create a utility for monitoring cache performance:
+Middleware sees `set`, `refetch` and `get` hits, so a miss count has to come from wrapping `get()`:
 
 ```typescript
 // cache-performance.js
 export class CachePerformanceMonitor {
   constructor() {
+    this.resetMetrics();
+  }
+
+  async start() {
+    // Timing for operations that reach the middleware chain
+    await RunCache.use(async (value, context, next) => {
+      const start = performance.now();
+      const result = await next(value);
+      const op = this.metrics.operations[context.operation];
+      if (op) {
+        op.count++;
+        op.totalTime += performance.now() - start;
+      }
+      return result;
+    });
+
+    // Track events
+    await RunCache.onExpiry(() => { this.metrics.events.expire++; });
+    await RunCache.onRefetch(() => { this.metrics.events.refetch++; });
+    await RunCache.onRefetchFailure(() => { this.metrics.events.refetch_failure++; });
+    await RunCache.onTagInvalidation(() => { this.metrics.events.tag_invalidation++; });
+    await RunCache.onDependencyInvalidation(() => { this.metrics.events.dependency_invalidation++; });
+  }
+
+  // Use this in place of RunCache.get() to count hits and misses
+  async get(key) {
+    const value = await RunCache.get(key);
+    if (value === undefined) this.metrics.misses++;
+    else this.metrics.hits++;
+    return value;
+  }
+
+  getMetrics() {
+    const { hits, misses, operations, events } = this.metrics;
+    return {
+      hits,
+      misses,
+      hitRatio: hits + misses ? hits / (hits + misses) : 0,
+      events: { ...events },
+      operations: Object.fromEntries(
+        Object.entries(operations).map(([name, op]) => [
+          name,
+          { ...op, avgTime: op.count ? op.totalTime / op.count : 0 }
+        ])
+      )
+    };
+  }
+
+  resetMetrics() {
     this.metrics = {
+      hits: 0,
+      misses: 0,
       operations: {
-        get: { count: 0, hits: 0, misses: 0, totalTime: 0 },
+        get: { count: 0, totalTime: 0 },
         set: { count: 0, totalTime: 0 },
-        delete: { count: 0, totalTime: 0 }
+        refetch: { count: 0, totalTime: 0 }
       },
       events: {
         expire: 0,
@@ -655,72 +657,12 @@ export class CachePerformanceMonitor {
         dependency_invalidation: 0
       }
     };
-    
-    this.setupMonitoring();
-  }
-  
-  setupMonitoring() {
-    // Add performance middleware
-    RunCache.use(async (value, context, next) => {
-      const start = performance.now();
-      const result = await next(value);
-      const duration = performance.now() - start;
-      
-      if (this.metrics.operations[context.operation]) {
-        this.metrics.operations[context.operation].count++;
-        this.metrics.operations[context.operation].totalTime += duration;
-        
-        if (context.operation === 'get') {
-          if (result) {
-            this.metrics.operations.get.hits++;
-          } else {
-            this.metrics.operations.get.misses++;
-          }
-        }
-      }
-      
-      return result;
-    });
-    
-    // Track events
-    RunCache.onExpiry(() => this.metrics.events.expire++);
-    RunCache.onRefetch(() => this.metrics.events.refetch++);
-    RunCache.onRefetchFailure(() => this.metrics.events.refetch_failure++);
-    RunCache.onTagInvalidation(() => this.metrics.events.tag_invalidation++);
-    RunCache.onDependencyInvalidation(() => this.metrics.events.dependency_invalidation++);
-  }
-  
-  getMetrics() {
-    const metrics = JSON.parse(JSON.stringify(this.metrics));
-    
-    // Add calculated metrics
-    const hitRatio = metrics.operations.get.hits / 
-                     (metrics.operations.get.hits + metrics.operations.get.misses || 1);
-    metrics.hitRatio = hitRatio;
-    
-    for (const [op, data] of Object.entries(metrics.operations)) {
-      if (data.count > 0) {
-        data.avgTime = data.totalTime / data.count;
-      }
-    }
-    
-    return metrics;
-  }
-  
-  resetMetrics() {
-    for (const op in this.metrics.operations) {
-      this.metrics.operations[op] = { 
-        count: 0, 
-        totalTime: 0,
-        ...(op === 'get' ? { hits: 0, misses: 0 } : {})
-      };
-    }
-    
-    for (const event in this.metrics.events) {
-      this.metrics.events[event] = 0;
-    }
   }
 }
+
+// Usage
+const monitor = new CachePerformanceMonitor();
+await monitor.start();
 ```
 
 ## Best Practices for Debugging

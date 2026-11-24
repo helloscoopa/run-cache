@@ -45,7 +45,7 @@ interface User {
 
 const user: User = {
   id: 123,
-  name: 'John Doe', 
+  name: 'John Doe',
   email: 'john@example.com',
   preferences: {
     theme: 'dark',
@@ -81,8 +81,8 @@ const products: Product[] = [
 ];
 
 // Cache arrays with type safety
-await RunCache.set<Product[]>({ 
-  key: 'products:featured', 
+await RunCache.set<Product[]>({
+  key: 'products:featured',
   value: products,
   ttl: 300000 // 5 minutes
 });
@@ -104,8 +104,8 @@ For better type safety and organization, you can create typed cache instances:
 const userCache = RunCache.createTypedCache<User>();
 
 // All operations are now strongly typed for User objects
-await userCache.set({ 
-  key: 'user:456', 
+await userCache.set({
+  key: 'user:456',
   value: {
     id: 456,
     name: 'Jane Smith',
@@ -176,7 +176,7 @@ interface WeatherData {
 const fetchWeatherData = async (city: string): Promise<WeatherData> => {
   const response = await fetch(`https://api.weather.com/v1/current?city=${city}`);
   const data = await response.json();
-  
+
   return {
     temperature: data.temp,
     humidity: data.humidity,
@@ -209,7 +209,7 @@ RunCache supports complex TypeScript types including unions and enums:
 ```typescript
 enum UserRole {
   ADMIN = 'admin',
-  MODERATOR = 'moderator', 
+  MODERATOR = 'moderator',
   USER = 'user'
 }
 
@@ -261,9 +261,9 @@ const partialSettings: Partial<UserSettings> = {
   notifications: { email: true }
 };
 
-await RunCache.set<Partial<UserSettings>>({ 
-  key: 'settings:partial:123', 
-  value: partialSettings 
+await RunCache.set<Partial<UserSettings>>({
+  key: 'settings:partial:123',
+  value: partialSettings
 });
 
 const settings = await RunCache.get<Partial<UserSettings>>('settings:partial:123');
@@ -286,7 +286,7 @@ interface EntityCache<T extends CacheableEntity> {
 }
 
 async function cacheEntity<T extends CacheableEntity>(
-  id: string, 
+  id: string,
   entity: T
 ): Promise<void> {
   const cacheEntry: EntityCache<T> = {
@@ -294,7 +294,7 @@ async function cacheEntity<T extends CacheableEntity>(
     lastModified: new Date(),
     version: 1
   };
-  
+
   await RunCache.set<EntityCache<T>>({
     key: `entity:${id}`,
     value: cacheEntry,
@@ -366,11 +366,11 @@ await RunCache.invalidateByTag('user');
 ### Events with Types
 
 ```typescript
-RunCache.onExpiry<User>((event) => {
+await RunCache.onExpiry<User>((event) => {
   console.log(`User ${event.value.name} expired from cache`);
 });
 
-RunCache.onKeyExpiry<Product>('product:*', (event) => {
+await RunCache.onKeyExpiry<Product>('product:*', (event) => {
   console.log(`Product ${event.value.name} expired`);
 });
 ```
@@ -390,6 +390,7 @@ await RunCache.set<WeatherData>({
 
 Existing string-based code continues to work without any changes:
 
+<!-- docs-check-ignore: legacy string-based usage -->
 ```typescript
 // This still works exactly as before
 await RunCache.set({ key: 'legacy:data', value: 'string value' });
@@ -402,6 +403,7 @@ await RunCache.set({ key: 'legacy:config', value: JSON.stringify(config) });
 
 Strings are always returned exactly as they were stored. RunCache only deserializes values that it serialized itself, that is values that were not strings when they were set (or returned by a source function). A string that happens to look like JSON keeps its type:
 
+<!-- docs-check-ignore: a JSON string set on purpose -->
 ```typescript
 await RunCache.set({ key: 'zip', value: '02134' });
 await RunCache.set({ key: 'config', value: JSON.stringify({ theme: 'dark' }) });

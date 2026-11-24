@@ -29,6 +29,9 @@ jobs:
       - name: Test
         run: npm test -- --coverage --coverageReporters=text --coverageReporters=json-summary
 
+      - name: Check doc code samples
+        run: npm run docs:check
+
       # Writes coverage.json (a shields.io endpoint) to the `badges` branch, which the
       # README coverage badge reads. Runs on main only, so pull requests never write.
       - name: Publish coverage badge
