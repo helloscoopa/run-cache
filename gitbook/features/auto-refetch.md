@@ -188,8 +188,9 @@ await RunCache.set({
 Always implement error handling for refetch failures:
 
 ```typescript
-// Attempts per key; RunCache events carry no custom metadata
+// Attempts and pending retry per key; RunCache events carry no custom metadata
 const retryCounts = new Map<string, number>();
+const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 await RunCache.onRefetchFailure((event) => {
   // Log the error
@@ -200,11 +201,20 @@ await RunCache.onRefetchFailure((event) => {
   retryCounts.set(event.key, retryCount);
   const delay = Math.min(1000 * Math.pow(2, retryCount), 30000); // Max 30 seconds
 
-  setTimeout(() => {
+  clearTimeout(retryTimers.get(event.key));
+  retryTimers.set(event.key, setTimeout(() => {
+    retryTimers.delete(event.key);
     RunCache.refetch(event.key)
-      .then((ok) => { if (ok) retryCounts.delete(event.key); })
       .catch(() => { /* reported again through onRefetchFailure */ });
-  }, delay);
+  }, delay));
+});
+
+// Any successful refresh (the retry, a manual refetch or the next automatic one)
+// resets the backoff and cancels a retry that is no longer needed.
+await RunCache.onRefetch((event) => {
+  retryCounts.delete(event.key);
+  clearTimeout(retryTimers.get(event.key));
+  retryTimers.delete(event.key);
 });
 ```
 

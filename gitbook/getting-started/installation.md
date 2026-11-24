@@ -68,10 +68,14 @@ RunCache includes TypeScript definitions, so no additional packages are required
 import { RunCache, EvictionPolicy } from 'run-cache';
 
 // Configure with proper type checking
-await RunCache.configure({
-  maxEntries: 100,
-  evictionPolicy: EvictionPolicy.LRU
-});
+async function setupCache(): Promise<void> {
+  await RunCache.configure({
+    maxEntries: 100,
+    evictionPolicy: EvictionPolicy.LRU
+  });
+}
+
+setupCache().catch(console.error);
 ```
 
 ## Verifying Installation

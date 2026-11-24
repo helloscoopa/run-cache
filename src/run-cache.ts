@@ -196,7 +196,7 @@ export class RunCache {
    *
    * @param {Object} params - The parameters to set in the cache.
    * @param {string} params.key - The key for the cache entry. Must be a non-empty string.
-   * @param {string} [params.value] - The value to store in the cache. If not provided, the `sourceFn` must be defined to generate the value.
+   * @param {T} [params.value] - The value to store in the cache: a string (stored as-is) or any JSON-serializable value (serialized on set and parsed again by `get()`). If not provided, the `sourceFn` must be defined to generate the value.
    * @param {number} [params.ttl] - The time-to-live for the cache entry in milliseconds. After this time, the cache entry will expire.
    * @param {boolean} [params.autoRefetch] - Whether to automatically refetch the value after the TTL expires. Requires a TTL to be set.
    * @param {SourceFn} [params.sourceFn] - A function that returns the value for the cache. This is used when the value is not provided directly.
@@ -206,7 +206,7 @@ export class RunCache {
    * @returns {Promise<boolean>} - Returns `true` when the cache entry is successfully set.
    *
    * @throws {Error} If the key is empty, if both `value` and `sourceFn` are missing, or if `autoRefetch` is set without a TTL.
-   * @throws {Error} If `ttl` is negative.
+   * @throws {Error} If `ttl` is not a finite number greater than zero.
    * @throws {Error} If the `sourceFn` fails to generate a value.
    * 
    * @example

@@ -53,7 +53,7 @@ async function getUser(key: string): Promise<User | undefined> {
   const value = await RunCache.get<unknown>(key);
   if (value === undefined) return undefined;
   if (!isUser(value)) {
-    // Drop the bad entry so the next read fetches fresh data
+    // Drop the bad entry; the next get() returns undefined until you set it again
     await RunCache.delete(key);
     return undefined;
   }

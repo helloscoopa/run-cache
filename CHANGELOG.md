@@ -2,7 +2,7 @@
 
 All notable changes to RunCache are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
-Add an entry under **Unreleased** in the same pull request as the change. When a version is tagged, rename that section to the version and date.
+Add an entry under **Unreleased** in the same pull request as the change. When a version is tagged, rename that section to the version and date, add a new empty `## [Unreleased]` section above it, and update the links at the bottom: point `[Unreleased]` at `compare/vX.Y.Z...HEAD` and add a `[X.Y.Z]` link comparing the previous tag with the new one.
 
 ## [Unreleased]
 

@@ -546,7 +546,7 @@ async function cachedApiRequest(endpoint, params = {}, options = {}) {
 
   // Check cache first
   const cachedResponse = await RunCache.get(key);
-  if (cachedResponse) {
+  if (cachedResponse !== undefined) { // false and 0 are valid cached responses
     return cachedResponse;
   }
 

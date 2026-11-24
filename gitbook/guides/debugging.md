@@ -565,7 +565,10 @@ export class CacheInspector {
   static async getValues(pattern = '*') {
     const values = await RunCache.get(pattern);
     if (values === undefined) return [];
-    return Array.isArray(values) ? values : [values];
+    // Only a wildcard query returns a list of results; an exact key that stores
+    // an array is still one value
+    const isWildcard = pattern.includes('*');
+    return isWildcard && Array.isArray(values) ? values : [values];
   }
 
   static async countMatching(pattern = '*') {

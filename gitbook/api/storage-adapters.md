@@ -233,10 +233,14 @@ class ApiStorageAdapter implements StorageAdapter {
   }
 
   async clear(): Promise<void> {
-    await fetch(`${this.apiUrl}/cache`, {
+    const response = await fetch(`${this.apiUrl}/cache`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${this.apiKey}` }
     });
+    // fetch() resolves on HTTP errors too; report them so callers can retry
+    if (!response.ok) {
+      throw new Error(`Failed to clear remote cache: HTTP ${response.status}`);
+    }
   }
 }
 

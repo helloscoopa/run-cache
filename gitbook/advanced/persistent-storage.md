@@ -75,7 +75,7 @@ await RunCache.setupAutoSave(300000);
 await RunCache.setupAutoSave(0);
 ```
 
-Call `setupAutoSave()` after attaching the adapter: it does nothing while no adapter is attached. An interval started with `setupAutoSave()` keeps running when you switch adapters; one requested by an adapter's `autoSaveInterval` ends when that adapter is detached. In Node.js the timer does not keep the process alive.
+Call `setupAutoSave()` after attaching the adapter: it does nothing while no adapter is attached. An interval started with `setupAutoSave()` keeps running when you switch to an adapter without a positive `autoSaveInterval`. Attaching an adapter that sets one replaces it: the explicit interval is cleared and the adapter's interval runs instead, and that one ends when the adapter is detached, leaving no auto-save until you call `setupAutoSave()` again. In Node.js the timer does not keep the process alive.
 
 ### On shutdown
 
@@ -237,7 +237,7 @@ The same wrapper can drop entries you do not want persisted: parse the JSON in `
 1. **Pick the adapter for the environment.** `FilesystemAdapter` for Node.js; `IndexedDBAdapter` for larger browser caches, since `localStorage` is usually limited to about 5 MB per origin and its writes block the main thread.
 2. **Save explicitly.** Combine `autoSaveInterval` (or `setupAutoSave()`) with `handleProcessSignals: true` or your own `await RunCache.shutdown()`.
 3. **Check the result of `saveToStorage()`.** It returns `false` instead of throwing, for example when `localStorage` is full. Turn on `debug` to see the reason.
-4. **Separate data by `storageKey`.** Use one key per user, environment or data-format version; changing the key is the simplest way to discard data written by an older version of your app. Because loading merges, `flush()` before attaching a different user's adapter.
+4. **Separate data by `storageKey`.** Use one key per user, environment or data-format version; changing the key is the simplest way to discard data written by an older version of your app. Because loading merges, switch users in this order: detach the current adapter (`await RunCache.configure({ storageAdapter: undefined })`, which saves to it), then `await RunCache.flush()`, then attach the next user's adapter. Flushing while the old adapter is still attached would let the empty cache be saved over that user's data.
 5. **Re-register source functions after loading** for entries that rely on `refetch()` or `autoRefetch`.
 
 ## Common Scenarios

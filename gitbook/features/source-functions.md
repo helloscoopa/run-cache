@@ -198,7 +198,7 @@ async function cachedFetch(url, options = {}) {
 
   // Try to get from cache first
   const cachedResponse = await RunCache.get(cacheKey);
-  if (cachedResponse) {
+  if (cachedResponse !== undefined) { // false and 0 are valid cached responses
     return cachedResponse;
   }
 
@@ -226,6 +226,10 @@ const userData = await cachedFetch('https://api.example.com/users/1', { ttl: 300
 You can create source functions that depend on other cached values:
 
 ```typescript
+interface UserProfile {
+  preferences: string[];
+}
+
 // Primary data
 await RunCache.set({
   key: 'user:1:profile',
@@ -241,7 +245,10 @@ await RunCache.set({
   key: 'user:1:recommendations',
   sourceFn: async () => {
     // Get the user profile from cache first
-    const profile = await RunCache.get('user:1:profile');
+    const profile = await RunCache.get<UserProfile>('user:1:profile');
+    if (!profile || Array.isArray(profile)) {
+      throw new Error('User profile is not cached');
+    }
 
     // Use profile data to fetch recommendations
     const response = await fetch(`https://api.example.com/recommendations?preferences=${profile.preferences.join(',')}`);

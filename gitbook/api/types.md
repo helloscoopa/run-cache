@@ -53,7 +53,7 @@ interface CacheConfig {
 {
   key: string;              // must not be empty
   value?: T;                // strings (including '') are stored as-is, other values as JSON
-  ttl?: number;             // milliseconds; must not be negative
+  ttl?: number;             // milliseconds; finite and > 0 (omit it for entries that never expire)
   autoRefetch?: boolean;    // requires ttl, and a sourceFn to have any effect
   sourceFn?: () => T | Promise<T>;
   tags?: string[];
