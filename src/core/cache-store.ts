@@ -88,6 +88,9 @@ export class CacheStore {
 
   private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
 
+  /** Whether the running auto-save interval came from an adapter's `autoSaveInterval` option */
+  private autoSaveStartedByAdapter = false;
+
   private serialization: SerializationManager;
 
   /**
@@ -924,6 +927,12 @@ export class CacheStore {
 
       this.storageAdapter = config.storageAdapter ?? null;
 
+      // An interval requested by the previous adapter's options ends with that adapter.
+      // One started explicitly with setupAutoSave() keeps running.
+      if (this.autoSaveStartedByAdapter) {
+        this.startAutoSave(0, false);
+      }
+
       // If the new adapter is null/undefined we're done
       if (!this.storageAdapter) {
         return;
@@ -954,7 +963,7 @@ export class CacheStore {
     }
 
     if (typeof adapter.autoSaveInterval === 'number' && adapter.autoSaveInterval > 0) {
-      this.setupAutoSave(adapter.autoSaveInterval);
+      this.startAutoSave(adapter.autoSaveInterval, true);
     }
   }
 
@@ -1278,11 +1287,21 @@ export class CacheStore {
    * @param intervalMs Milliseconds between auto-saves, or 0 to disable
    */
   setupAutoSave(intervalMs: number): void {
+    this.startAutoSave(intervalMs, false);
+  }
+
+  /**
+   * Replaces the auto-save interval. `byAdapter` records whether it was requested by the
+   * attached adapter's `autoSaveInterval` option (and so ends with that adapter) or by
+   * an explicit setupAutoSave() call (and so survives adapter changes).
+   */
+  private startAutoSave(intervalMs: number, byAdapter: boolean): void {
     // Clear existing interval if any
     if (this.autoSaveInterval) {
       clearInterval(this.autoSaveInterval);
       this.autoSaveInterval = null;
     }
+    this.autoSaveStartedByAdapter = false;
 
     // Setup new interval if storage adapter exists and interval > 0
     if (this.storageAdapter && intervalMs > 0) {
@@ -1291,6 +1310,13 @@ export class CacheStore {
           this.logger.log('error', 'Auto-save failed', error);
         });
       }, intervalMs);
+      this.autoSaveStartedByAdapter = byAdapter;
+
+      // Auto-saving should never be the only thing keeping a Node.js process alive
+      const handle = this.autoSaveInterval as unknown as { unref?: () => void };
+      if (handle && typeof handle.unref === 'function') {
+        handle.unref();
+      }
     }
   }
 

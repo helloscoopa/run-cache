@@ -159,4 +159,77 @@ describe('restoring persisted entries', () => {
       expect(await store.get('k')).toBe('v');
     });
   });
+
+  describe('auto-save started by an adapter', () => {
+    /**
+     * Switches the store's adapter. On main, configure() reacts to a misspelled `storage`
+     * key (fixed by #41/#66 to `storageAdapter`); passing both keeps these tests valid
+     * before and after that fix.
+     */
+    const switchAdapter = (store: CacheStore, adapter: StorageAdapter | undefined) => store.configure(
+      { storage: adapter, storageAdapter: adapter } as unknown as Parameters<CacheStore['configure']>[0],
+    );
+    const intervalOf = (store: CacheStore) => (store as unknown as { autoSaveInterval: unknown }).autoSaveInterval;
+
+    it('is unref()ed so it does not keep a Node.js process alive', async () => {
+      const handle = { unref: jest.fn() };
+      const spy = jest.spyOn(global, 'setInterval').mockReturnValue(handle as unknown as ReturnType<typeof setInterval>);
+      const clear = jest.spyOn(global, 'clearInterval').mockImplementation(() => {});
+      try {
+        const store = await create({ storageAdapter: new MemoryAdapter(1000) });
+        expect(handle.unref).toHaveBeenCalledTimes(1);
+        (store as unknown as { autoSaveInterval: unknown }).autoSaveInterval = null;
+      } finally {
+        spy.mockRestore();
+        clear.mockRestore();
+      }
+    });
+
+    it('stops when switching to an adapter without autoSaveInterval', async () => {
+      const first = new MemoryAdapter(20);
+      const second = new MemoryAdapter();
+      const store = await create({ storageAdapter: first });
+      await store.set({ key: 'k', value: 'v' });
+
+      await switchAdapter(store, second);
+      const savesAfterSwitch = second.saves;
+      await sleep(70);
+
+      expect(intervalOf(store)).toBeNull();
+      expect(second.saves).toBe(savesAfterSwitch);
+    });
+
+    it('stops when the adapter is detached', async () => {
+      const store = await create({ storageAdapter: new MemoryAdapter(20) });
+      expect(intervalOf(store)).not.toBeNull();
+
+      await switchAdapter(store, undefined);
+
+      expect(intervalOf(store)).toBeNull();
+    });
+
+    it('is replaced by the next adapter\'s own interval', async () => {
+      const store = await create({ storageAdapter: new MemoryAdapter(5000) });
+      const second = new MemoryAdapter(20);
+      await switchAdapter(store, second);
+      await store.set({ key: 'k', value: 'v' });
+      const before = second.saves;
+
+      await sleep(70);
+      expect(second.saves).toBeGreaterThan(before);
+    });
+
+    it('does not stop an interval started explicitly with setupAutoSave()', async () => {
+      const first = new MemoryAdapter();
+      const second = new MemoryAdapter();
+      const store = await create({ storageAdapter: first });
+      store.setupAutoSave(20);
+
+      await switchAdapter(store, second);
+      await store.set({ key: 'k', value: 'v' });
+      await sleep(70);
+
+      expect(second.saves).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

@@ -27,7 +27,7 @@ interface StorageAdapterConfig {
 }
 ```
 
-These options take effect when the adapter is attached with `RunCache.configure({ storageAdapter })`. With `autoLoadOnInit: false`, existing data is only loaded when you call `RunCache.loadFromStorage()`. A positive `autoSaveInterval` starts saving at that interval, equivalent to calling `RunCache.setupAutoSave(interval)`.
+These options take effect when the adapter is attached with `RunCache.configure({ storageAdapter })`. With `autoLoadOnInit: false`, existing data is only loaded when you call `RunCache.loadFromStorage()`. A positive `autoSaveInterval` starts saving at that interval. That interval belongs to the adapter: it stops when the adapter is replaced or detached, unlike one started explicitly with `RunCache.setupAutoSave(interval)`, which keeps running. Auto-save intervals never keep a Node.js process alive on their own.
 
 ## LocalStorageAdapter
 

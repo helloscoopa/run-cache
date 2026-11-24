@@ -163,7 +163,7 @@ All adapters store the same JSON document. The FilesystemAdapter writes it to a 
 
 When data is loaded, whether automatically on attaching an adapter or with `loadFromStorage()`:
 
-- **Stored entries are merged into the cache.** Keys that already exist in memory keep their current value; the stored copy is ignored. Nothing in memory is cleared.
+- **Stored entries are merged into the cache.** Keys that already exist in memory keep their current value; the stored copy is ignored. Nothing in memory is cleared. To return to exactly the saved state, call `RunCache.flush()` before `RunCache.loadFromStorage()`.
 - **Expired entries are skipped.**
 - **TTLs continue where they left off.** Each restored entry expires after the time remaining on its original TTL, not a fresh TTL, and emits its `expire` event as usual.
 - **Your configuration wins.** `maxEntries`, `evictionPolicy` and other options are whatever you configured, not what was stored. If the restored entries exceed `maxEntries`, the eviction policy is applied.
