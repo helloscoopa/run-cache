@@ -20,7 +20,7 @@ This is the default policy and is suitable for cases where you have full control
 
 The LRU policy removes the least recently accessed entries when the cache exceeds its maximum size. This is ideal for cases where recently accessed items are more likely to be accessed again.
 
-An entry counts as used when it is written with `set()` (including overwriting an existing key) and when it is read with `get()` or `has()`. When the cache reaches its maximum size, the entry that has gone unused for the longest time is removed first. A freshly written entry is the most recently used one, even if it has not been read yet, so a write-heavy workload keeps its newest entries. When several operations happen within the same millisecond, they are still ordered by the sequence in which they happened.
+An entry counts as used when it is written with `set()` (including overwriting an existing key) and when it is read with `get()` or `has()`. When the cache reaches its maximum size, the entry that has gone unused for the longest time is removed first. A freshly written entry is the most recently used one, even if it has not been read yet, so a write-heavy workload keeps its newest entries. When several operations happen within the same millisecond, they are still ordered by the sequence in which they happened. Refreshing an entry with `refetch()` or `autoRefetch` does not count as a use: a refresh keeps the value current, but it does not mean the application needs the entry, so auto-refetched entries that are never read can still be evicted.
 
 ```typescript
 await RunCache.configure({ maxEntries: 2, evictionPolicy: EvictionPolicy.LRU });

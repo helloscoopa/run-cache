@@ -37,18 +37,12 @@ export class LRUPolicy extends EvictionPolicyBase {
 
     // Least recently used first. Writes and reads both count as a use, so an entry
     // that was just written is the most recently used one, whether or not it has
-    // been read yet. Ties (same millisecond) fall back to creation time and then to
-    // the order of `entries`, which CacheStore keeps in least- to most-recently-used
-    // order (Array.prototype.sort is stable).
-    const sortedEntries = [...entries].sort((a, b) => {
-      const [, stateA] = a;
-      const [, stateB] = b;
-
-      if (stateA.lastAccessed !== stateB.lastAccessed) {
-        return stateA.lastAccessed - stateB.lastAccessed;
-      }
-      return stateA.createdAt - stateB.createdAt;
-    });
+    // been read yet. Ties (same millisecond) keep the order of `entries`, which
+    // CacheStore keeps in least- to most-recently-used order (Array.prototype.sort is
+    // stable). Creation time is deliberately not used: it would override that order.
+    const sortedEntries = [...entries].sort(
+      ([, stateA], [, stateB]) => stateA.lastAccessed - stateB.lastAccessed,
+    );
 
     // Take the oldest 'count' entries
     const toEvict = sortedEntries.slice(0, count).map(([key]) => key);

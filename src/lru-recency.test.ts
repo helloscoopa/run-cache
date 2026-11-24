@@ -70,6 +70,43 @@ describe('LRU eviction order', () => {
   });
 });
 
+describe('LRU ties within one millisecond', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('keeps the most recently used entry even if it was created first', async () => {
+    jest.useFakeTimers();
+    const store = await CacheStore.create({ maxEntries: 2, evictionPolicy: EvictionPolicy.LRU });
+    jest.setSystemTime(1000);
+    await store.set({ key: 'a', value: '1' });
+    jest.setSystemTime(2000);
+    await store.set({ key: 'b', value: '2' });
+    jest.setSystemTime(3000);
+    await store.get('b');
+    await store.get('a'); // same millisecond, but after b: a is the most recently used
+    await store.set({ key: 'c', value: '3' });
+
+    expect(await store.has('a')).toBe(true);
+    expect(await store.has('b')).toBe(false);
+    await store.shutdown();
+  });
+
+  it('does not treat a refetch as a use', async () => {
+    const store = await CacheStore.create({ maxEntries: 2, evictionPolicy: EvictionPolicy.LRU });
+    await store.set({ key: 'refreshed', sourceFn: () => 'v' });
+    await tick();
+    await store.set({ key: 'written', value: 'w' });
+    await tick();
+    await store.refetch('refreshed'); // background refresh, not a use by the application
+    await store.set({ key: 'new', value: 'n' });
+
+    expect(await store.has('refreshed')).toBe(false);
+    expect(await store.has('written')).toBe(true);
+    await store.shutdown();
+  });
+});
+
 describe('LRUPolicy', () => {
   it('does not prefer unread entries over older, read entries', () => {
     const policy = new LRUPolicy(new Logger({ debug: false }));
