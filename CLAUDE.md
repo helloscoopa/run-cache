@@ -241,7 +241,7 @@ The logger (`src/logging/logger.ts`) supports multiple levels:
 - **GitHub**: https://github.com/helloscoopa/run-cache
 - **NPM**: https://www.npmjs.com/package/run-cache
 - **License**: MIT
-- **Current Version**: 1.6.1
+- **Current Version**: 1.7.0
 
 ## Best Practices
 1. Use appropriate TTL values to balance performance and freshness
