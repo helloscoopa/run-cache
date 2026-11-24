@@ -54,14 +54,17 @@ await RunCache.set({ key: 'quarterly-report', value: 'report', ttl: 90 * TTL.DAY
 
 ## How Expiration Works
 
-When a cache entry's TTL expires:
+Each entry with a TTL has a timer. When the TTL elapses:
 
-1. The entry is not immediately removed from memory
-2. The entry is marked as expired
-3. When `get()` is called for that key, RunCache checks if it's expired
-4. If expired, the entry is removed and `get()` returns `undefined` (unless `autoRefetch` is enabled)
+1. An `expire` event is emitted
+2. What happens next depends on the entry:
+   - **Plain values** (no `sourceFn`) are removed from memory immediately, whether or not they are ever read again. They no longer count towards `maxEntries`.
+   - **Entries with `autoRefetch`** are refreshed in the background. Until the refresh completes, `get()` returns the previous (stale) value.
+   - **Entries with a `sourceFn` but without `autoRefetch`** stay in memory so that you can still call `refetch(key)`, for example from an expiry listener. A `get()` or `has()` on such an entry returns `undefined`/`false` and removes it.
 
-This lazy expiration approach is efficient as it only processes expired entries when they're accessed.
+Expired entries are never served by `get()` (except the stale value of an auto-refetched entry described above), and they are not written to storage by `saveToStorage()`.
+
+In Node.js the timers are `unref()`'d, so pending TTLs never keep a process from exiting on its own.
 
 ## Checking Expiration Status
 
