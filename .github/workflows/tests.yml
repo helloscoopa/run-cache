@@ -10,6 +10,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    permissions:
+      # Needed only to publish the coverage badge data from main (see the last step)
+      contents: write
+
     steps:
       - uses: actions/checkout@v3
 
@@ -23,7 +27,38 @@ jobs:
         run: npm ci
 
       - name: Test
-        run: npm test
+        run: npm test -- --coverage --coverageReporters=text --coverageReporters=json-summary
 
       - name: Check doc code samples
         run: npm run docs:check
+
+      # Writes coverage.json (a shields.io endpoint) to the `badges` branch, which the
+      # README coverage badge reads. Runs on main only, so pull requests never write.
+      - name: Publish coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          node -e '
+            const pct = require("./coverage/coverage-summary.json").total.lines.pct;
+            const color = pct >= 95 ? "brightgreen" : pct >= 90 ? "green" : pct >= 80 ? "yellow" : pct >= 70 ? "orange" : "red";
+            const badge = { schemaVersion: 1, label: "coverage", message: `${pct}%`, color };
+            require("fs").writeFileSync("/tmp/coverage.json", JSON.stringify(badge) + "\n");
+            console.log(badge);
+          '
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          if git fetch --depth=1 origin badges; then
+            git worktree add /tmp/badges FETCH_HEAD
+            git -C /tmp/badges checkout -B badges
+          else
+            git worktree add --detach /tmp/badges
+            git -C /tmp/badges checkout --orphan badges
+            git -C /tmp/badges rm -rfq --ignore-unmatch .
+          fi
+          cp /tmp/coverage.json /tmp/badges/coverage.json
+          git -C /tmp/badges add coverage.json
+          if git -C /tmp/badges diff --cached --quiet; then
+            echo "Coverage unchanged"
+          else
+            git -C /tmp/badges commit -m "chore: update coverage badge (${GITHUB_SHA::7})"
+            git -C /tmp/badges push origin badges
+          fi

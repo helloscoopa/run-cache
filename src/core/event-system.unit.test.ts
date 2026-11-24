@@ -339,3 +339,28 @@ describe('EventSystem', () => {
     });
   });
 });
+
+describe('EventSystem.clearEventListeners (edge cases)', () => {
+  let eventSystem: EventSystem;
+
+  beforeEach(() => {
+    const logger = new Logger({ debug: false });
+    eventSystem = new EventSystem(logger);
+  });
+
+  it('clears key listeners that match a wildcard pattern for one event', () => {
+    const callback = jest.fn();
+    eventSystem.onKeyExpiry('user:1', callback);
+    eventSystem.onKeyExpiry('user:2', callback);
+    eventSystem.onKeyExpiry('order:1', callback);
+
+    expect(eventSystem.clearEventListeners({ event: 'expire' as EventName, key: 'user:*' })).toBe(true);
+    expect(eventSystem.clearEventListeners({ event: 'expire' as EventName, key: 'user:*' })).toBe(false);
+    expect(eventSystem.clearEventListeners({ event: 'expire' as EventName, key: 'order:*' })).toBe(true);
+  });
+
+  it('treats an empty key filter without an event as selecting nothing', () => {
+    eventSystem.onExpiry(jest.fn());
+    expect(eventSystem.clearEventListeners({ key: '' })).toBe(false);
+  });
+});

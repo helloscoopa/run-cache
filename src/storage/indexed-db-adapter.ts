@@ -247,16 +247,4 @@ export class IndexedDBAdapter implements StorageAdapter {
       this.dbPromise = null;
     }
   }
-
-  private handleUpgradeNeeded(_event: IDBVersionChangeEvent): void {
-    // Implementation needed
-  }
-
-  private handleSuccess(_event: Event): void {
-    // Implementation needed
-  }
-
-  private handleError(_event: Event): void {
-    // Implementation needed
-  }
 }

@@ -473,3 +473,33 @@ describe('Serialization Adapters', () => {
     });
   });
 });
+
+describe('Serialization adapter fallbacks', () => {
+  it('ClassInstance adapter returns a fresh instance for foreign or invalid data', () => {
+    const adapter = createPersonSerializationAdapter();
+    const other = JSON.stringify({ __type__: 'ClassInstance', className: 'Robot', data: { name: 'R2' } });
+
+    for (const input of [other, 'not json']) {
+      const result = adapter.deserialize(input);
+      expect(result).toBeInstanceOf(Person);
+      expect(result.name).toBe('');
+    }
+  });
+
+  it('TypedArray adapter returns an empty array for foreign or invalid data', () => {
+    const adapter = new TypedArraySerializationAdapter(Uint8Array, 'Uint8Array');
+    const other = JSON.stringify({ __type__: 'TypedArray', typeName: 'Float32Array', data: [1, 2] });
+
+    for (const input of [other, 'not json']) {
+      const result = adapter.deserialize(input);
+      expect(result).toBeInstanceOf(Uint8Array);
+      expect(result.length).toBe(0);
+    }
+  });
+
+  it('Composite adapter returns the parsed object when no adapter claims its __type__', () => {
+    const adapter = new CompositeSerializationAdapter();
+    const data = { __type__: 'Unknown', value: 1 };
+    expect(adapter.deserialize(JSON.stringify(data))).toEqual(data);
+  });
+});
