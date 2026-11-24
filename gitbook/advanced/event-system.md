@@ -12,6 +12,8 @@ The event system allows you to:
 
 RunCache supports both global event listeners (for all keys) and key-specific listeners (for specific keys or patterns).
 
+Listeners run synchronously, in the order they were registered. Errors thrown by a listener are reported to `console.error` and do not affect other listeners or the cache operation (see [Handle Errors in Event Handlers](#2-handle-errors-in-event-handlers)).
+
 ## Available Event Types
 
 RunCache provides several event types you can subscribe to:
@@ -344,7 +346,7 @@ If you need to perform heavy work, delegate it to a separate process or queue.
 
 ### 2. Handle Errors in Event Handlers
 
-Always handle errors in event handlers to prevent unhandled exceptions:
+RunCache isolates listeners from cache operations. If a listener throws, or an `async` listener rejects, the error is written to `console.error` (naming the event and key), the remaining listeners still run, and the cache operation that emitted the event completes normally. A failing listener can therefore never abort an invalidation, crash the process from an expiry timer, or cause an unhandled promise rejection. The error is not passed back to the code that triggered the event, so handle errors inside the listener if you need to react to them:
 
 ```typescript
 // Good - error handling
