@@ -43,6 +43,12 @@ export type SourceFn<T = string> = () => Promise<T> | T;
 export type CacheState<T = string> = {
   value: T;
   serializedValue?: string; // For persistence - only used internally
+
+  /**
+   * True when `value` holds the library's serialized form of a non-string value
+   * and must be deserialized on read. Plain strings are stored as-is with this unset.
+   */
+  serialized?: boolean;
   createdAt: number;
   updatedAt: number;
   ttl?: number;
