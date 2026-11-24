@@ -116,8 +116,11 @@ function codeBlocks(file) {
     const fence = open[2];
     const lang = open[3].toLowerCase();
     const start = i;
+    // A closing fence uses the same character, is at least as long, and has only
+    // spaces or tabs after it (CommonMark), so `~~~ payload` inside a block is content.
+    const closing = new RegExp(`^\\s*${fence[0] === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`);
     let j = i + 1;
-    while (j < lines.length && !lines[j].trimStart().startsWith(fence)) j++;
+    while (j < lines.length && !closing.test(lines[j])) j++;
     const ignored = start > 0 && lines[start - 1].includes("docs-check-ignore");
     if (CODE_LANGS.has(lang) && !ignored) {
       blocks.push({ line: start + 2, code: lines.slice(start + 1, j).join("\n") });
@@ -139,11 +142,20 @@ function stripComments(line) {
 /** True if the call whose `(` is at lines[line][col] is followed by `.then`/`.catch`/`.finally`. */
 function isChained(lines, line, col) {
   let depth = 0;
+  let quote = null; // open string delimiter; parentheses inside strings do not count
   for (let l = line; l < lines.length; l++) {
     const text = lines[l];
+    if (quote && quote !== "`") quote = null; // '...' and "..." strings end with the line
     for (let c = l === line ? col : 0; c < text.length; c++) {
-      if (text[c] === "(") depth++;
-      else if (text[c] === ")" && --depth === 0) {
+      const ch = text[c];
+      if (quote) {
+        if (ch === "\\") c++;
+        else if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === "'" || ch === '"' || ch === "`") quote = ch;
+      else if (ch === "(") depth++;
+      else if (ch === ")" && --depth === 0) {
         const rest = [text.slice(c + 1), ...lines.slice(l + 1, l + 3)].join("\n");
         return /^\s*\.(?:then|catch|finally)\(/.test(rest);
       }
@@ -152,16 +164,29 @@ function isChained(lines, line, col) {
   return false;
 }
 
-/** True if line i sits inside an unclosed `.set(`/`.refetch(` call that starts a few lines above. */
+/**
+ * True if line i is a property of the options object passed directly to a
+ * `.set(`/`.refetch(` call that starts a few lines above. Properties of nested
+ * objects (such as `value: { metadata: ... }`) do not count.
+ */
 function insideCacheCall(lines, i) {
-  let depth = 0;
+  let parens = 0;
+  let braces = 0; // closed `{...}` pairs seen while walking back
+  let openBraces = 0; // unclosed `{` between line i and the call
   for (let j = i - 1; j >= Math.max(0, i - 15); j--) {
     const text = lines[j];
     for (let c = text.length - 1; c >= 0; c--) {
-      if (text[c] === ")") depth++;
-      else if (text[c] === "(") {
-        if (depth === 0) return /\.(?:set|refetch)\s*(?:<[^>]*>)?$/.test(text.slice(0, c));
-        depth--;
+      const ch = text[c];
+      if (ch === ")") parens++;
+      else if (ch === "}") braces++;
+      else if (ch === "{") {
+        if (braces > 0) braces--;
+        else openBraces++;
+      } else if (ch === "(") {
+        if (parens === 0) {
+          return openBraces === 1 && /\.(?:set|refetch)\s*(?:<[^>]*>)?$/.test(text.slice(0, c));
+        }
+        parens--;
       }
     }
   }
