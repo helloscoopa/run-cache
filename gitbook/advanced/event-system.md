@@ -346,7 +346,15 @@ If you need to perform heavy work, delegate it to a separate process or queue.
 
 ### 2. Handle Errors in Event Handlers
 
-RunCache isolates listeners from cache operations. If a listener throws, or an `async` listener rejects, the error is written to `console.error` (naming the event and key), the remaining listeners still run, and the cache operation that emitted the event completes normally. A failing listener can therefore never abort an invalidation, crash the process from an expiry timer, or cause an unhandled promise rejection. The error is not passed back to the code that triggered the event, so handle errors inside the listener if you need to react to them:
+RunCache isolates listeners from cache operations. If a listener throws, or an `async` listener rejects, the error is written to `console.error` (naming the event and key), the remaining listeners still run, and the cache operation that emitted the event completes normally. A failing listener can therefore never abort an invalidation, crash the process from an expiry timer, or cause an unhandled promise rejection. The error is not passed back to the code that triggered the event. To route listener errors to your own logging instead of the console, set `onListenerError`:
+
+```typescript
+await RunCache.configure({
+  onListenerError: (error, { event, key }) => logger.error({ err: error, event, key }, 'RunCache listener failed'),
+});
+```
+
+To react to errors inside a specific listener, handle them there:
 
 ```typescript
 // Good - error handling

@@ -291,15 +291,35 @@ export class EventSystem {
   }
 
   /**
-   * Reports a listener failure. Always written to the console (not only in debug mode),
-   * since a silently failing listener is otherwise very hard to diagnose.
+   * Reports a listener failure to the configured `onListenerError` handler or, by default,
+   * to `console.error` (not only in debug mode, since a silently failing listener is
+   * otherwise very hard to diagnose).
    *
    * @private
    */
   private reportListenerError(event: string, key: string, error: unknown): void {
     this.logger.log('error', `Listener for ${event} event on key ${key} failed`, error);
+
+    const handler = this.logger.getConfig().onListenerError;
+    if (typeof handler === 'function') {
+      try {
+        handler(error, { event, key });
+        return;
+      } catch (handlerError) {
+        this.writeToConsole('RunCache: onListenerError handler threw an error', handlerError);
+      }
+    }
+    this.writeToConsole(`RunCache: a ${event} listener for key "${key}" threw an error`, error);
+  }
+
+  /**
+   * Writes an error to the console when one is available.
+   *
+   * @private
+   */
+  private writeToConsole(message: string, error: unknown): void {
     if (typeof console !== 'undefined' && typeof console.error === 'function') {
-      console.error(`RunCache: a ${event} listener for key "${key}" threw an error`, error);
+      console.error(message, error);
     }
   }
 

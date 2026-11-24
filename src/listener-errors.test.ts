@@ -104,4 +104,55 @@ describe('listener errors are isolated', () => {
       expect.objectContaining({ message: 'async listener' }),
     );
   });
+
+  describe('onListenerError', () => {
+    afterEach(async () => {
+      await RunCache.configure({ onListenerError: undefined });
+    });
+
+    it('receives listener errors instead of console.error', async () => {
+      const handler = jest.fn();
+      await RunCache.configure({ onListenerError: handler });
+      const failure = new Error('listener failed');
+      await RunCache.onRefetch(() => { throw failure; });
+      await RunCache.set({ key: 'h', sourceFn: () => 'v' });
+
+      await RunCache.refetch('h');
+
+      expect(handler).toHaveBeenCalledWith(failure, { event: 'refetch', key: 'h' });
+      expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it('receives rejections from async listeners', async () => {
+      const handler = jest.fn();
+      await RunCache.configure({ onListenerError: handler });
+      await RunCache.onRefetch(async () => { throw new Error('async failure'); });
+      await RunCache.set({ key: 'h', sourceFn: () => 'v' });
+
+      await RunCache.refetch('h');
+      await sleep(0);
+
+      expect(handler).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'async failure' }),
+        { event: 'refetch', key: 'h' },
+      );
+    });
+
+    it('falls back to console.error if the handler itself throws', async () => {
+      await RunCache.configure({ onListenerError: () => { throw new Error('handler broke'); } });
+      await RunCache.onRefetch(() => { throw new Error('listener failed'); });
+      await RunCache.set({ key: 'h', sourceFn: () => 'v' });
+
+      await expect(RunCache.refetch('h')).resolves.toBe(true);
+
+      expect(consoleError).toHaveBeenCalledWith(
+        'RunCache: onListenerError handler threw an error',
+        expect.objectContaining({ message: 'handler broke' }),
+      );
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining('refetch listener for key "h"'),
+        expect.objectContaining({ message: 'listener failed' }),
+      );
+    });
+  });
 });

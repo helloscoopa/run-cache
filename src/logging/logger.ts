@@ -13,6 +13,13 @@ export class Logger {
   /**
    * Updates the logger configuration
    */
+  /**
+   * Returns the current configuration
+   */
+  getConfig(): CacheConfig {
+    return this.config;
+  }
+
   updateConfig(config: CacheConfig): void {
     this.config = config;
   }

@@ -29,6 +29,12 @@ interface CacheConfig {
    * Storage adapter for persistence
    */
   storageAdapter?: StorageAdapter;
+
+  /**
+   * Receives errors thrown or rejected by event listeners.
+   * Defaults to writing them to console.error.
+   */
+  onListenerError?: (error: unknown, context: { event: string; key: string }) => void;
 }
 ```
 

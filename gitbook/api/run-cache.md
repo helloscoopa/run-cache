@@ -18,6 +18,7 @@ Configures the cache with global settings.
   - `maxEntries?`: `number` - Maximum number of entries before eviction (default: unlimited)
   - `evictionPolicy?`: `EvictionPolicy` - Eviction policy to use (default: NONE)
   - `debug?`: `boolean` - Enable debug logging (default: false)
+  - `onListenerError?`: `(error, { event, key }) => void` - Receives errors thrown (or rejected) by event listeners. By default they are written to `console.error`; listener errors never reach the cache operation that emitted the event.
   - `storageAdapter?`: `StorageAdapter` - Storage adapter for persistence (default: none)
 
 **Returns:** `void`
