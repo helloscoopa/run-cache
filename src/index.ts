@@ -34,6 +34,9 @@ export { EvictionPolicy, EVENT };
 // Re-export storage adapters
 export * from './storage/index';
 
+// Error classes thrown for source function and middleware failures
+export { RunCacheError, SourceFnError, MiddlewareError } from './core/errors';
+
 // Re-export types for TypeScript users
 export type {
   CacheConfig,

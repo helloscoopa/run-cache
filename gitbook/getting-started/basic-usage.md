@@ -200,6 +200,24 @@ try {
 }
 ```
 
+An empty string is a valid value (`value: ''`); only a missing value requires a `sourceFn`.
+
+Failures in a source function or in middleware are thrown as `SourceFnError` or `MiddlewareError` (both extend `RunCacheError`). The original error is available as `cause`, and the key as `key`:
+
+```typescript
+import { RunCache, SourceFnError } from 'run-cache';
+
+try {
+  await RunCache.set({ key: 'user:1', sourceFn: () => fetchUser(1) });
+} catch (error) {
+  if (error instanceof SourceFnError) {
+    console.error(`Loading ${error.key} failed:`, error.cause);
+  }
+}
+```
+
+`refetch_failure` events carry the same original error in `event.error`.
+
 Common error scenarios include:
 - Empty or invalid keys
 - Missing required parameters

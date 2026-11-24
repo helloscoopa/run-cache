@@ -25,12 +25,12 @@ describe("RunCache", () => {
   });
 
   describe("set()", () => {
-    it("should throw an error if the cache key or value is empty", async () => {
+    it("should throw an error if the cache key is empty or the value is missing", async () => {
       await expect(() =>
         RunCache.set({ key: "", value: uuid() }),
       ).rejects.toThrow("Empty key");
       await expect(() =>
-        RunCache.set({ key: uuid(), value: "" }),
+        RunCache.set({ key: uuid() }),
       ).rejects.toThrow("`value` can't be empty without a `sourceFn`");
     });
 

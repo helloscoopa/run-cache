@@ -77,6 +77,7 @@ export class EventSystem {
       updatedAt: cache.updatedAt,
       tag: cache.tag,
       dependencyKey: cache.dependencyKey,
+      ...(cache.error !== undefined ? { error: cache.error } : {}),
     };
 
     this.logger.log('debug', `Emitting ${event} event for key: ${cache.key}`);

@@ -11,6 +11,7 @@ import { DefaultMiddlewareManager } from './middleware-manager';
 import { MiddlewareContext, MiddlewareFunction, MiddlewareManager } from '../types/middleware';
 import { StorageAdapter } from '../types/storage-adapter';
 import { SerializationManager } from './serialization';
+import { MiddlewareError, SourceFnError } from './errors';
 
 // Use the original isExpired function but add a custom wrapper for the simpler case
 function isExpired(_cache: CacheState<string>): boolean;
@@ -166,7 +167,8 @@ export class CacheStore {
       throw new Error('Empty key');
     }
 
-    if (sourceFn === undefined && (value === undefined || !value.length)) {
+    // An empty string is a valid value; only a missing value needs a sourceFn
+    if (sourceFn === undefined && value === undefined) {
       this.logger.log('error', `Neither value nor sourceFn provided to set() method for key: ${key}`);
       throw new Error("`value` can't be empty without a `sourceFn`");
     }
@@ -305,7 +307,12 @@ export class CacheStore {
         this.logger.log('debug', `Successfully fetched value using sourceFn for key: ${key}`);
       } catch (e) {
         this.logger.log('error', `Source function failed for key: ${key}`, e);
-        throw new Error(`Source function failed for key: '${key}'`);
+        throw new SourceFnError(`Source function failed for key: '${key}'`, key, e);
+      }
+
+      if (cacheValue === undefined) {
+        this.logger.log('error', `Source function returned undefined for key: ${key}`);
+        throw new SourceFnError(`Source function returned undefined for key: '${key}'`, key);
       }
     }
 
@@ -323,13 +330,13 @@ export class CacheStore {
       const processed = await this.middlewareManager.execute(cacheValue, context);
       if (processed === undefined) {
         this.logger.log('error', `Middleware returned undefined for key: ${key}`);
-        throw new Error(`Middleware returned undefined for key: '${key}'`);
+        throw new MiddlewareError(`Middleware returned undefined for key: '${key}'`, key);
       }
       cacheValue = processed;
       this.logger.log('debug', `Applied middleware for key: ${key}`);
     } catch (error) {
       this.logger.log('error', `Middleware execution failed for key: ${key}`, error);
-      throw new Error(`Middleware execution failed for key: '${key}'`);
+      throw new MiddlewareError(`Middleware execution failed for key: '${key}'`, key, error);
     }
 
     // Check if adding this entry will exceed max size and enforce eviction if needed
@@ -352,7 +359,8 @@ export class CacheStore {
     const finalDependencies = dependencies ? [...dependencies] : (existingCache?.dependencies || []);
 
     this.cache.set(key, {
-      value: cacheValue ?? 'undefined',
+      // Defined: a missing value was rejected above, and sourceFn/middleware results are checked
+      value: cacheValue as string,
       ttl,
       sourceFn,
       autoRefetch,
@@ -558,7 +566,7 @@ export class CacheStore {
         const processed = await this.middlewareManager.execute(value, context);
         if (processed === undefined) {
           this.logger.log('error', `Middleware returned undefined for stale key: ${key}`);
-          throw new Error(`Middleware returned undefined for stale key: '${key}'`);
+          throw new MiddlewareError(`Middleware returned undefined for stale key: '${key}'`, key);
         }
         return processed;
       }
@@ -587,7 +595,7 @@ export class CacheStore {
     const processed = await this.middlewareManager.execute(value, context);
     if (processed === undefined) {
       this.logger.log('error', `Middleware returned undefined for key: ${key}`);
-      throw new Error(`Middleware returned undefined for key: '${key}'`);
+      throw new MiddlewareError(`Middleware returned undefined for key: '${key}'`, key);
     }
     return processed;
   }
@@ -668,8 +676,14 @@ export class CacheStore {
       let newValue: string;
       try {
         newValue = await cached.sourceFn();
+        if (newValue === undefined) {
+          throw new SourceFnError(`Source function returned undefined for key: '${key}'`, key);
+        }
       } catch (e) {
         this.logger.log('error', `Source function failed during refetch for key: ${key}`, e);
+        const error = e instanceof SourceFnError
+          ? e
+          : new SourceFnError(`Source function failed for key: '${key}'`, key, e);
 
         // Emit event
         this.eventSystem.emitEvent(
@@ -679,6 +693,7 @@ export class CacheStore {
             value: cached.value,
             createdAt: cached.createdAt,
             updatedAt: cached.updatedAt,
+            error: error.cause ?? error,
           },
         );
 
@@ -686,8 +701,8 @@ export class CacheStore {
         cached.fetching = false;
         this.cache.set(key, cached);
 
-        // Rethrow with more context
-        throw new Error(`Source function failed for key: '${key}'`);
+        // Rethrow with more context; the original error is available as `cause`
+        throw error;
       }
 
       // Update timestamps before applying middleware
@@ -717,7 +732,7 @@ export class CacheStore {
       const processed = await this.middlewareManager.execute(newValue, context);
       if (processed === undefined) {
         this.logger.log('error', `Middleware returned undefined during refetch for key: ${key}`);
-        throw new Error(`Middleware returned undefined during refetch for key: '${key}'`);
+        throw new MiddlewareError(`Middleware returned undefined during refetch for key: '${key}'`, key);
       }
       newValue = processed;
 
@@ -764,8 +779,8 @@ export class CacheStore {
 
       return true;
     } catch (e) {
-      // If it's not a source function error that we've already handled, reset the fetching flag
-      if (!(e instanceof Error && e.message.startsWith(`Source function failed for key: '${key}'`))) {
+      // Source function errors were handled (event emitted, flag reset) above
+      if (!(e instanceof SourceFnError)) {
         this.logger.log('error', `Refetch failed for key: ${key}`, e);
 
         // Reset the fetching flag

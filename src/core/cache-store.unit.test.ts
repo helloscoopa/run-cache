@@ -273,10 +273,9 @@ describe('CacheStore', () => {
       const key = 'empty-key';
       const value = '';
 
-      // Store empty string - this should throw an error due to validation
-      await expect(cacheStore.set({ key, value })).rejects.toThrow(
-        "`value` can't be empty without a `sourceFn`",
-      );
+      // An empty string is a valid cached value
+      await expect(cacheStore.set({ key, value })).resolves.toBe(true);
+      expect(await cacheStore.get(key)).toBe('');
     });
 
     it('should handle numeric string values', async () => {
