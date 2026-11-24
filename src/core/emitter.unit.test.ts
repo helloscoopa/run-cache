@@ -81,3 +81,11 @@ describe('Emitter', () => {
     warn.mockRestore();
   });
 });
+
+describe('Emitter.removeListener (unknown event)', () => {
+  it('is a no-op for an event with no listeners', () => {
+    const emitter = new Emitter();
+    expect(emitter.removeListener('missing', () => {})).toBe(emitter);
+    expect(emitter.listenerCount('missing')).toBe(0);
+  });
+});
