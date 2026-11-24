@@ -8,10 +8,17 @@ site:
   title: RunCache
   structure:
     - type: space
-      key: space-v1-6
-      title: "v1.6 (latest)"
-      path: v1-6
+      key: space-v1-7
+      title: "v1.7 (latest)"
+      path: v1-7
       default: true
+      content:
+        directory: ./gitbook-versions/v1.7
+        language: en
+    - type: space
+      key: space-v1-6
+      title: "v1.6"
+      path: v1-6
       content:
         directory: ./gitbook-versions/v1.6
         language: en
