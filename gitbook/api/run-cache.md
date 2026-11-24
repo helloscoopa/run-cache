@@ -537,9 +537,9 @@ Removes event listeners based on the specified options.
 
 **Parameters:**
 
-- `options?`: `Object` - Options to specify which listeners to remove. With no options, every listener is removed.
+- `options?`: `Object` - Options to specify which listeners to remove. With no options, every listener is removed; an object that selects nothing (`{}`) removes nothing.
   - `event?`: `EventName` - The event type to remove listeners for. Only that exact event is affected; for example, clearing `EVENT.REFETCH` keeps `EVENT.REFETCH_FAILURE` listeners.
-  - `key?`: `string` - The key or wildcard pattern to remove listeners for. Without `event`, the key's listeners are removed for every event type.
+  - `key?`: `string` - The key or wildcard pattern to remove listeners for. Without `event`, the key's listeners are removed for every event type. An exact key does not remove wildcard listeners that match it.
 
 **Returns:** `Promise<boolean>` - `true` if at least one listener was removed, `false` otherwise
 

@@ -92,4 +92,28 @@ describe('RunCache.clearEventListeners()', () => {
     expect(onRefetch).not.toHaveBeenCalled();
     expect(onOther).toHaveBeenCalledTimes(1);
   });
+
+  it('treats an options object that selects nothing as a no-op', async () => {
+    const onExpiry = jest.fn();
+    await RunCache.onExpiry(onExpiry);
+
+    expect(await RunCache.clearEventListeners({})).toBe(false);
+    expect(await RunCache.clearEventListeners({ event: undefined })).toBe(false);
+    expect(await RunCache.clearEventListeners({ event: undefined, key: undefined })).toBe(false);
+
+    await RunCache.set({ key: 'still', value: 'v', ttl: 10 });
+    await new Promise((resolve) => { setTimeout(resolve, 30); });
+    expect(onExpiry).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not clear wildcard listeners when clearing an exact key', async () => {
+    const onPattern = jest.fn();
+    await RunCache.onKeyRefetch('k*', onPattern);
+    await RunCache.set({ key: 'k', sourceFn: () => 'v' });
+
+    expect(await RunCache.clearEventListeners({ key: 'k' })).toBe(false);
+    await RunCache.refetch('k');
+
+    expect(onPattern).toHaveBeenCalledTimes(1);
+  });
 });

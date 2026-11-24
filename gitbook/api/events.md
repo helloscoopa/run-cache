@@ -337,7 +337,9 @@ RunCache.clearEventListeners(options?: {
   - `event?`: The event type to remove listeners for. Only that exact event is affected: clearing `EVENT.REFETCH` leaves `EVENT.REFETCH_FAILURE` listeners in place.
   - `key?`: The key or wildcard pattern to remove listeners for. Without `event`, the key's listeners are removed for every event type.
 
-With no options, every listener is removed.
+With no options, every listener is removed. An options object that selects nothing, such as `{}` or `{ event: undefined }`, removes nothing and returns `false`.
+
+An exact key only clears listeners registered for that exact key. Wildcard listeners that match it, such as `api-*` for `api-data`, stay registered; clear them by passing the pattern itself.
 
 **Returns:** `Promise<boolean>` - `true` if at least one listener was removed, `false` if there was nothing to remove.
 

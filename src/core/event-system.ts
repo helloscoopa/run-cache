@@ -233,20 +233,27 @@ export class EventSystem {
    * @param {Object} [params] - Optional parameters to specify which listeners to clear
    * @param {EventName} [params.event] - The event type for which to clear listeners
    * @param {string} [params.key] - The key pattern for which to clear listeners. When given without
-   *   `event`, listeners for that key (or pattern) are cleared for every event type.
+   *   `event`, listeners for that key (or pattern) are cleared for every event type. An exact key
+   *   only clears listeners registered for that exact key, not wildcard listeners that match it.
    * @returns {boolean} true if at least one listener was removed, false otherwise
    */
   clearEventListeners(params?: {
     event?: EventName;
     key?: string;
   }): boolean {
-    if (!params || (params.event === undefined && params.key === undefined)) {
+    if (!params) {
       const total = this.emitter.eventNames()
         .reduce((count, eventName) => count + this.emitter.listenerCount(eventName), 0);
       this.logger.log('info', `Clearing all event listeners (${total})`);
       this.emitter.removeAllListeners();
       this.wildcardListeners = [];
       return total > 0;
+    }
+
+    // An options object that selects nothing (`{}`, `{ event: undefined }`) is a no-op,
+    // so a filter built from optional values never clears every listener by accident
+    if (params.event === undefined && params.key === undefined) {
+      return false;
     }
 
     if (params.key && !params.event) {
