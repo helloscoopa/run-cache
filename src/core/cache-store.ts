@@ -405,14 +405,17 @@ export class CacheStore {
       this.enforceEvictionPolicy(1);
     }
 
-    // Set up proper access metadata - preserve existing metadata for updates
+    // Set up access metadata. The access count is preserved for updates; a write
+    // always counts as the most recent use for LRU purposes.
     const accessCount = existingCache ? existingCache.accessCount : 0;
-    const lastAccessed = existingCache ? existingCache.lastAccessed : writtenAt;
+    const lastAccessed = writtenAt;
 
     // Process and sanitize tags and dependencies
     const finalTags = tags ? normalizeTags(tags) : (existingCache?.tags || []);
     const finalDependencies = dependencies ? [...dependencies] : (existingCache?.dependencies || []);
 
+    // Re-insert so the Map's iteration order stays least- to most-recently-used
+    this.cache.delete(key);
     this.cache.set(key, {
       value: cacheValue ?? 'undefined',
       serialized,
@@ -509,6 +512,8 @@ export class CacheStore {
       const previousAccess = { lastAccessed: cached.lastAccessed, accessCount: cached.accessCount };
       cached.lastAccessed = now;
       cached.accessCount += 1;
+      // Move to the end so the Map's iteration order stays least- to most-recently-used
+      this.cache.delete(key);
       this.cache.set(key, cached);
 
       this.logger.log('debug', `Updated access metadata for key: ${key}`, {

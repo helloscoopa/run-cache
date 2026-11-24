@@ -35,7 +35,7 @@ RunCache supports three eviction policies:
 
 1. **NONE**: No automatic eviction (default). Cache entries are only removed via TTL or manual deletion.
 
-2. **LRU (Least Recently Used)**: Removes the least recently accessed entries when the cache exceeds its maximum size. This is ideal for most applications as it preserves frequently accessed data.
+2. **LRU (Least Recently Used)**: Removes the least recently used entries when the cache exceeds its maximum size. Writes and reads both count as a use. This is ideal for most applications as it preserves recently written and recently read data.
 
 3. **LFU (Least Frequently Used)**: Removes the least frequently accessed entries when the cache exceeds its maximum size. When entries have the same access frequency, the oldest entry is removed first. This is useful for applications where access frequency is more important than recency.
 
