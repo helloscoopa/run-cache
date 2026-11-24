@@ -77,8 +77,11 @@ Triggered when a cache entry is invalidated by tag.
 ```typescript
 interface TagInvalidationEvent {
   key: string;        // The key of the invalidated entry
+  value: string;      // The value the entry held
+  ttl?: number;       // The entry's TTL in milliseconds, if it had one
+  createdAt: number;  // Timestamp when the entry was created
+  updatedAt: number;  // Timestamp when the entry was last updated
   tag: string;        // The tag that caused the invalidation
-  metadata?: any;     // Optional custom metadata associated with the entry
 }
 ```
 
@@ -89,8 +92,11 @@ Triggered when a cache entry is invalidated due to a dependency.
 ```typescript
 interface DependencyInvalidationEvent {
   key: string;        // The key of the invalidated entry
+  value: string;      // The value the entry held
+  ttl?: number;       // The entry's TTL in milliseconds, if it had one
+  createdAt: number;  // Timestamp when the entry was created
+  updatedAt: number;  // Timestamp when the entry was last updated
   dependencyKey: string; // The key of the dependency that caused the invalidation
-  metadata?: any;     // Optional custom metadata associated with the entry
 }
 ```
 

@@ -106,4 +106,36 @@ describe('expire events', () => {
 
     expect(refetched[0].ttl).toBe(5000);
   });
+
+  it('fires when the TTL is shorter than the initial sourceFn call', async () => {
+    let calls = 0;
+    await RunCache.set({
+      key: 'slow',
+      sourceFn: async () => {
+        calls += 1;
+        await sleep(60);
+        return `v${calls}`;
+      },
+      ttl: 20,
+      autoRefetch: true,
+    });
+    await sleep(40);
+
+    expect(events.map((e) => e.key)).toContain('slow');
+    expect(events[0].value).toBe('v1');
+    expect(calls).toBeGreaterThan(1); // auto-refetch started after the expiry
+  });
+
+  it('includes the TTL in tag and dependency invalidation events', async () => {
+    const invalidated: EventParam[] = [];
+    await RunCache.onTagInvalidation((event) => { invalidated.push(event); });
+    await RunCache.onDependencyInvalidation((event) => { invalidated.push(event); });
+    await RunCache.set({ key: 'tagged', value: 'v', ttl: 5000, tags: ['t'] });
+    await RunCache.set({ key: 'dependent', value: 'v', ttl: 6000, dependencies: ['parent'] });
+
+    await RunCache.invalidateByTag('t');
+    await RunCache.invalidateByDependency('parent');
+
+    expect(invalidated.map((e) => [e.key, e.ttl])).toEqual([['tagged', 5000], ['dependent', 6000]]);
+  });
 });

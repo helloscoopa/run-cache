@@ -1324,6 +1324,7 @@ export class CacheStore {
           {
             key,
             value: cacheState.value,
+            ttl: cacheState.ttl,
             createdAt: cacheState.createdAt,
             updatedAt: cacheState.updatedAt,
             tag: normalizedTag,
@@ -1408,6 +1409,7 @@ export class CacheStore {
           {
             key: invalidKey,
             value: cacheState.value,
+            ttl: cacheState.ttl,
             createdAt: cacheState.createdAt,
             updatedAt: cacheState.updatedAt,
             dependencyKey: key,
