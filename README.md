@@ -195,6 +195,8 @@ RunCache.onDependencyInvalidation((event) => {
 });
 ```
 
+Invalidation also cascades automatically. Dependents (direct and indirect) are removed when the entry they depend on is updated with `set()`, refetched, deleted, evicted, invalidated by tag or expires. Setting a key for the first time does not invalidate anything. `invalidateByDependency(key)` removes the dependents but keeps `key` itself. Circular dependencies are rejected: `set()` throws `Circular dependency detected`.
+
 ## API Reference
 
 ### Cache Management

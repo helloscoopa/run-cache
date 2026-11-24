@@ -68,7 +68,7 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
   - `autoRefetch?`: `boolean` - Automatically refetch on expiry (requires ttl and sourceFn)
   - `sourceFn?`: `() => T | Promise<T>` - Function to generate cache value (required if no value)
   - `tags?`: `string[]` - Array of tags for tag-based invalidation
-  - `dependencies?`: `string[]` - Array of cache keys this entry depends on
+  - `dependencies?`: `string[]` - Array of cache keys this entry depends on. The entry is invalidated automatically when any of them changes. Overwriting an existing key with `set()` also invalidates the entries that depend on it.
   - `metadata?`: `any` - Custom metadata to associate with the entry
   - `validator?`: `TypeValidator<T>` - Optional type validator for runtime checking
   - `validateOnSet?`: `boolean` - Validate value before caching (default: false)
@@ -80,6 +80,7 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
 - `Error` - If neither value nor sourceFn is provided
 - `Error` - If autoRefetch is true but ttl or sourceFn is not provided
 - `Error` - If ttl is `0` or negative (`` `ttl` cannot be negative ``), not a number or `NaN` (`` `ttl` must be a number ``), or `Infinity` (`` `ttl` must be a finite number ``)
+- `Error` - If `dependencies` contains the key itself, or would create a cycle (`Circular dependency detected`)
 
 **Example:**
 
@@ -315,19 +316,21 @@ RunCache.invalidateByTag('user:1');
 
 ### `invalidateByDependency(key)`
 
-Invalidates a cache entry and all entries that depend on it.
+Invalidates all entries that depend on `key`, directly or indirectly. The entry for `key` itself is kept. Each invalidated entry emits a `dependency_invalidation` event with `dependencyKey` set to `key`.
+
+You only need this to invalidate dependents explicitly. The same cascade runs automatically when `key` is updated with `set()`, refetched, deleted, evicted, invalidated by tag or expires.
 
 **Parameters:**
 
-- `key`: `string` - The key to invalidate
+- `key`: `string` - The key whose dependents should be invalidated
 
-**Returns:** `void`
+**Returns:** `Promise<boolean>` - `true` if at least one entry was invalidated
 
 **Example:**
 
 ```typescript
-// Invalidate 'user:1:profile' and all entries that depend on it
-RunCache.invalidateByDependency('user:1:profile');
+// Invalidate every entry that depends on 'user:1:profile'
+await RunCache.invalidateByDependency('user:1:profile');
 ```
 
 ### `isDependencyOf(key, dependencyKey)`
@@ -339,7 +342,9 @@ Checks if one entry depends on another (directly or indirectly).
 - `key`: `string` - The key to check
 - `dependencyKey`: `string` - The potential dependency key
 
-**Returns:** `Promise<boolean>` - True if key depends on dependencyKey
+**Returns:** `Promise<boolean>` - True if key depends on dependencyKey. Returns false if `key`, or an intermediate entry in the chain, does not exist or has expired.
+
+This is a read-only check: it does not count as an access for eviction, emit events or remove expired entries.
 
 **Example:**
 
