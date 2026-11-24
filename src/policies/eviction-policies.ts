@@ -35,27 +35,19 @@ export class LRUPolicy extends EvictionPolicyBase {
   getEntriesToEvict(entries: [string, CacheState][], count: number): string[] {
     this.logger.log('debug', `Running LRU eviction for ${count} entries`);
 
-    // Create a sorted array based on LRU criteria
+    // Least recently used first. Writes and reads both count as a use, so an entry
+    // that was just written is the most recently used one, whether or not it has
+    // been read yet. Ties (same millisecond) fall back to creation time and then to
+    // the order of `entries`, which CacheStore keeps in least- to most-recently-used
+    // order (Array.prototype.sort is stable).
     const sortedEntries = [...entries].sort((a, b) => {
       const [, stateA] = a;
       const [, stateB] = b;
 
-      // First sort by access count - items that were never accessed get evicted first
-      if (stateA.accessCount === 0 && stateB.accessCount > 0) {
-        return -1; // A comes first (should be evicted)
+      if (stateA.lastAccessed !== stateB.lastAccessed) {
+        return stateA.lastAccessed - stateB.lastAccessed;
       }
-      if (stateA.accessCount > 0 && stateB.accessCount === 0) {
-        return 1; // B comes first (should be evicted)
-      }
-
-      // If both items have the same access counts, sort by last accessed time
-      if (stateA.lastAccessed === stateB.lastAccessed) {
-        // Sort by creation time if last accessed times are identical
-        return stateA.createdAt - stateB.createdAt;
-      }
-
-      // Otherwise just sort by lastAccessed time (oldest first)
-      return stateA.lastAccessed - stateB.lastAccessed;
+      return stateA.createdAt - stateB.createdAt;
     });
 
     // Take the oldest 'count' entries
