@@ -98,7 +98,9 @@ await RunCache.set({ key: 'valid-key', value: 'valid-value' });
 try {
   await RunCache.set({ key: 'invalid-key', value: 'a' });
 } catch (error) {
-  console.error(error.message); // "Invalid value for key invalid-key: minimum length is 3 characters"
+  // error is a MiddlewareError; the error thrown by the middleware is error.cause
+  console.error(error.message);       // "Middleware execution failed for key: 'invalid-key'"
+  console.error(error.cause.message); // "Invalid value for key invalid-key: minimum length is 3 characters"
 }
 ```
 

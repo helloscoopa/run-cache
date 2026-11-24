@@ -61,7 +61,7 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
 
 - `options`: `Object` - Cache entry options
   - `key`: `string` - Unique identifier for the cache entry
-  - `value?`: `T` - Value to cache (required if no sourceFn)
+  - `value?`: `T` - Value to cache (required if no sourceFn). An empty string is a valid value.
   - `ttl?`: `number` - Time-to-live in milliseconds
   - `autoRefetch?`: `boolean` - Automatically refetch on expiry (requires ttl and sourceFn)
   - `sourceFn?`: `() => T | Promise<T>` - Function to generate cache value (required if no value)
@@ -77,6 +77,10 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
 - `Error` - If key is empty
 - `Error` - If neither value nor sourceFn is provided
 - `Error` - If autoRefetch is true but ttl or sourceFn is not provided
+- `SourceFnError` - If the source function throws or rejects (the original error is in `error.cause`), or resolves to `undefined`
+- `MiddlewareError` - If a middleware throws (original error in `error.cause`) or produces `undefined`
+
+`SourceFnError` and `MiddlewareError` extend `RunCacheError`, which extends `Error` and also carries the cache `key`. All three are exported from `run-cache`.
 
 **Example:**
 
@@ -268,7 +272,8 @@ Manually refreshes a cache entry or entries matching a pattern.
 **Returns:** `Promise<void>`
 
 **Throws:**
-- `Error` - If no matching entries have source functions
+- `SourceFnError` - If the source function of a single key throws or resolves to `undefined`. The original error is in `error.cause`, the previous value stays in the cache, and a `refetch_failure` event is emitted with the same error in `event.error`.
+- `MiddlewareError` - If a middleware produces `undefined` for the new value
 
 **Example:**
 

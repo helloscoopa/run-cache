@@ -189,7 +189,7 @@ RunCache.onDependencyInvalidation((event) => {
 ```typescript
 await RunCache.set({
   key: string,                         // Required: Unique identifier for the cache entry
-  value?: string,                      // Optional: String value to cache (required if no sourceFn)
+  value?: string,                      // Optional: String value to cache, '' allowed (required if no sourceFn)
   ttl?: number,                        // Optional: Time-to-live in milliseconds
   autoRefetch?: boolean,               // Optional: Automatically refetch on expiry (requires ttl and sourceFn)
   sourceFn?: () => string | Promise<string>, // Optional: Function to generate cache value (required if no value)
