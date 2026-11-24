@@ -11,7 +11,8 @@ export class RunCacheError extends Error {
 
   constructor(message: string, key: string, cause?: unknown) {
     super(message);
-    this.name = new.target.name;
+    // Set explicitly rather than read from the class, so the name survives minification
+    this.name = 'RunCacheError';
     this.key = key;
     if (cause !== undefined) {
       this.cause = cause;
@@ -22,9 +23,19 @@ export class RunCacheError extends Error {
 /**
  * Thrown when a source function throws, rejects or resolves to `undefined`.
  */
-export class SourceFnError extends RunCacheError {}
+export class SourceFnError extends RunCacheError {
+  constructor(message: string, key: string, cause?: unknown) {
+    super(message, key, cause);
+    this.name = 'SourceFnError';
+  }
+}
 
 /**
  * Thrown when a middleware function throws or produces `undefined`.
  */
-export class MiddlewareError extends RunCacheError {}
+export class MiddlewareError extends RunCacheError {
+  constructor(message: string, key: string, cause?: unknown) {
+    super(message, key, cause);
+    this.name = 'MiddlewareError';
+  }
+}

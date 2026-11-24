@@ -388,6 +388,25 @@ export class CacheStore {
   }
 
   /**
+   * Runs the middleware chain for a read or refetch. A middleware that throws is reported
+   * as a MiddlewareError carrying the original error as `cause`, as it is for set().
+   */
+  private async runMiddleware(
+    value: string | undefined,
+    context: MiddlewareContext<string | undefined>,
+  ): Promise<string | undefined> {
+    try {
+      return await this.middlewareManager.execute(value, context);
+    } catch (error) {
+      if (error instanceof MiddlewareError) {
+        throw error;
+      }
+      this.logger.log('error', `Middleware execution failed for key: ${context.key}`, error);
+      throw new MiddlewareError(`Middleware execution failed for key: '${context.key}'`, context.key, error);
+    }
+  }
+
+  /**
    * Updates the access metadata for a specific cache entry
    * @param key The cache key to update
    */
@@ -563,7 +582,7 @@ export class CacheStore {
           timestamp: Date.now(),
         };
 
-        const processed = await this.middlewareManager.execute(value, context);
+        const processed = await this.runMiddleware(value, context);
         if (processed === undefined) {
           this.logger.log('error', `Middleware returned undefined for stale key: ${key}`);
           throw new MiddlewareError(`Middleware returned undefined for stale key: '${key}'`, key);
@@ -592,7 +611,7 @@ export class CacheStore {
       timestamp: Date.now(),
     };
 
-    const processed = await this.middlewareManager.execute(value, context);
+    const processed = await this.runMiddleware(value, context);
     if (processed === undefined) {
       this.logger.log('error', `Middleware returned undefined for key: ${key}`);
       throw new MiddlewareError(`Middleware returned undefined for key: '${key}'`, key);
@@ -729,7 +748,7 @@ export class CacheStore {
         timestamp: now,
       };
 
-      const processed = await this.middlewareManager.execute(newValue, context);
+      const processed = await this.runMiddleware(newValue, context);
       if (processed === undefined) {
         this.logger.log('error', `Middleware returned undefined during refetch for key: ${key}`);
         throw new MiddlewareError(`Middleware returned undefined during refetch for key: '${key}'`, key);

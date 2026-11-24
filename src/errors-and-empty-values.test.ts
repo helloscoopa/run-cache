@@ -131,4 +131,53 @@ describe('empty values and error reporting', () => {
       await expect(RunCache.get('g')).rejects.toBeInstanceOf(MiddlewareError);
     });
   });
+
+  describe('error classes', () => {
+    it('use explicit names that do not depend on the (minifiable) class name', () => {
+      expect(new RunCacheError('m', 'k').name).toBe('RunCacheError');
+      expect(new SourceFnError('m', 'k').name).toBe('SourceFnError');
+      expect(new MiddlewareError('m', 'k').name).toBe('MiddlewareError');
+      expect(new SourceFnError('m', 'k')).toBeInstanceOf(RunCacheError);
+      expect(new MiddlewareError('m', 'k')).toBeInstanceOf(Error);
+    });
+
+    it('set names as literals in the source', () => {
+      // eslint-disable-next-line global-require
+      const source = require('fs').readFileSync(require('path').join(__dirname, 'core', 'errors.ts'), 'utf8');
+      expect(source).not.toMatch(/new\.target\.name|this\.constructor\.name/);
+    });
+  });
+
+  describe('middleware errors on read and refetch', () => {
+    it('wraps a middleware that throws during get() in MiddlewareError', async () => {
+      const original = new TypeError('cannot decrypt');
+      await RunCache.set({ key: 'r', value: 'v' });
+      await RunCache.use(async (value, context, next) => {
+        if (context.operation === 'get') throw original;
+        return next(value);
+      });
+
+      const error = await RunCache.get('r').catch((e) => e);
+      expect(error).toBeInstanceOf(MiddlewareError);
+      expect(error.message).toBe("Middleware execution failed for key: 'r'");
+      expect(error.cause).toBe(original);
+    });
+
+    it('wraps a middleware that throws during refetch, keeping the previous value', async () => {
+      const original = new Error('rejected');
+      await RunCache.set({ key: 'rf', sourceFn: () => 'v' });
+      await RunCache.use(async (value, context, next) => {
+        if (context.operation === 'refetch') throw original;
+        return next(value);
+      });
+
+      const error = await RunCache.refetch('rf').catch((e) => e);
+      expect(error).toBeInstanceOf(MiddlewareError);
+      expect(error.cause).toBe(original);
+
+      await RunCache.clearMiddleware();
+      expect(await RunCache.get('rf')).toBe('v');
+      await expect(RunCache.refetch('rf')).resolves.toBe(true); // not stuck in "fetching"
+    });
+  });
 });
