@@ -190,7 +190,7 @@ RunCache.onDependencyInvalidation((event) => {
 await RunCache.set({
   key: string,                         // Required: Unique identifier for the cache entry
   value?: string,                      // Optional: String value to cache (required if no sourceFn)
-  ttl?: number,                        // Optional: Time-to-live in milliseconds
+  ttl?: number,                        // Optional: Time-to-live in milliseconds (finite and > 0; any length, including > 24.8 days)
   autoRefetch?: boolean,               // Optional: Automatically refetch on expiry (requires ttl and sourceFn)
   sourceFn?: () => string | Promise<string>, // Optional: Function to generate cache value (required if no value)
   tags?: string[],                     // Optional: Array of tags for tag-based invalidation

@@ -62,7 +62,7 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
 - `options`: `Object` - Cache entry options
   - `key`: `string` - Unique identifier for the cache entry
   - `value?`: `T` - Value to cache (required if no sourceFn)
-  - `ttl?`: `number` - Time-to-live in milliseconds
+  - `ttl?`: `number` - Time-to-live in milliseconds. Must be a finite, positive number; omit it for entries that never expire. TTLs longer than the `setTimeout` limit (about 24.8 days) are supported.
   - `autoRefetch?`: `boolean` - Automatically refetch on expiry (requires ttl and sourceFn)
   - `sourceFn?`: `() => T | Promise<T>` - Function to generate cache value (required if no value)
   - `tags?`: `string[]` - Array of tags for tag-based invalidation
@@ -77,6 +77,7 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
 - `Error` - If key is empty
 - `Error` - If neither value nor sourceFn is provided
 - `Error` - If autoRefetch is true but ttl or sourceFn is not provided
+- `Error` - If ttl is `0` or negative (`` `ttl` cannot be negative ``), not a number or `NaN` (`` `ttl` must be a number ``), or `Infinity` (`` `ttl` must be a finite number ``)
 
 **Example:**
 
