@@ -27,6 +27,8 @@ interface StorageAdapterConfig {
 }
 ```
 
+These options take effect when the adapter is attached with `RunCache.configure({ storageAdapter })`. With `autoLoadOnInit: false`, existing data is only loaded when you call `RunCache.loadFromStorage()`. A positive `autoSaveInterval` starts saving at that interval. That interval belongs to the adapter: it stops when the adapter is replaced or detached, unlike one started explicitly with `RunCache.setupAutoSave(interval)`, which keeps running. Auto-save intervals never keep a Node.js process alive on their own.
+
 ## LocalStorageAdapter
 
 The `LocalStorageAdapter` uses the browser's localStorage API to persist cache data. This adapter is suitable for small to medium-sized cache data in web applications.
@@ -189,6 +191,11 @@ You can create your own storage adapter by implementing the `StorageAdapter` int
 interface StorageAdapter {
   save(data: string): Promise<void>;
   load(): Promise<string | null>;
+  clear(): Promise<void>;
+
+  // Optional: picked up when the adapter is attached with configure() or create()
+  readonly autoSaveInterval?: number; // Save at this interval (ms) when > 0
+  readonly autoLoadOnInit?: boolean;  // Load existing data on attach (default: true)
 }
 ```
 

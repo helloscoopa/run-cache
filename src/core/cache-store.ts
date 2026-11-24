@@ -73,7 +73,8 @@ interface SerializedCacheData {
       tags?: string[];
       dependencies?: string[];
       serialized?: boolean;
-      sourceFn?: string; // Serialized as string if available
+      /** Written by versions up to 1.6.1; ignored on load and no longer written */
+      sourceFn?: string;
     };
   };
 
@@ -107,6 +108,9 @@ export class CacheStore {
   private storageAdapter: StorageAdapter | null = null;
 
   private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
+
+  /** Whether the running auto-save interval came from an adapter's `autoSaveInterval` option */
+  private autoSaveStartedByAdapter = false;
 
   private serialization: SerializationManager;
 
@@ -172,11 +176,7 @@ export class CacheStore {
 
     // Load from storage if a storage adapter is provided
     if (store.storageAdapter) {
-      try {
-        await store.loadFromStorage();
-      } catch (error) {
-        store.logger.log('error', 'Failed to load cache data from storage', error);
-      }
+      await store.attachStorageAdapter();
     }
 
     return store;
@@ -1166,17 +1166,43 @@ export class CacheStore {
 
       this.storageAdapter = config.storageAdapter ?? null;
 
+      // An interval requested by the previous adapter's options ends with that adapter.
+      // One started explicitly with setupAutoSave() keeps running.
+      if (this.autoSaveStartedByAdapter) {
+        this.startAutoSave(0, false);
+      }
+
       // If the new adapter is null/undefined we're done
       if (!this.storageAdapter) {
         return;
       }
 
-      // Load from new storage
+      await this.attachStorageAdapter();
+    }
+  }
+
+  /**
+   * Applies the current storage adapter's options: loads existing data unless the
+   * adapter sets `autoLoadOnInit: false`, and starts auto-saving when the adapter sets a
+   * positive `autoSaveInterval`. An interval started with setupAutoSave() is kept when
+   * the adapter does not set one.
+   */
+  private async attachStorageAdapter(): Promise<void> {
+    const adapter = this.storageAdapter;
+    if (!adapter) {
+      return;
+    }
+
+    if (adapter.autoLoadOnInit !== false) {
       try {
         await this.loadFromStorage();
       } catch (error) {
-        this.logger.log('error', 'Failed to load cache data from new storage adapter', error);
+        this.logger.log('error', 'Failed to load cache data from storage adapter', error);
       }
+    }
+
+    if (typeof adapter.autoSaveInterval === 'number' && adapter.autoSaveInterval > 0) {
+      this.startAutoSave(adapter.autoSaveInterval, true);
     }
   }
 
@@ -1325,7 +1351,8 @@ export class CacheStore {
         tags: state.tags,
         dependencies: state.dependencies,
         serialized: state.serialized || undefined,
-        sourceFn: state.sourceFn ? state.sourceFn.toString() : undefined,
+        // Source functions are not persisted: their source text cannot be safely turned
+        // back into a function, and writing it out leaks application code to storage
       };
     }
 
@@ -1347,45 +1374,58 @@ export class CacheStore {
    * @param data The serialized cache data
    */
   private deserializeCache(data: string): void {
+    let parsed: SerializedCacheData;
     try {
-      const parsed: SerializedCacheData = JSON.parse(data);
-
-      // Check data version
-      if (parsed.version !== 1) {
-        throw new Error(`Unsupported cache data version: ${parsed.version}`);
-      }
-
-      // Clear existing cache
-      this.flush();
-
-      // The stored `config` block is not applied: the runtime configuration, including
-      // options passed in the same configure() call, always takes precedence
-
-      // Restore entries
-      if (parsed.entries) {
-        for (const [key, entry] of Object.entries(parsed.entries)) {
-          const state: CacheState<string> = {
-            value: entry.value,
-            createdAt: entry.createdAt,
-            updatedAt: entry.updatedAt,
-            ttl: entry.ttl,
-            autoRefetch: entry.autoRefetch,
-            accessCount: entry.accessCount,
-            lastAccessed: entry.lastAccessed,
-            tags: entry.tags,
-            dependencies: entry.dependencies,
-            serialized: entry.serialized === true,
-          };
-
-          this.cache.set(key, state);
-          this.indexDependencies(key, state.dependencies);
-        }
-      }
-
-      this.logger.log('info', `Restored ${this.cache.size} cache entries from storage`);
+      parsed = JSON.parse(data);
     } catch (error) {
       throw new Error(`Failed to deserialize cache data: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
+
+    // Check data version
+    if (parsed.version !== 1) {
+      throw new Error(`Failed to deserialize cache data: Unsupported cache data version: ${parsed.version}`);
+    }
+
+    // The stored `config` block is informational only. The runtime configuration
+    // (maxEntries, evictionPolicy, ...) is whatever the application configured.
+
+    let restored = 0;
+    let skipped = 0;
+    for (const [key, entry] of Object.entries(parsed.entries ?? {})) {
+      // Entries already in memory are newer than anything in storage
+      if (this.cache.has(key)) {
+        skipped++;
+        continue;
+      }
+
+      // Expired entries cannot be served (source functions are not persisted)
+      if (entry.ttl && isExpired(entry.updatedAt, entry.ttl)) {
+        skipped++;
+        continue;
+      }
+
+      const state: CacheState<string> = {
+        value: entry.value,
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+        ttl: entry.ttl,
+        autoRefetch: entry.autoRefetch,
+        accessCount: entry.accessCount,
+        lastAccessed: entry.lastAccessed,
+        tags: entry.tags,
+        dependencies: entry.dependencies,
+        serialized: entry.serialized === true,
+      };
+
+      this.cache.set(key, state);
+      this.indexDependencies(key, state.dependencies);
+      // Re-arm the expiry timer for the time remaining on the original TTL
+      this.setExpiryInterval(key, state);
+      restored++;
+    }
+
+    this.logger.log('info', `Restored ${restored} cache entries from storage (${skipped} skipped)`);
+    this.enforceEvictionPolicy();
   }
 
   /**
@@ -1456,7 +1496,10 @@ export class CacheStore {
   }
 
   /**
-   * Loads cache state from storage if a storage adapter is configured
+   * Loads cache state from storage if a storage adapter is configured.
+   * Stored entries are merged into the cache: keys that already exist in memory keep
+   * their current value, and expired stored entries are skipped. TTL timers of restored
+   * entries are re-armed for the time remaining on their original TTL.
    */
   async loadFromStorage(): Promise<boolean> {
     const adapter = this.storageAdapter;
@@ -1493,11 +1536,21 @@ export class CacheStore {
    * @param intervalMs Milliseconds between auto-saves, or 0 to disable
    */
   setupAutoSave(intervalMs: number): void {
+    this.startAutoSave(intervalMs, false);
+  }
+
+  /**
+   * Replaces the auto-save interval. `byAdapter` records whether it was requested by the
+   * attached adapter's `autoSaveInterval` option (and so ends with that adapter) or by
+   * an explicit setupAutoSave() call (and so survives adapter changes).
+   */
+  private startAutoSave(intervalMs: number, byAdapter: boolean): void {
     // Clear existing interval if any
     if (this.autoSaveInterval) {
       clearInterval(this.autoSaveInterval);
       this.autoSaveInterval = null;
     }
+    this.autoSaveStartedByAdapter = false;
 
     // Setup new interval if storage adapter exists and interval > 0
     if (this.storageAdapter && intervalMs > 0) {
@@ -1506,6 +1559,9 @@ export class CacheStore {
           this.logger.log('error', 'Auto-save failed', error);
         });
       }, intervalMs);
+      this.autoSaveStartedByAdapter = byAdapter;
+
+      // Auto-saving should never be the only thing keeping a Node.js process alive
       unrefTimer(this.autoSaveInterval);
     }
   }

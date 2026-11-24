@@ -7,6 +7,12 @@ import { StorageAdapter, StorageAdapterConfig } from '../types/storage-adapter';
 export class IndexedDBAdapter implements StorageAdapter {
   private storageKey: string;
 
+  /** Auto-save interval in milliseconds, from the `autoSaveInterval` option (0 disables) */
+  readonly autoSaveInterval: number;
+
+  /** Whether existing data is loaded when the adapter is attached, from the `autoLoadOnInit` option */
+  readonly autoLoadOnInit: boolean;
+
   private dbName: string = 'run-cache-db';
 
   private storeName: string = 'cache-store';
@@ -23,6 +29,8 @@ export class IndexedDBAdapter implements StorageAdapter {
    */
   constructor(config?: Partial<StorageAdapterConfig>) {
     this.storageKey = config?.storageKey || 'run-cache-data';
+    this.autoSaveInterval = config?.autoSaveInterval ?? 0;
+    this.autoLoadOnInit = config?.autoLoadOnInit ?? true;
 
     // Initialize the database connection
     this.initDB();

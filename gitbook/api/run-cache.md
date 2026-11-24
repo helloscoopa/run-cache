@@ -643,9 +643,9 @@ RunCache.setupAutoSave(0);
 
 ### `saveToStorage()`
 
-Manually saves the cache state to persistent storage.
+Manually saves the cache state to persistent storage. Expired entries and source functions are not saved.
 
-**Returns:** `Promise<void>`
+**Returns:** `Promise<boolean>` - `true` if the data was saved, `false` if no storage adapter is configured or the adapter failed
 
 **Example:**
 
@@ -656,9 +656,11 @@ await RunCache.saveToStorage();
 
 ### `loadFromStorage()`
 
-Manually loads the cache state from persistent storage.
+Manually loads the cache state from persistent storage and merges it into the cache. Keys that already exist in memory keep their current value, expired stored entries are skipped, and each restored entry expires after the time remaining on its original TTL. The stored `maxEntries` and `evictionPolicy` are not applied.
 
-**Returns:** `Promise<void>`
+Because loading merges, it does not undo changes made since the last save. To return to exactly the saved state, call `flush()` first, then `loadFromStorage()`.
+
+**Returns:** `Promise<boolean>` - `true` if data was found and loaded, `false` otherwise
 
 **Example:**
 
