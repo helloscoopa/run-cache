@@ -99,6 +99,28 @@ describe('RunCache initialization failures', () => {
   });
 });
 
+describe('RunCache load-time initialization', () => {
+  it('swallows a failed initialization at import and recovers on first use', async () => {
+    let Fresh: typeof RunCache | undefined;
+    let spy: jest.SpyInstance | undefined;
+    jest.isolateModules(() => {
+      // eslint-disable-next-line global-require
+      const { CacheStore: IsolatedStore } = require('./core/cache-store');
+      spy = jest.spyOn(IsolatedStore, 'create').mockRejectedValueOnce(new Error('not yet'));
+      // eslint-disable-next-line global-require
+      Fresh = require('./run-cache').RunCache;
+    });
+    const cache = Fresh as typeof RunCache;
+
+    // Let the rejected load-time initialization settle without an unhandled rejection
+    await flushAsync();
+    await expect(cache.set({ key: 'k', value: 'v' })).resolves.toBe(true);
+    expect(await cache.get('k')).toBe('v');
+    expect(spy).toHaveBeenCalledTimes(2);
+    await cache.shutdown();
+  });
+});
+
 describe('RunCache.setupAutoSave', () => {
   afterEach(async () => {
     await RunCache.shutdown();
