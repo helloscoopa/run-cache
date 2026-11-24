@@ -41,6 +41,17 @@ await RunCache.set({ key: 'frequently-updated', value: 'data', ttl: TTL.MINUTE }
 await RunCache.set({ key: 'daily-stats', value: 'statistics', ttl: TTL.DAY });
 ```
 
+### Valid TTL Values
+
+`ttl` must be a finite, positive number of milliseconds. `set()` throws for `0`, negative values, `NaN`, `Infinity` and non-numbers. To cache an entry that never expires, leave `ttl` out.
+
+There is no upper limit. Long TTLs, including ones beyond the roughly 24.8-day maximum delay of `setTimeout`, expire at the right time:
+
+```typescript
+// Expires in 90 days
+await RunCache.set({ key: 'quarterly-report', value: 'report', ttl: 90 * TTL.DAY });
+```
+
 ## How Expiration Works
 
 Each entry with a TTL has a timer. When the TTL elapses:

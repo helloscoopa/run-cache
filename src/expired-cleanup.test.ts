@@ -126,6 +126,29 @@ describe('expired entry cleanup', () => {
       entries(store).clear(); // the fake handle cannot be passed to clearTimeout
     });
 
+    it('unrefs every chunk of a TTL longer than the setTimeout limit', async () => {
+      const handles: Array<{ callback: () => void; unref: jest.Mock }> = [];
+      const setSpy = jest.spyOn(global, 'setTimeout').mockImplementation(((callback: () => void) => {
+        const handle = { callback, unref: jest.fn() };
+        handles.push(handle);
+        return handle;
+      }) as unknown as typeof setTimeout);
+      const clearSpy = jest.spyOn(global, 'clearTimeout').mockImplementation(() => {});
+      try {
+        await store.set({ key: 'long', value: 'v', ttl: 2 ** 31 * 2 });
+        expect(handles).toHaveLength(1);
+        expect(handles[0].unref).toHaveBeenCalledTimes(1);
+
+        handles[0].callback(); // first chunk elapses; the timer re-arms for the rest
+        expect(handles).toHaveLength(2);
+        expect(handles[1].unref).toHaveBeenCalledTimes(1);
+      } finally {
+        setSpy.mockRestore();
+        clearSpy.mockRestore();
+      }
+      entries(store).clear(); // the fake handles cannot be passed to clearTimeout
+    });
+
     it('unrefs the auto-save interval', async () => {
       const adapter: StorageAdapter = { save: async () => {}, load: async () => null, clear: async () => {} };
       const persistent = await CacheStore.create({ storageAdapter: adapter });
