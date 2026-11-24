@@ -147,7 +147,7 @@ RunCache.onKeyExpiry("user:*", (event) => {
 2. Implement core logic in `src/core/cache-store.ts`
 3. Add static wrapper methods in `src/run-cache.ts`
 4. Add comprehensive tests in `.test.ts` files
-5. Update documentation in `gitbook/` (the "Next" docs version; released versions are frozen in `gitbook-versions/`, see `gitbook-versions/README.md`)
+5. Update documentation in `gitbook/` (see [Documentation & Versioning](#documentation--versioning))
 
 ### Testing Strategy
 - Unit tests for each component (`.unit.test.ts`)
@@ -165,7 +165,53 @@ Creating new adapters:
 1. Implement `StorageAdapter` interface
 2. Add to `src/storage/index.ts`
 3. Create comprehensive tests
-4. Update documentation
+4. Update documentation in `gitbook/`
+
+## Documentation & Versioning
+
+The docs are published on GitBook with a version menu above the sidebar, so readers see the docs for the RunCache version they install, not whatever is on `main`. Each version is its own GitBook space, synced from this repo with GitBook's site-wide Git Sync (project directory = repo root).
+
+### Layout
+| Path | What it is | Edit it? |
+| --- | --- | --- |
+| `gitbook/` | **Next (unreleased)**: the live docs for `main` | Yes, all new docs go here |
+| `gitbook-versions/vX.Y/` | Frozen docs of the last tag of each minor line (v1.6 from v1.6.1, ...) | Only to fix errors in that release's docs |
+| `gitbook-versions/README.md` | Maintainer notes on versioning | When the process changes |
+| `gitbook-docs.yaml` | GitBook site config: one space per version | **Never by hand**, it is generated |
+| `scripts/docs-version.mjs` | Freezes a tag's docs and regenerates `gitbook-docs.yaml` | When the process changes |
+| `.github/workflows/docs-version.yml` | Runs the script on release tags and opens a PR | When the process changes |
+
+- The highest `gitbook-versions/vX.Y` is the **default** version (title "vX.Y (latest)"), matching npm `latest`. "Next" is never the default while a release exists.
+- Releases before v1.6.0 had no `gitbook/` folder; their version is that tag's `README.md` as a single page.
+- Each space directory has `.gitbook.yaml`, `README.md` and `SUMMARY.md`. New pages must be added to that space's `SUMMARY.md`.
+
+### Writing docs for a change
+1. Edit or add pages in `gitbook/` only, and list new pages in `gitbook/SUMMARY.md`.
+2. Do not copy unreleased features into `gitbook-versions/`: released docs describe what shipped.
+3. A bug fix that also applies to a released line may be documented in that `gitbook-versions/vX.Y/` too, if the fix is released there.
+4. Use relative `.md` links that stay inside the same space directory; never link from one version directory into another.
+
+### Releasing a version
+- Pushing a tag `vX.Y.Z` runs the **Docs version** workflow: it freezes `gitbook/` at that tag into `gitbook-versions/vX.Y/`, regenerates `gitbook-docs.yaml`, and opens a PR (`docs/version-vX.Y.Z`). Merging it makes vX.Y the new default.
+- A patch tag (`vX.Y.Z+1`) replaces `gitbook-versions/vX.Y/` in place; there is one version per minor line.
+- Manual equivalent: `node scripts/docs-version.mjs snapshot vX.Y.Z`. The workflow can also be run by hand (workflow_dispatch) with a `tag` input.
+- The snapshot drops legacy tooling files (`book.json`, `mint.json`, `setup-gitbook.sh`, `README_GITBOOK.md`, `README_MAIN.md`, `DOCUMENTATION_SUMMARY.md`, `styles/`), strips live shields.io badges, and adds a version hint under the README's first heading.
+- Running the snapshot rewrites the whole version directory, so hand fixes made in `gitbook-versions/vX.Y/` are lost if that line is snapshotted again. Fix them in `gitbook/` before tagging, or re-apply after.
+
+### `gitbook-docs.yaml` rules
+- Regenerate with `node scripts/docs-version.mjs config` after adding or removing a directory in `gitbook-versions/`.
+- Never change a space `key` (`space-v1-6`, `space-next`, ...). GitBook matches spaces by key; a new key creates a new empty space and detaches the old one. Rename with `title`, change URLs with `path`.
+- Exactly one space has `default: true`, and every `key` is unique. The file must validate against `https://api.gitbook.com/gitbook-docs.yaml`.
+- Version URL paths use hyphens (`v1-6`, `next`).
+
+### Checks before committing doc changes
+- `node scripts/docs-version.mjs config` leaves no diff (`git status` is clean for `gitbook-docs.yaml`).
+- Every relative `.md` link in the changed space resolves to a file in that space.
+- No new pages are missing from the space's `SUMMARY.md`.
+
+### One-time setup (outside the repo)
+- GitBook: site-wide Git Sync on this repo, project directory empty (repo root).
+- GitHub: Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests", so the release workflow can open its PR.
 
 ## Debugging
 
