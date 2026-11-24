@@ -1,4 +1,4 @@
-import { EventEmitter } from 'node:events';
+import { Emitter } from './emitter';
 import {
   EventFn, EventName, EventParam, EmitParam, EVENT,
 } from '../types/events';
@@ -15,8 +15,8 @@ import { matchesPattern } from './utils';
  * @internal
  */
 export class EventSystem {
-  /** Node.js EventEmitter used for the event distribution */
-  private emitter: EventEmitter;
+  /** Dependency-free emitter used for event distribution (works in Node.js and browsers) */
+  private emitter: Emitter;
 
   /** Storage for wildcard pattern listeners that need special handling */
   private wildcardListeners: Array<{
@@ -35,8 +35,7 @@ export class EventSystem {
    */
   constructor(logger: Logger) {
     this.logger = logger;
-    this.emitter = new EventEmitter();
-    this.emitter.setMaxListeners(0); // unlimited – safe for library code
+    this.emitter = new Emitter();
     this.wildcardListeners = [];
   }
 
