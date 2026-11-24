@@ -76,7 +76,7 @@ RunCache.use(async (value, context, next) => {
 
 ### Using TTL for Automatic Cleanup
 
-Set appropriate TTL (Time-to-Live) values to automatically remove entries that are no longer needed:
+Set appropriate TTL (Time-to-Live) values to automatically remove entries that are no longer needed. Entries holding a plain value are removed from memory as soon as their TTL elapses, even if they are never read again:
 
 ```typescript
 // Set cache entry with TTL
@@ -144,7 +144,9 @@ RunCache uses timers for TTL expiration and automatic refetching. These are mana
 
 ### How Timers Work in RunCache
 
-- **TTL Timers**: RunCache uses lazy expiration, checking if entries have expired only when they're accessed. This avoids the overhead of maintaining timers for every entry.
+- **TTL Timers**: Each entry with a TTL has a timer. When it fires, the `expire` event is emitted and entries without a source function are removed from memory, so keys that are written once and never read again do not accumulate. Entries with a source function stay until they are read or refetched.
+
+- **Process lifetime**: In Node.js, TTL timers and the auto-save interval are `unref()`'d. They never keep the process alive on their own, so a script exits when its other work is done even if cache entries are still pending expiry.
 
 - **Refetch Timers**: For entries with `autoRefetch: true`, RunCache sets up timers to trigger background refreshes when the TTL expires.
 
