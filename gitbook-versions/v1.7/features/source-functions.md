@@ -1,0 +1,391 @@
+# Source Functions
+
+Source functions are a powerful feature in RunCache that allow you to dynamically generate cache values. This guide explains how to use source functions effectively in your applications.
+
+## Understanding Source Functions
+
+A source function is a function that generates a value for a cache entry. Instead of providing a static value when setting a cache entry, you provide a function that RunCache will call to generate the value when needed.
+
+Key benefits of using source functions:
+
+- **Lazy Loading**: Values are only generated when actually needed
+- **Automatic Serialization**: No need to manually stringify the result
+- **Error Handling**: RunCache handles errors from the source function
+- **Automatic Refresh**: Can be combined with TTL and autoRefetch
+
+## Basic Usage
+
+To use a source function, provide it as the `sourceFn` parameter when setting a cache entry:
+
+```typescript
+await RunCache.set({
+  key: 'user-profile',
+  sourceFn: async () => {
+    const response = await fetch('https://api.example.com/users/1');
+    const data = await response.json();
+    return data;
+  }
+});
+```
+
+When `RunCache.get('user-profile')` is called for the first time, RunCache will:
+1. Execute the source function
+2. Store the returned value in the cache
+3. Return the value to the caller
+
+Subsequent calls to `RunCache.get('user-profile')` will return the cached value without calling the source function again.
+
+## Synchronous vs. Asynchronous Source Functions
+
+RunCache supports both synchronous and asynchronous source functions:
+
+### Synchronous Source Functions
+
+```typescript
+await RunCache.set({
+  key: 'computed-value',
+  sourceFn: () => {
+    const result = performExpensiveCalculation();
+    return result;
+  }
+});
+```
+
+### Asynchronous Source Functions
+
+```typescript
+await RunCache.set({
+  key: 'api-data',
+  sourceFn: async () => {
+    const response = await fetch('https://api.example.com/data');
+    const data = await response.json();
+    return data;
+  }
+});
+```
+
+Both types of functions are handled appropriately by RunCache.
+
+## Source Functions with TTL
+
+You can combine source functions with TTL (Time-to-Live) to automatically invalidate cache entries after a certain period:
+
+```typescript
+await RunCache.set({
+  key: 'weather-data',
+  sourceFn: async () => {
+    const response = await fetch('https://api.weather.com/current');
+    const data = await response.json();
+    return data;
+  },
+  ttl: 30 * 60 * 1000 // 30 minutes
+});
+```
+
+In this example:
+1. The first call to `RunCache.get('weather-data')` will execute the source function
+2. Subsequent calls within 30 minutes will return the cached value
+3. After 30 minutes, the next call will execute the source function again
+
+## Source Functions with Automatic Refetching
+
+For critical data that should always be available, combine source functions with automatic refetching:
+
+```typescript
+await RunCache.set({
+  key: 'stock-prices',
+  sourceFn: async () => {
+    const response = await fetch('https://api.example.com/stocks');
+    const data = await response.json();
+    return data;
+  },
+  ttl: 60000, // 1 minute
+  autoRefetch: true
+});
+```
+
+With `autoRefetch: true`:
+1. When the TTL expires, the next `get()` call will return the stale data immediately
+2. Simultaneously, RunCache will trigger a background refresh using the source function
+3. Once the refresh completes, the cache is updated with fresh data
+
+## Manually Refreshing Source Function Values
+
+You can manually trigger a refresh for any cache entry with a source function:
+
+```typescript
+await RunCache.refetch('stock-prices');
+```
+
+This will:
+1. Execute the source function again
+2. Update the cache with the new value
+3. Reset the TTL timer (if applicable)
+
+## Error Handling in Source Functions
+
+If a source function throws an error, RunCache handles it appropriately:
+
+### Initial Fetch
+
+`set()` calls the source function before anything is written. If it throws:
+1. The error is propagated to the caller of `set()`
+2. No cache entry is created, and no TTL timer is started for it (so no `expire` event or auto-refetch follows)
+
+```typescript
+try {
+  await RunCache.set({ key: 'api-data', sourceFn: fetchApiData, ttl: 60000 });
+} catch (error) {
+  console.error('Failed to fetch API data:', error);
+}
+```
+
+### Overwriting an Existing Entry
+
+If `set()` is called for a key that already exists and the source function (or a middleware) throws, the existing entry is left exactly as it was. It keeps its value, its TTL timer and, if enabled, its automatic refetching. A new value only replaces the old one, together with its TTL, once it has been produced successfully.
+
+### Refetch Failures
+
+If the source function throws during an automatic refetch:
+1. The stale value remains in the cache
+2. A refetch failure event is triggered
+3. The error doesn't propagate to the caller of `get()`
+
+```typescript
+// Register for refetch failure events
+await RunCache.onRefetchFailure((event) => {
+  console.error(`Failed to refresh ${event.key}:`, event.error);
+
+  // Implement retry logic
+  setTimeout(() => RunCache.refetch(event.key), 30000);
+});
+```
+
+## Advanced Source Function Patterns
+
+### Parameterized Source Functions
+
+You can create source functions that use parameters from the cache key:
+
+```typescript
+// Helper function to create parameterized source functions
+function createUserProfileSource(userId) {
+  return async () => {
+    const response = await fetch(`https://api.example.com/users/${userId}`);
+    return response.json();
+  };
+}
+
+// Set cache entries with different parameters
+await RunCache.set({
+  key: 'user:1:profile',
+  sourceFn: createUserProfileSource(1)
+});
+
+await RunCache.set({
+  key: 'user:2:profile',
+  sourceFn: createUserProfileSource(2)
+});
+```
+
+### Caching Function Results
+
+You can create a wrapper to automatically cache function results:
+
+```typescript
+async function cachedFetch(url, options = {}) {
+  const cacheKey = `fetch:${url}`;
+
+  // Try to get from cache first
+  const cachedResponse = await RunCache.get(cacheKey);
+  if (cachedResponse !== undefined) { // false and 0 are valid cached responses
+    return cachedResponse;
+  }
+
+  // Set up cache with source function
+  await RunCache.set({
+    key: cacheKey,
+    sourceFn: async () => {
+      const response = await fetch(url, options);
+      const data = await response.json();
+      return data;
+    },
+    ttl: options.ttl || 60000 // Default 1 minute TTL
+  });
+
+  // Get the newly cached value
+  return RunCache.get(cacheKey);
+}
+
+// Usage
+const userData = await cachedFetch('https://api.example.com/users/1', { ttl: 300000 });
+```
+
+### Source Functions with Dependencies
+
+You can create source functions that depend on other cached values:
+
+```typescript
+interface UserProfile {
+  preferences: string[];
+}
+
+// Primary data
+await RunCache.set({
+  key: 'user:1:profile',
+  sourceFn: async () => {
+    const response = await fetch('https://api.example.com/users/1');
+    const data = await response.json();
+    return data;
+  }
+});
+
+// Dependent data
+await RunCache.set({
+  key: 'user:1:recommendations',
+  sourceFn: async () => {
+    // Get the user profile from cache first
+    const profile = await RunCache.get<UserProfile>('user:1:profile');
+    if (!profile || Array.isArray(profile)) {
+      throw new Error('User profile is not cached');
+    }
+
+    // Use profile data to fetch recommendations
+    const response = await fetch(`https://api.example.com/recommendations?preferences=${profile.preferences.join(',')}`);
+    const recommendations = await response.json();
+    return recommendations;
+  },
+  dependencies: ['user:1:profile'] // Removed by invalidateByDependency('user:1:profile')
+});
+```
+
+## Best Practices for Source Functions
+
+### 1. Keep Source Functions Pure
+
+Source functions should:
+- Have no side effects
+- Return the same result for the same inputs
+- Not depend on external state that might change
+
+```typescript
+// Good - pure function
+await RunCache.set({
+  key: 'user:1',
+  sourceFn: () => fetchUserById(1)
+});
+
+// Avoid - depends on external state
+let currentUserId = 1;
+await RunCache.set({
+  key: 'current-user',
+  sourceFn: () => fetchUserById(currentUserId) // Will break if currentUserId changes
+});
+```
+
+### 2. Handle Errors Properly
+
+Always implement error handling in your source functions:
+
+```typescript
+await RunCache.set({
+  key: 'api-data',
+  sourceFn: async () => {
+    try {
+      const response = await fetch('https://api.example.com/data');
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Source function error:', error);
+      throw error; // Rethrow to let RunCache handle it
+    }
+  }
+});
+```
+
+### 3. Return the Value You Want Back
+
+A source function can return a string or any serializable value. Whatever it returns is what `get()` gives back:
+
+<!-- docs-check-ignore: the second example returns a JSON string on purpose -->
+```typescript
+// Returns an object: get() returns the object
+await RunCache.set<UserData>({
+  key: 'user-data',
+  sourceFn: async () => fetchUserData()
+});
+const user = await RunCache.get<UserData>('user-data'); // UserData object
+
+// Returns a string: get() returns the same string, even if it looks like JSON
+await RunCache.set({
+  key: 'user-data:raw',
+  sourceFn: async () => JSON.stringify(await fetchUserData())
+});
+const raw = await RunCache.get('user-data:raw'); // string; JSON.parse it yourself
+```
+
+Non-string results are serialized on every fetch and refetch, so middleware always receives a string.
+
+### 4. Optimize for Performance
+
+Keep source functions efficient:
+- Fetch only the data you need
+- Use appropriate caching headers for API requests
+- Consider batching related requests
+
+```typescript
+// Inefficient - fetches too much data
+await RunCache.set({
+  key: 'user-name',
+  sourceFn: async () => {
+    const response = await fetch('https://api.example.com/users/1');
+    const user = await response.json();
+    return user.name; // Only needed the name
+  }
+});
+
+// Better - uses a more targeted endpoint
+await RunCache.set({
+  key: 'user-name',
+  sourceFn: async () => {
+    const response = await fetch('https://api.example.com/users/1/name');
+    const name = await response.text();
+    return name;
+  }
+});
+```
+
+### 5. Use Appropriate TTL Values
+
+Set TTL values based on:
+- How frequently the underlying data changes
+- How critical data freshness is
+- Resource constraints of your application
+
+```typescript
+// Frequently changing data
+await RunCache.set({
+  key: 'stock-price',
+  sourceFn: () => fetchStockPrice(),
+  ttl: 60 * 1000 // 1 minute
+});
+
+// Relatively stable data
+await RunCache.set({
+  key: 'company-info',
+  sourceFn: () => fetchCompanyInfo(),
+  ttl: 24 * 60 * 60 * 1000 // 1 day
+});
+```
+
+## Next Steps
+
+Now that you understand source functions, explore these related topics:
+
+- [TTL and Expiration](./ttl-expiration.md) - Learn more about time-to-live functionality
+- [Automatic Refetching](./auto-refetch.md) - Dive deeper into background refresh functionality
+- [Dependency Tracking](../advanced/dependency-tracking.md) - Learn about relationships between cache entries
+- [Event System](../advanced/event-system.md) - Understand how to use events for cache monitoring 

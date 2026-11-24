@@ -1,0 +1,64 @@
+# RunCache
+
+{% hint style="info" %}
+These docs are for **RunCache v1.7.x** (last updated at release v1.7.0). Install this version with `npm install run-cache@1.7`, or pick another version from the menu above the sidebar.
+{% endhint %}
+
+> A dependency-free, lightweight runtime caching library for JavaScript and TypeScript applications.
+
+
+RunCache allows you to cache strings and other JSON-serializable values with configurable time-to-live (TTL) settings and supports automatic value regeneration through source functions. It's designed to be easy to use while providing powerful features for advanced caching scenarios.
+
+## Key Features
+
+- **Zero Dependencies:** Lightweight implementation with no external dependencies
+- **In-Memory Performance:** Fast, efficient runtime cache for optimal application performance
+- **Source Function Support:** Cache values generated from synchronous or asynchronous functions
+- **Automatic Refetching:** Configure cache entries to automatically refresh on expiration
+- **Comprehensive Event System:** Subscribe to cache events including expiry, refetch, and refetch failures
+- **Pattern Matching:** Use wildcard patterns to operate on groups of related cache keys
+- **Eviction Policies:** Configure size limits with LRU (Least Recently Used) or LFU (Least Frequently Used) eviction strategies
+- **Middleware Support:** Add custom processing for intercepting and transforming cache operations
+- **Tag-based Invalidation:** Group related cache entries with tags for efficient batch invalidation
+- **Dependency Tracking:** Establish relationships between cache entries with automatic cascading invalidation
+- **Persistent Storage:** Store cache data across application restarts using various storage adapters
+- **TypeScript Support:** Full type definitions included
+
+## Quick Example
+
+```typescript
+import { RunCache } from "run-cache";
+
+// Basic caching
+await RunCache.set({ key: "user-profile", value: { name: "John Doe" } });
+const profile = await RunCache.get("user-profile");
+
+// Cache with expiration (TTL in milliseconds)
+await RunCache.set({
+  key: "api-data",
+  value: { data: [1, 2, 3] },
+  ttl: 60000 // 1 minute
+});
+
+// Cache with automatic refresh
+await RunCache.set({
+  key: "weather-data",
+  sourceFn: async () => await fetchWeatherData(),
+  ttl: 300000, // 5 minutes
+  autoRefetch: true
+});
+```
+
+## When to Use RunCache
+
+RunCache is ideal for:
+
+- Caching API responses to reduce network requests
+- Storing computed values to improve application performance
+- Managing temporary data with automatic expiration
+- Creating relationships between cached data with dependencies
+- Implementing complex caching strategies with middleware
+
+## Getting Started
+
+To get started with RunCache, check out the [Installation](getting-started/installation.md) guide. 
