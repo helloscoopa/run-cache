@@ -179,17 +179,19 @@ await RunCache.set({
 });
 
 // Dependent data with source function
+async function fetchRecommendations() {
+  // Get the user profile from cache
+  const profile = (await RunCache.get('user:1:profile')) as { preferences: string[] };
+
+  // Use profile data to fetch recommendations
+  const response = await fetch(`https://api.example.com/recommendations?preferences=${profile.preferences.join(',')}`);
+  const recommendations = await response.json();
+  return recommendations;
+}
+
 await RunCache.set({
   key: 'user:1:recommendations',
-  sourceFn: async () => {
-    // Get the user profile from cache
-    const profile = (await RunCache.get('user:1:profile')) as { preferences: string[] };
-
-    // Use profile data to fetch recommendations
-    const response = await fetch(`https://api.example.com/recommendations?preferences=${profile.preferences.join(',')}`);
-    const recommendations = await response.json();
-    return recommendations;
-  },
+  sourceFn: fetchRecommendations,
   dependencies: ['user:1:profile'],
   ttl: 600000, // 10 minutes
   autoRefetch: true
@@ -336,29 +338,50 @@ async function cacheArticleWithRelatedContent(articleId) {
 
 ### 2. Dependency-Aware Refresh
 
-Implement smart refreshing that considers dependencies:
+Refreshing a parent removes every entry that depends on it, so a dependent cannot be brought back with `refetch()` afterwards: it is no longer in the cache. To refresh a key together with its parents, refresh the parents first and then set the key again from its source function. RunCache cannot list keys or hand back an entry's source function, so keep the definitions of the entries you refresh this way:
 
 ```typescript
-// RunCache cannot list keys (get('*') returns values), so pass in the keys you know about
-async function smartRefresh(key, knownKeys) {
-  // First, find the keys this key depends on
-  const dependencyKeys = [];
-
-  for (const cacheKey of knownKeys) {
-    if (await RunCache.isDependencyOf(key, cacheKey)) {
-      dependencyKeys.push(cacheKey);
-    }
-  }
-
-  // Refresh dependencies first (from furthest to closest)
-  for (const depKey of dependencyKeys.reverse()) {
-    await RunCache.refetch(depKey);
-  }
-
-  // Then refresh the target key
-  await RunCache.refetch(key);
+interface EntryDefinition {
+  sourceFn: () => Promise<unknown>;
+  dependencies?: string[];
+  ttl?: number;
 }
+
+// Your own record of how each entry is built
+const definitions = new Map<string, EntryDefinition>([
+  ['user:1:profile', { sourceFn: fetchProfile, ttl: 300000 }],
+  ['user:1:recommendations', {
+    sourceFn: fetchRecommendations,
+    dependencies: ['user:1:profile'],
+    ttl: 600000
+  }]
+]);
+
+async function smartRefresh(key: string, refreshed = new Set<string>()) {
+  if (refreshed.has(key)) return;
+  const definition = definitions.get(key);
+
+  if (!definition) {
+    // Not defined here: refresh it in place (it needs a source function)
+    await RunCache.refetch(key);
+    refreshed.add(key);
+    return;
+  }
+
+  // Refresh the parents first. Each one removes `key` and its other dependents.
+  for (const parent of definition.dependencies ?? []) {
+    await smartRefresh(parent, refreshed);
+  }
+
+  // Then recreate `key`, so its source function runs against the fresh parents
+  await RunCache.set({ key, ...definition });
+  refreshed.add(key);
+}
+
+await smartRefresh('user:1:recommendations');
 ```
+
+`refreshed` makes sure a parent shared by several keys is refreshed once: refreshing it again later would remove the dependents that were just recreated.
 
 ### 3. Conditional Dependencies
 
