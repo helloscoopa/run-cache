@@ -11,6 +11,18 @@ import { DefaultMiddlewareManager } from './middleware-manager';
 import { MiddlewareContext, MiddlewareFunction, MiddlewareManager } from '../types/middleware';
 import { StorageAdapter } from '../types/storage-adapter';
 import { SerializationManager } from './serialization';
+import { createExpiryTimer, ExpiryTimer } from './timer';
+
+/**
+ * Lets the Node.js process exit while a native timer (the auto-save interval) is
+ * pending. Expiry timers use ExpiryTimer.unref(), which also covers re-armed chunks.
+ * No-op in browsers, where timer handles are numbers.
+ */
+function unrefTimer(timer: unknown): void {
+  if (timer && typeof timer === 'object' && typeof (timer as { unref?: unknown }).unref === 'function') {
+    (timer as { unref: () => void }).unref();
+  }
+}
 
 // Use the original isExpired function but add a custom wrapper for the simpler case
 function isExpired(_cache: CacheState<string>): boolean;
@@ -22,6 +34,14 @@ function isExpired(cacheOrUpdatedAt: CacheState<string> | number, ttl?: number):
   }
   // Use the original implementation for CacheState objects
   return originalIsExpired(cacheOrUpdatedAt as CacheState<string>);
+}
+
+/**
+ * A stored value as read from the cache, with whether it must be deserialized
+ */
+interface StoredRead {
+  value: string;
+  serialized: boolean;
 }
 
 /**
@@ -52,6 +72,7 @@ interface SerializedCacheData {
       lastAccessed: number;
       tags?: string[];
       dependencies?: string[];
+      serialized?: boolean;
       sourceFn?: string; // Serialized as string if available
     };
   };
@@ -88,6 +109,19 @@ export class CacheStore {
   private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
 
   private serialization: SerializationManager;
+
+  /** Monotonic counter used to order concurrent set() calls */
+  private setSequence = 0;
+
+  /** Number of set() calls currently in flight per key */
+  private inFlightSets = new Map<string, number>();
+
+  /**
+   * Highest sequence number written by a set() per key, kept only while other set()
+   * calls for that key are still in flight. A call that finishes later with a lower
+   * sequence number started earlier and must not overwrite the newer value.
+   */
+  private appliedSets = new Map<string, number>();
 
   /**
    * Creates a new CacheStore instance.
@@ -154,10 +188,10 @@ export class CacheStore {
     dependencies,
   }: {
     key: string;
-    value?: string;
+    value?: unknown;
     ttl?: number;
     autoRefetch?: boolean;
-    sourceFn?: SourceFn<string>;
+    sourceFn?: SourceFn<unknown>;
     tags?: string[];
     dependencies?: string[];
   }): Promise<boolean> {
@@ -166,7 +200,7 @@ export class CacheStore {
       throw new Error('Empty key');
     }
 
-    if (sourceFn === undefined && (value === undefined || !value.length)) {
+    if (sourceFn === undefined && (value === undefined || (typeof value === 'string' && !value.length))) {
       this.logger.log('error', `Neither value nor sourceFn provided to set() method for key: ${key}`);
       throw new Error("`value` can't be empty without a `sourceFn`");
     }
@@ -251,6 +285,9 @@ export class CacheStore {
     }
 
     const time = Date.now();
+    const directValue = value === undefined ? undefined : this.encodeValue(value);
+    const sequence = ++this.setSequence;
+    this.inFlightSets.set(key, (this.inFlightSets.get(key) ?? 0) + 1);
 
     this.logger.log('info', `Setting cache for key: ${key}`, {
       hasTtl: ttl !== undefined,
@@ -262,15 +299,19 @@ export class CacheStore {
       hasDependencies: dependencies !== undefined && dependencies.length > 0,
     });
 
-    let cacheValue = value;
+    let cacheValue = directValue?.value;
+    let serialized = directValue?.serialized ?? false;
 
     if (value === undefined && typeof sourceFn === 'function') {
       try {
         this.logger.log('debug', `Fetching value using sourceFn for key: ${key}`);
-        cacheValue = await sourceFn();
+        const encoded = this.encodeValue(await sourceFn());
+        cacheValue = encoded.value;
+        serialized = encoded.serialized;
         this.logger.log('debug', `Successfully fetched value using sourceFn for key: ${key}`);
       } catch (e) {
         this.logger.log('error', `Source function failed for key: ${key}`, e);
+        this.finishSet(key);
         throw new Error(`Source function failed for key: '${key}'`);
       }
     }
@@ -295,8 +336,20 @@ export class CacheStore {
       this.logger.log('debug', `Applied middleware for key: ${key}`);
     } catch (error) {
       this.logger.log('error', `Middleware execution failed for key: ${key}`, error);
+      this.finishSet(key);
       throw new Error(`Middleware execution failed for key: '${key}'`);
     }
+
+    // A set() for the same key that started later has already written its value;
+    // writing now would replace newer data with older data. A later set() that failed,
+    // or has not finished yet, does not block this one.
+    if ((this.appliedSets.get(key) ?? 0) > sequence) {
+      this.logger.log('debug', `Discarding superseded set() for key: ${key}`);
+      this.finishSet(key);
+      return false;
+    }
+    this.appliedSets.set(key, sequence);
+    this.finishSet(key);
 
     // The value is resolved, so nothing below can fail. Only now replace the
     // existing entry's timer: a failed sourceFn or middleware above must leave the
@@ -310,14 +363,14 @@ export class CacheStore {
     const writtenAt = Date.now();
     if (existingCache?.interval) {
       this.logger.log('debug', `Clearing existing interval for key: ${key}`);
-      clearTimeout(existingCache.interval);
+      existingCache.interval.clear();
     }
 
-    let interval: ReturnType<typeof setTimeout> | null = null;
+    let interval: ExpiryTimer | null = null;
 
     if (ttl !== undefined) {
       this.logger.log('debug', `Setting expiry interval for key: ${key}, ttl: ${ttl}ms`);
-      interval = setTimeout(() => {
+      interval = createExpiryTimer(() => {
         // Only act if this timer still belongs to the live entry; it may have been
         // replaced by a later set() or refetch.
         const current = this.cache.get(key);
@@ -333,8 +386,12 @@ export class CacheStore {
             this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
             /* Ignore as the event is already emitted inside the function */
           });
+        } else if (typeof sourceFn !== 'function') {
+          // Entries with a sourceFn are kept so they can still be refetched manually
+          this.removeExpiredEntry(key, interval);
         }
       }, ttl);
+      interval.unref();
     }
 
     // Check if adding this entry will exceed max size and enforce eviction if needed
@@ -358,8 +415,9 @@ export class CacheStore {
 
     this.cache.set(key, {
       value: cacheValue ?? 'undefined',
+      serialized,
       ttl,
-      sourceFn,
+      sourceFn: sourceFn as SourceFn<string> | undefined,
       autoRefetch,
       interval: interval || undefined,
       createdAt: writtenAt,
@@ -403,6 +461,40 @@ export class CacheStore {
         updatedAt: state.updatedAt,
       },
     );
+  }
+
+  /**
+   * Removes an entry whose TTL timer has fired, unless the entry has since been
+   * replaced (its timer is then a different one) or already removed.
+   */
+  private removeExpiredEntry(key: string, timer: ExpiryTimer | null | undefined): void {
+    const current = this.cache.get(key);
+    if (!current || !timer || current.interval !== timer) {
+      return;
+    }
+    this.logger.log('debug', `Removing expired entry for key: ${key}`);
+    this.deleteSingle(key);
+  }
+
+  /**
+   * Marks one in-flight set() for `key` as finished (written, discarded or failed).
+   * Ordering state for the key is dropped once no set() for it is in flight.
+   */
+  private finishSet(key: string): void {
+    const remaining = (this.inFlightSets.get(key) ?? 1) - 1;
+    if (remaining > 0) {
+      this.inFlightSets.set(key, remaining);
+      return;
+    }
+    this.inFlightSets.delete(key);
+    this.appliedSets.delete(key);
+  }
+
+  /**
+   * Returns true if `entry` is still the live cache entry for `key`
+   */
+  private isCurrentEntry(key: string, entry: CacheState<string>): boolean {
+    return this.cache.get(key) === entry;
   }
 
   /**
@@ -501,6 +593,32 @@ export class CacheStore {
    * Gets a value or values from the cache by key or pattern
    */
   async get(key: string): Promise<string | string[] | undefined> {
+    const results = await this.read(key);
+    if (results === undefined) {
+      return undefined;
+    }
+    return Array.isArray(results) ? results.map((result) => result.value) : results.value;
+  }
+
+  /**
+   * Gets a value or values from the cache, deserializing entries that were stored
+   * from non-string values. Plain string entries are returned unchanged.
+   */
+  async getDeserialized(key: string): Promise<unknown | unknown[] | undefined> {
+    const results = await this.read(key);
+    if (results === undefined) {
+      return undefined;
+    }
+    return Array.isArray(results)
+      ? results.map((result) => this.decodeValue(result))
+      : this.decodeValue(results);
+  }
+
+  /**
+   * Shared implementation of get() and getDeserialized(): reads a single key, or every
+   * key matching a wildcard pattern, returning the stored strings with their serialized flag.
+   */
+  private async read(key: string): Promise<StoredRead | StoredRead[] | undefined> {
     if (!key?.length) {
       this.logger.log('debug', 'Empty key provided to get() method');
       return undefined;
@@ -508,35 +626,62 @@ export class CacheStore {
 
     this.logger.log('info', `Getting cache for key: ${key}`);
 
-    const isPattern = key.includes('*');
-
-    if (isPattern) {
-      const matchingKeys = this.getMatchingKeys(key);
-      if (!matchingKeys.length) {
-        this.logger.log('debug', `No keys found matching pattern: ${key}`);
-        return undefined;
-      }
-
-      // For patterns, get all matching values in parallel
-      const results = await Promise.all(
-        matchingKeys.map(async (matchedKey) => {
-          try {
-            return await this.getSingle(matchedKey);
-          } catch (error) {
-            this.logger.log('error', `Error getting cache for key: ${matchedKey}`, error);
-            return undefined;
-          }
-        }),
-      );
-
-      // Filter out undefined values from expired or errored keys
-      const validResults = results.filter((result): result is string => result !== undefined);
-
-      return validResults.length > 0 ? validResults : undefined;
+    if (!key.includes('*')) {
+      return this.readSingle(key);
     }
 
-    // For single keys, just get the value directly
-    return this.getSingle(key);
+    const matchingKeys = this.getMatchingKeys(key);
+    if (!matchingKeys.length) {
+      this.logger.log('debug', `No keys found matching pattern: ${key}`);
+      return undefined;
+    }
+
+    // For patterns, get all matching values in parallel
+    const results = await Promise.all(
+      matchingKeys.map(async (matchedKey) => {
+        try {
+          return await this.readSingle(matchedKey);
+        } catch (error) {
+          this.logger.log('error', `Error getting cache for key: ${matchedKey}`, error);
+          return undefined;
+        }
+      }),
+    );
+
+    // Filter out undefined values from expired or errored keys
+    const validResults = results.filter((result): result is StoredRead => result !== undefined);
+    return validResults.length > 0 ? validResults : undefined;
+  }
+
+  /**
+   * Converts a value into its stored string form. Strings are stored as-is;
+   * any other value is serialized and flagged so it can be restored on read.
+   */
+  private encodeValue(value: unknown): { value: string | undefined; serialized: boolean } {
+    if (value === undefined || typeof value === 'string') {
+      return { value, serialized: false };
+    }
+    return { value: this.serialization.serialize(value), serialized: true };
+  }
+
+  /**
+   * Restores a stored value: serialized entries are deserialized, strings are returned unchanged.
+   */
+  private decodeValue({ value, serialized }: StoredRead): unknown {
+    return serialized ? this.serialization.deserialize(value) : value;
+  }
+
+  /**
+   * Reads a single entry by exact key, returning the (middleware-processed) stored
+   * string together with whether it holds a serialized non-string value.
+   */
+  private async readSingle(key: string): Promise<StoredRead | undefined> {
+    const cached = this.cache.get(key);
+    const value = await this.getSingle(key);
+    if (value === undefined) {
+      return undefined;
+    }
+    return { value, serialized: cached?.serialized === true };
   }
 
   /**
@@ -688,15 +833,17 @@ export class CacheStore {
 
     // Set the fetching flag to prevent concurrent refetches
     cached.fetching = true;
-    this.cache.set(key, cached);
 
     try {
       this.logger.log('debug', `Refetching key: ${key}`);
 
       // Execute the source function
-      let newValue: string;
+      let newValue: string | undefined;
+      let serialized: boolean;
       try {
-        newValue = await cached.sourceFn();
+        const encoded = this.encodeValue(await (cached.sourceFn as SourceFn<unknown>)());
+        newValue = encoded.value;
+        serialized = encoded.serialized;
       } catch (e) {
         this.logger.log('error', `Source function failed during refetch for key: ${key}`, e);
 
@@ -712,28 +859,25 @@ export class CacheStore {
           },
         );
 
-        // Reset the fetching flag before propagating the error
+        // Reset the fetching flag before propagating the error. The entry object is
+        // updated in place so a deleted entry is not re-inserted into the cache.
         cached.fetching = false;
-        this.cache.set(key, cached);
 
         // Rethrow with more context
         throw new Error(`Source function failed for key: '${key}'`);
       }
 
+      // The entry may have been deleted, flushed, invalidated, evicted or replaced
+      // by set() while sourceFn was running; writing now would resurrect stale data.
+      if (!this.isCurrentEntry(key, cached)) {
+        cached.fetching = false;
+        this.logger.log('debug', `Discarding refetch result for key: ${key}, entry changed while fetching`);
+        return false;
+      }
+
       // Update timestamps before applying middleware
       const now = Date.now();
-
-      // Emit event
-      this.eventSystem.emitEvent(
-        EVENT.REFETCH,
-        {
-          key,
-          value: newValue,
-          ttl: cached.ttl,
-          createdAt: now,
-          updatedAt: now,
-        },
-      );
+      const fetchedValue = newValue;
 
       // Apply middleware
       const context: MiddlewareContext<string | undefined> = {
@@ -750,18 +894,37 @@ export class CacheStore {
         this.logger.log('error', `Middleware returned undefined during refetch for key: ${key}`);
         throw new Error(`Middleware returned undefined during refetch for key: '${key}'`);
       }
-      newValue = processed;
+      const storedValue: string = processed;
+
+      // Middleware is async too, so check again before writing
+      if (!this.isCurrentEntry(key, cached)) {
+        cached.fetching = false;
+        this.logger.log('debug', `Discarding refetch result for key: ${key}, entry changed during middleware`);
+        return false;
+      }
+
+      // Emit event only for results that are actually applied
+      this.eventSystem.emitEvent(
+        EVENT.REFETCH,
+        {
+          key,
+          value: fetchedValue ?? 'undefined',
+          ttl: cached.ttl,
+          createdAt: now,
+          updatedAt: now,
+        },
+      );
 
       // Clear the existing interval if present
       if (cached.interval) {
-        clearTimeout(cached.interval);
+        cached.interval.clear();
       }
 
       // Create a new interval if TTL is specified
-      let newInterval: ReturnType<typeof setTimeout> | undefined;
+      let newInterval: ExpiryTimer | undefined;
 
       if (cached.ttl) {
-        newInterval = setTimeout(() => {
+        newInterval = createExpiryTimer(() => {
           const current = this.cache.get(key);
           if (!current || current.interval !== newInterval) {
             return;
@@ -775,13 +938,16 @@ export class CacheStore {
               this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
             });
           }
+          // Refetched entries always have a sourceFn, so they are kept for manual refetch
         }, cached.ttl);
+        newInterval.unref();
       }
 
       // Update the cache entry
       this.cache.set(key, {
         ...cached,
-        value: newValue,
+        value: storedValue,
+        serialized,
         updatedAt: now,
         interval: newInterval,
         fetching: false,
@@ -796,9 +962,8 @@ export class CacheStore {
       if (!(e instanceof Error && e.message.startsWith(`Source function failed for key: '${key}'`))) {
         this.logger.log('error', `Refetch failed for key: ${key}`, e);
 
-        // Reset the fetching flag
+        // Reset the fetching flag in place; never re-insert the entry here
         cached.fetching = false;
-        this.cache.set(key, cached);
       }
 
       // Propagate the error
@@ -843,7 +1008,7 @@ export class CacheStore {
 
     if (cache.interval) {
       this.logger.log('debug', `Clearing timeout for key: ${key}`);
-      clearTimeout(cache.interval);
+      cache.interval.clear();
     }
 
     this.logger.log('info', `Deleted key: ${key}`);
@@ -861,7 +1026,7 @@ export class CacheStore {
 
     values.forEach(({ interval }) => {
       if (interval) {
-        clearTimeout(interval);
+        interval.clear();
       }
     });
 
@@ -908,7 +1073,7 @@ export class CacheStore {
       // Clean up expired entry to prevent memory leaks
       if (cached.interval) {
         this.logger.log('debug', `Clearing timeout for expired key: ${key}`);
-        clearTimeout(cached.interval);
+        cached.interval.clear();
       }
       this.logger.log('debug', `Removing expired key during has() check: ${key}`);
       this.cache.delete(key);
@@ -935,13 +1100,17 @@ export class CacheStore {
     this.logger.updateConfig(this.config);
 
     // Update storage adapter if provided
-    if ('storage' in config) {
-      // If we're replacing the storage adapter, save current data first
-      if (this.storageAdapter) {
-        try {
-          await this.saveToStorage();
-        } catch (error) {
-          this.logger.log('error', 'Failed to save cache data before changing storage adapter', error);
+    // Configuring the adapter that is already attached changes nothing: reloading it
+    // would restore its last snapshot over entries that have not been saved yet
+    if ('storageAdapter' in config && (config.storageAdapter ?? null) !== this.storageAdapter) {
+      // If we're replacing the storage adapter, save current data first. If that
+      // fails, keep the current adapter so no entries are lost and the caller can retry.
+      const previousAdapter = this.storageAdapter;
+      if (previousAdapter) {
+        if (!(await this.saveToStorage())) {
+          this.config.storageAdapter = previousAdapter;
+          this.logger.log('error', 'Failed to save cache data before changing storage adapter; keeping the current adapter');
+          throw new Error('Failed to save cache data to the current storage adapter; the storage adapter was not changed');
         }
       }
 
@@ -1090,6 +1259,11 @@ export class CacheStore {
   private serializeCache(): string {
     const entries: { [key: string]: any } = {};
     for (const [key, state] of this.cache.entries()) {
+      // Expired entries cannot be served after a restore (source functions are not
+      // persisted), so there is no point in writing them out
+      if (state.ttl && isExpired(state.updatedAt, state.ttl)) {
+        continue;
+      }
       entries[key] = {
         value: state.value,
         createdAt: state.createdAt,
@@ -1100,6 +1274,7 @@ export class CacheStore {
         lastAccessed: state.lastAccessed,
         tags: state.tags,
         dependencies: state.dependencies,
+        serialized: state.serialized || undefined,
         sourceFn: state.sourceFn ? state.sourceFn.toString() : undefined,
       };
     }
@@ -1133,16 +1308,8 @@ export class CacheStore {
       // Clear existing cache
       this.flush();
 
-      // Restore config
-      if (parsed.config) {
-        if (parsed.config.maxEntries !== undefined) {
-          this.config.maxEntries = parsed.config.maxEntries;
-        }
-
-        if (parsed.config.evictionPolicy) {
-          this.config.evictionPolicy = parsed.config.evictionPolicy as EvictionPolicy;
-        }
-      }
+      // The stored `config` block is not applied: the runtime configuration, including
+      // options passed in the same configure() call, always takes precedence
 
       // Restore entries
       if (parsed.entries) {
@@ -1157,6 +1324,7 @@ export class CacheStore {
             lastAccessed: entry.lastAccessed,
             tags: entry.tags,
             dependencies: entry.dependencies,
+            serialized: entry.serialized === true,
           };
 
           this.cache.set(key, state);
@@ -1189,9 +1357,10 @@ export class CacheStore {
     }
 
     // Otherwise set timeout for remaining time
-    state.interval = setTimeout(() => {
+    state.interval = createExpiryTimer(() => {
       this.handleExpiry(key, state);
     }, remainingTime);
+    state.interval.unref();
   }
 
   /**
@@ -1208,6 +1377,8 @@ export class CacheStore {
         this.logger.log('error', `Auto-refetch failed for key: ${key}`, e);
         /* Ignore as the event is already emitted inside the function */
       });
+    } else if (typeof state.sourceFn !== 'function' && this.cache.get(key) === state) {
+      this.deleteSingle(key);
     }
   }
 
@@ -1237,13 +1408,20 @@ export class CacheStore {
    * Loads cache state from storage if a storage adapter is configured
    */
   async loadFromStorage(): Promise<boolean> {
-    if (!this.storageAdapter) {
+    const adapter = this.storageAdapter;
+    if (!adapter) {
       return false;
     }
 
     try {
       // Load from storage
-      const data = await this.storageAdapter.load();
+      const data = await adapter.load();
+
+      // The adapter may have been replaced or detached while loading
+      if (this.storageAdapter !== adapter) {
+        this.logger.log('debug', 'Storage adapter changed during load; discarding loaded data');
+        return false;
+      }
 
       if (!data) {
         this.logger.log('info', 'No cached data found in storage');
@@ -1277,6 +1455,7 @@ export class CacheStore {
           this.logger.log('error', 'Auto-save failed', error);
         });
       }, intervalMs);
+      unrefTimer(this.autoSaveInterval);
     }
   }
 
@@ -1513,7 +1692,7 @@ export class CacheStore {
     // Clear all timeouts
     for (const cacheItem of this.cache.values()) {
       if (cacheItem?.interval) {
-        clearTimeout(cacheItem.interval);
+        cacheItem.interval.clear();
         cacheItem.interval = undefined;
       }
     }

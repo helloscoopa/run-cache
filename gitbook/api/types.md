@@ -29,6 +29,14 @@ interface CacheConfig {
    * Storage adapter for persistence
    */
   storageAdapter?: StorageAdapter;
+
+  /**
+   * Shut the cache down (saving to the storage adapter) on SIGTERM/SIGINT in
+   * Node.js and on `beforeunload` in browsers. The signal is re-raised afterwards
+   * unless the application has its own listener for it.
+   * @default false
+   */
+  handleProcessSignals?: boolean;
 }
 ```
 

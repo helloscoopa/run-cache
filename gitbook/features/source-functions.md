@@ -302,28 +302,27 @@ await RunCache.set({
 });
 ```
 
-### 3. Return Stringified Data
+### 3. Return the Value You Want Back
 
-Source functions should always return string values:
+A source function can return a string or any serializable value. Whatever it returns is what `get()` gives back:
 
 ```typescript
-// Good - returns stringified data
-await RunCache.set({
+// Returns an object: get() returns the object
+await RunCache.set<UserData>({
   key: 'user-data',
-  sourceFn: async () => {
-    const data = await fetchUserData();
-    return JSON.stringify(data);
-  }
+  sourceFn: async () => fetchUserData()
 });
+const user = await RunCache.get<UserData>('user-data'); // UserData object
 
-// Avoid - returning objects directly
+// Returns a string: get() returns the same string, even if it looks like JSON
 await RunCache.set({
-  key: 'user-data',
-  sourceFn: async () => {
-    return fetchUserData(); // Wrong! Should stringify the result
-  }
+  key: 'user-data:raw',
+  sourceFn: async () => JSON.stringify(await fetchUserData())
 });
+const raw = await RunCache.get('user-data:raw'); // string; JSON.parse it yourself
 ```
+
+Non-string results are serialized on every fetch and refetch, so middleware always receives a string.
 
 ### 4. Optimize for Performance
 
