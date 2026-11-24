@@ -915,7 +915,7 @@ export class CacheStore {
     this.logger.updateConfig(this.config);
 
     // Update storage adapter if provided
-    if ('storage' in config) {
+    if ('storageAdapter' in config) {
       // If we're replacing the storage adapter, save current data first
       if (this.storageAdapter) {
         try {
