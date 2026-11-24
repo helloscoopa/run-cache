@@ -151,3 +151,24 @@ describe('CacheMigrationUtils', () => {
     });
   });
 });
+
+describe('CacheMigrationUtils edge cases', () => {
+  it('returns the raw string when a constructor rejects the parsed array', () => {
+    class Strict {
+      constructor() {
+        throw new Error('bad input');
+      }
+    }
+    expect(CacheMigrationUtils.migrateStringCacheToTyped('[1,2]', Strict as any)).toBe('[1,2]');
+  });
+
+  it('parses JSON string literals detected as primitives', () => {
+    expect(CacheMigrationUtils.detectValueType('"quoted"')).toBe('primitive');
+    expect(CacheMigrationUtils.migrateStringCacheToTyped<string>('"quoted"')).toBe('quoted');
+  });
+
+  it('returns the raw string when a quoted value is not valid JSON', () => {
+    expect(CacheMigrationUtils.detectValueType('"unterminated')).toBe('string');
+    expect(CacheMigrationUtils.migrateStringCacheToTyped('"unterminated')).toBe('"unterminated');
+  });
+});

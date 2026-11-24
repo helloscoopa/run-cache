@@ -102,3 +102,17 @@ describe('Logger', () => {
     expect(console.info).toHaveBeenCalledTimes(1); // Still 1, no new calls
   });
 });
+
+describe('Logger without a console', () => {
+  it('does nothing when console is unavailable', () => {
+    const logger = new Logger({ debug: true });
+    const original = global.console;
+    // @ts-expect-error simulating an environment without console
+    delete global.console;
+    try {
+      expect(() => logger.log('info', 'no console')).not.toThrow();
+    } finally {
+      global.console = original;
+    }
+  });
+});

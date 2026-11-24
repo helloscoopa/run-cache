@@ -150,3 +150,10 @@ describe('Eviction Policies', () => {
     });
   });
 });
+
+describe('EvictionPolicyBase.evict', () => {
+  it('evicts nothing by default', () => {
+    const policy = new LRUPolicy(new Logger({ debug: false }));
+    expect(policy.evict(new Map(), 3)).toEqual([]);
+  });
+});
