@@ -327,17 +327,19 @@ Removes event listeners based on the specified options.
 
 ```typescript
 RunCache.clearEventListeners(options?: {
-  event?: EVENT;
+  event?: EventName;
   key?: string;
-  handler?: Function;
-}): void
+}): Promise<boolean>
 ```
 
 **Parameters:**
 - `options?`: Options to specify which listeners to remove
-  - `event?`: The event type to remove listeners for
-  - `key?`: The key or pattern to remove listeners for
-  - `handler?`: The specific handler function to remove
+  - `event?`: The event type to remove listeners for. Only that exact event is affected: clearing `EVENT.REFETCH` leaves `EVENT.REFETCH_FAILURE` listeners in place.
+  - `key?`: The key or wildcard pattern to remove listeners for. Without `event`, the key's listeners are removed for every event type.
+
+With no options, every listener is removed.
+
+**Returns:** `Promise<boolean>` - `true` if at least one listener was removed, `false` if there was nothing to remove.
 
 **Examples:**
 
@@ -361,15 +363,11 @@ RunCache.clearEventListeners({
   key: "api-data"
 });
 
-// Remove a specific handler
-const handler = (event) => console.log(event);
-RunCache.onExpiry(handler);
-// Later:
-RunCache.clearEventListeners({
-  event: EVENT.EXPIRE,
-  handler: handler
-});
+// Check whether anything was removed
+const removed = await RunCache.clearEventListeners({ event: EVENT.EXPIRE });
 ```
+
+Removing a single handler is not supported; clear the event (and key) it was registered for and register the remaining handlers again.
 
 ## Event Metadata
 

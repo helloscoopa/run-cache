@@ -378,7 +378,12 @@ RunCache.clearEventListeners({
   event: EVENT.REFETCH_FAILURE,
   key: "external-*"
 });
+
+// Remove all listeners for a key, across every event type
+RunCache.clearEventListeners({ key: "api-data" });
 ```
+
+`clearEventListeners()` resolves to `true` if at least one listener was removed and `false` otherwise. Clearing one event type never affects another; for example, clearing `EVENT.REFETCH` keeps `EVENT.REFETCH_FAILURE` listeners.
 
 ### Middleware
 
