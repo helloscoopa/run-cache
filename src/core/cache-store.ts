@@ -89,6 +89,12 @@ export class CacheStore {
 
   private serialization: SerializationManager;
 
+  /** Monotonic counter used to order concurrent set() calls */
+  private setSequence = 0;
+
+  /** Sequence number of the most recent in-flight set() per key */
+  private pendingSets = new Map<string, number>();
+
   /**
    * Creates a new CacheStore instance.
    * Note: Use the static `create` method instead for proper initialization with storage adapters.
@@ -251,6 +257,8 @@ export class CacheStore {
     }
 
     const time = Date.now();
+    const sequence = ++this.setSequence;
+    this.pendingSets.set(key, sequence);
 
     this.logger.log('info', `Setting cache for key: ${key}`, {
       hasTtl: ttl !== undefined,
@@ -305,6 +313,7 @@ export class CacheStore {
         this.logger.log('debug', `Successfully fetched value using sourceFn for key: ${key}`);
       } catch (e) {
         this.logger.log('error', `Source function failed for key: ${key}`, e);
+        this.releasePendingSet(key, sequence);
         throw new Error(`Source function failed for key: '${key}'`);
       }
     }
@@ -329,8 +338,18 @@ export class CacheStore {
       this.logger.log('debug', `Applied middleware for key: ${key}`);
     } catch (error) {
       this.logger.log('error', `Middleware execution failed for key: ${key}`, error);
+      this.releasePendingSet(key, sequence);
       throw new Error(`Middleware execution failed for key: '${key}'`);
     }
+
+    // A set() for the same key that started later has already been applied (or is
+    // still running); writing now would replace newer data with older data.
+    if (this.pendingSets.get(key) !== sequence) {
+      this.logger.log('debug', `Discarding superseded set() for key: ${key}`);
+      if (interval) clearTimeout(interval);
+      return false;
+    }
+    this.pendingSets.delete(key);
 
     // Check if adding this entry will exceed max size and enforce eviction if needed
     // Do this check BEFORE adding the new entry to ensure proper eviction
@@ -377,6 +396,22 @@ export class CacheStore {
     // Double-check after adding to ensure we're not over the limit
     this.enforceEvictionPolicy();
     return true;
+  }
+
+  /**
+   * Forgets an in-flight set() that ended without writing, unless a newer one replaced it
+   */
+  private releasePendingSet(key: string, sequence: number): void {
+    if (this.pendingSets.get(key) === sequence) {
+      this.pendingSets.delete(key);
+    }
+  }
+
+  /**
+   * Returns true if `entry` is still the live cache entry for `key`
+   */
+  private isCurrentEntry(key: string, entry: CacheState<string>): boolean {
+    return this.cache.get(key) === entry;
   }
 
   /**
@@ -659,7 +694,6 @@ export class CacheStore {
 
     // Set the fetching flag to prevent concurrent refetches
     cached.fetching = true;
-    this.cache.set(key, cached);
 
     try {
       this.logger.log('debug', `Refetching key: ${key}`);
@@ -682,27 +716,25 @@ export class CacheStore {
           },
         );
 
-        // Reset the fetching flag before propagating the error
+        // Reset the fetching flag before propagating the error. The entry object is
+        // updated in place so a deleted entry is not re-inserted into the cache.
         cached.fetching = false;
-        this.cache.set(key, cached);
 
         // Rethrow with more context
         throw new Error(`Source function failed for key: '${key}'`);
       }
 
+      // The entry may have been deleted, flushed, invalidated, evicted or replaced
+      // by set() while sourceFn was running; writing now would resurrect stale data.
+      if (!this.isCurrentEntry(key, cached)) {
+        cached.fetching = false;
+        this.logger.log('debug', `Discarding refetch result for key: ${key}, entry changed while fetching`);
+        return false;
+      }
+
       // Update timestamps before applying middleware
       const now = Date.now();
-
-      // Emit event
-      this.eventSystem.emitEvent(
-        EVENT.REFETCH,
-        {
-          key,
-          value: newValue,
-          createdAt: now,
-          updatedAt: now,
-        },
-      );
+      const fetchedValue = newValue;
 
       // Apply middleware
       const context: MiddlewareContext<string | undefined> = {
@@ -720,6 +752,24 @@ export class CacheStore {
         throw new Error(`Middleware returned undefined during refetch for key: '${key}'`);
       }
       newValue = processed;
+
+      // Middleware is async too, so check again before writing
+      if (!this.isCurrentEntry(key, cached)) {
+        cached.fetching = false;
+        this.logger.log('debug', `Discarding refetch result for key: ${key}, entry changed during middleware`);
+        return false;
+      }
+
+      // Emit event only for results that are actually applied
+      this.eventSystem.emitEvent(
+        EVENT.REFETCH,
+        {
+          key,
+          value: fetchedValue,
+          createdAt: now,
+          updatedAt: now,
+        },
+      );
 
       // Clear the existing interval if present
       if (cached.interval) {
@@ -768,9 +818,8 @@ export class CacheStore {
       if (!(e instanceof Error && e.message.startsWith(`Source function failed for key: '${key}'`))) {
         this.logger.log('error', `Refetch failed for key: ${key}`, e);
 
-        // Reset the fetching flag
+        // Reset the fetching flag in place; never re-insert the entry here
         cached.fetching = false;
-        this.cache.set(key, cached);
       }
 
       // Propagate the error
