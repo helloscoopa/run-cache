@@ -1,349 +1,148 @@
 # TypeScript Types
 
-RunCache is built with TypeScript and provides comprehensive type definitions to help you write type-safe code. This page documents all the TypeScript types, interfaces, and enums available in the RunCache library.
+This page lists every type the `run-cache` package exports. Import them with `import type`:
 
-## Core Types
+```typescript
+import type {
+  CacheConfig,
+  EventParam,
+  EventName,
+  MiddlewareFunction,
+  MiddlewareContext,
+  StorageAdapter,
+  StorageAdapterConfig
+} from 'run-cache';
+```
 
-### CacheConfig
+The values `RunCache` (also the default export), `EvictionPolicy`, `EVENT`, `LocalStorageAdapter`, `IndexedDBAdapter`, `FilesystemAdapter` and the [error classes](#error-classes) are exported too. Nothing else is part of the public API.
 
-Configuration options for RunCache.
+## CacheConfig
+
+Options for `RunCache.configure()`. Every option is optional, and a call only changes the options it passes.
 
 ```typescript
 interface CacheConfig {
-  /**
-   * Maximum number of entries before eviction
-   */
+  /** Maximum number of entries. Default: unlimited */
   maxEntries?: number;
-  
-  /**
-   * Eviction policy to use
-   */
+
+  /** Declared but not used: entries without a ttl never expire */
+  defaultTTL?: number;
+
+  /** What to evict when maxEntries is reached. Default: EvictionPolicy.NONE */
   evictionPolicy?: EvictionPolicy;
-  
-  /**
-   * Enable debug logging
-   */
-  debug?: boolean;
-  
-  /**
-   * Storage adapter for persistence
-   */
+
+  /** Adapter to persist the cache with. Attaching one loads its saved data */
   storageAdapter?: StorageAdapter;
 
-  /**
-   * Shut the cache down (saving to the storage adapter) on SIGTERM/SIGINT in
-   * Node.js and on `beforeunload` in browsers. The signal is re-raised afterwards
-   * unless the application has its own listener for it.
-   * @default false
-   */
+  /** Log operations and errors to the console. Default: false */
+  debug?: boolean;
+
+  /** Call shutdown() on SIGINT/SIGTERM (Node.js) or beforeunload (browser). Default: false */
   handleProcessSignals?: boolean;
 
-  /**
-   * Receives errors thrown or rejected by event listeners.
-   * Defaults to writing them to console.error.
-   */
+  /** Receives errors thrown by event listeners. Default: console.error */
   onListenerError?: (error: unknown, context: { event: string; key: string }) => void;
 }
 ```
 
-### SetOptions
+## Set options
 
-Options for setting a cache entry.
+`RunCache.set()` takes an inline options object; there is no exported name for it:
 
 ```typescript
-interface SetOptions {
-  /**
-   * Unique identifier for the cache entry
-   */
-  key: string;
-  
-  /**
-   * String value to cache (required if no sourceFn)
-   */
-  value?: string;
-  
-  /**
-   * Time-to-live in milliseconds
-   */
-  ttl?: number;
-  
-  /**
-   * Automatically refetch on expiry (requires ttl and sourceFn)
-   */
-  autoRefetch?: boolean;
-  
-  /**
-   * Function to generate cache value (required if no value)
-   */
-  sourceFn?: () => string | Promise<string>;
-  
-  /**
-   * Array of tags for tag-based invalidation
-   */
+{
+  key: string;              // must not be empty
+  value?: T;                // strings (including '') are stored as-is, other values as JSON
+  ttl?: number;             // milliseconds; must not be negative
+  autoRefetch?: boolean;    // requires ttl, and a sourceFn to have any effect
+  sourceFn?: () => T | Promise<T>;
   tags?: string[];
-  
-  /**
-   * Array of cache keys this entry depends on
-   */
   dependencies?: string[];
-  
-  /**
-   * Custom metadata to associate with the entry
-   */
-  metadata?: any;
 }
 ```
 
-### RefetchOptions
-
-Options for refreshing a cache entry.
-
-```typescript
-interface RefetchOptions {
-  /**
-   * Custom metadata to include in refetch events
-   */
-  metadata?: any;
-}
-```
+One of `value` or `sourceFn` is required. If you need the type, derive it: `Parameters<typeof RunCache.set>[0]`.
 
 ## Event Types
 
-### EventName
-
-Union type of all possible event names.
-
-```typescript
-type EventName = 'expire' | 'refetch' | 'refetch_failure' | 'tag_invalidation' | 'dependency_invalidation';
-```
-
 ### EVENT
 
-Enum for event types.
+```typescript
+const EVENT = {
+  EXPIRE: 'expire',
+  REFETCH: 'refetch',
+  REFETCH_FAILURE: 'refetch_failure',
+  TAG_INVALIDATION: 'tag_invalidation',
+  DEPENDENCY_INVALIDATION: 'dependency_invalidation',
+} as const;
+```
+
+### EventName
 
 ```typescript
-enum EVENT {
-  EXPIRE = 'expire',
-  REFETCH = 'refetch',
-  REFETCH_FAILURE = 'refetch_failure',
-  TAG_INVALIDATION = 'tag_invalidation',
-  DEPENDENCY_INVALIDATION = 'dependency_invalidation'
-}
+type EventName = keyof typeof EVENT
+  | 'expire' | 'refetch' | 'refetch_failure' | 'tag_invalidation' | 'dependency_invalidation';
 ```
+
+Accepted by `RunCache.clearEventListeners({ event })`.
 
 ### EventParam
 
-Union type of all possible event objects.
+Every event listener receives an `EventParam`:
 
 ```typescript
-type EventParam = ExpiryEvent | RefetchEvent | RefetchFailureEvent | TagInvalidationEvent | DependencyInvalidationEvent;
-```
-
-### ExpiryEvent
-
-Event object for expiry events.
-
-```typescript
-interface ExpiryEvent {
-  /**
-   * The key of the expired entry
-   */
+type EventParam<T = string> = {
   key: string;
-
-  /**
-   * The stored value at the time it expired
-   */
-  value: string;
-
-  /**
-   * The TTL value in milliseconds
-   */
-  ttl: number;
-
-  /**
-   * Timestamp when the entry was created
-   */
-  createdAt: number;
-
-  /**
-   * Timestamp when the entry was last updated
-   */
-  updatedAt: number;
-}
-```
-
-### RefetchEvent
-
-Event object for refetch events.
-
-```typescript
-interface RefetchEvent {
-  /**
-   * The key of the refreshed entry
-   */
-  key: string;
-
-  /**
-   * The value returned by the source function
-   */
-  value: string;
-
-  /**
-   * The entry's TTL in milliseconds, if it has one
-   */
+  value: T;               // see the note below
+  serializedValue?: string;
   ttl?: number;
-
-  /**
-   * Timestamps of the refetch
-   */
-  createdAt: number;
+  createdAt: number;      // ms since epoch
   updatedAt: number;
-}
+  tag?: string;           // tag_invalidation events only
+  dependencyKey?: string; // dependency_invalidation events only
+  error?: unknown;        // refetch_failure events only
+};
 ```
 
-### RefetchFailureEvent
-
-Event object for refetch failure events.
-
-```typescript
-interface RefetchFailureEvent {
-  /**
-   * The key of the entry that failed to refresh
-   */
-  key: string;
-  
-  /**
-   * The error thrown by the source function (or a SourceFnError if it
-   * resolved to undefined)
-   */
-  error: unknown;
-}
-```
-
-### TagInvalidationEvent
-
-Event object for tag invalidation events.
-
-```typescript
-interface TagInvalidationEvent {
-  /**
-   * The key of the invalidated entry
-   */
-  key: string;
-  
-  /**
-   * The tag that caused the invalidation
-   */
-  tag: string;
-  
-  /**
-   * Optional custom metadata associated with the entry
-   */
-  metadata?: any;
-}
-```
-
-### DependencyInvalidationEvent
-
-Event object for dependency invalidation events.
-
-```typescript
-interface DependencyInvalidationEvent {
-  /**
-   * The key of the invalidated entry
-   */
-  key: string;
-  
-  /**
-   * The key of the dependency that caused the invalidation
-   */
-  dependencyKey: string;
-  
-  /**
-   * Optional custom metadata associated with the entry
-   */
-  metadata?: any;
-}
-```
-
-### EventListenerOptions
-
-Options for clearing event listeners.
-
-```typescript
-interface EventListenerOptions {
-  /**
-   * The event type to remove listeners for
-   */
-  event?: EVENT;
-  
-  /**
-   * The key or pattern to remove listeners for
-   */
-  key?: string;
-  
-  /**
-   * The specific handler function to remove
-   */
-  handler?: Function;
-}
-```
+`value` holds the entry's stored form: a string set as a string is passed unchanged, but any other value is passed as its JSON string, even when a typed cache declares `T`. `error` is set on `refetch_failure` events to what the source function threw (or a `SourceFnError` if it resolved to `undefined`). See [Events](events.md).
 
 ## Middleware Types
 
 ### MiddlewareFunction
 
-Type definition for middleware functions.
-
 ```typescript
-type MiddlewareFunction = (
-  value: string | undefined,
-  context: MiddlewareContext,
-  next: (value: string | undefined) => Promise<string | undefined>
-) => Promise<string | undefined>;
+type MiddlewareFunction<T = string> = (
+  value: T,
+  context: MiddlewareContext<T>,
+  next: (nextValue: T) => Promise<T>
+) => Promise<T>;
 ```
+
+`RunCache.use()` takes a `MiddlewareFunction<string | undefined>`: middleware always sees the stored string, never the original object.
 
 ### MiddlewareContext
 
-Context object passed to middleware functions.
-
 ```typescript
-interface MiddlewareContext {
-  /**
-   * The operation being performed
-   */
-  operation: 'get' | 'set' | 'delete' | 'refetch' | 'evict';
-  
-  /**
-   * The key of the cache entry
-   */
+interface MiddlewareContext<T = string> {
   key: string;
-  
-  /**
-   * Optional custom metadata associated with the entry
-   */
-  metadata?: any;
+  operation: 'get' | 'set' | 'delete' | 'has' | 'refetch';
+  value?: T;
+  serializedValue?: string;
+  ttl?: number;
+  autoRefetch?: boolean;
+  timestamp: number;
 }
 ```
+
+Although the type lists `delete` and `has`, middleware only runs for `set`, `refetch`, and `get` when the key is found. See [Middleware](../advanced/middleware.md).
 
 ## Storage Types
 
 ### StorageAdapter
 
-Interface for storage adapters.
-
 ```typescript
 interface StorageAdapter {
-  /**
-   * Save cache data to storage
-   * @param data The stringified cache data
-   */
   save(data: string): Promise<void>;
-  
-  /**
-   * Load cache data from storage
-   * @returns The stringified cache data or null if not found
-   */
   load(): Promise<string | null>;
 
   /**
@@ -363,178 +162,62 @@ interface StorageAdapter {
 }
 ```
 
-### StorageAdapterConfig
+Implement it to persist the cache somewhere other than the built-in adapters. See [Persistent Storage](../advanced/persistent-storage.md#custom-storage-adapters).
 
-Common configuration options for storage adapters.
+### StorageAdapterConfig
 
 ```typescript
 interface StorageAdapterConfig {
-  /**
-   * Storage key/filename to use
-   * @default "run-cache-data"
-   */
+  /** Key (or file name, for FilesystemAdapter) to store under. Default: "run-cache-data" */
   storageKey?: string;
-  
-  /**
-   * Auto-save interval in milliseconds
-   * @default 0 (disabled)
-   */
+  /** Save at this interval (ms) while the adapter is attached. Default: 0 (off) */
   autoSaveInterval?: number;
-  
-  /**
-   * Whether to load cache automatically when adapter is initialized
-   * @default true
-   */
+  /** Load existing data when the adapter is attached. Default: true */
   autoLoadOnInit?: boolean;
 }
 ```
 
-### FilesystemAdapterConfig
+The adapter constructors take `Partial<StorageAdapterConfig>`; `FilesystemAdapter` additionally accepts `filePath?: string`.
 
-Configuration options specific to FilesystemAdapter.
+## Error Classes
 
 ```typescript
-interface FilesystemAdapterConfig extends StorageAdapterConfig {
-  /**
-   * Custom file path
-   * @default current working directory
-   */
-  filePath?: string;
+import { RunCacheError, SourceFnError, MiddlewareError } from 'run-cache';
+```
+
+| Class | Thrown when | Extends |
+| --- | --- | --- |
+| `RunCacheError` | Base class for the errors below | `Error` |
+| `SourceFnError` | A source function throws, rejects or resolves to `undefined` | `RunCacheError` |
+| `MiddlewareError` | A middleware function throws or produces `undefined` | `RunCacheError` |
+
+Each has `key` (the cache key of the failing operation) and, when there is an underlying error, `cause`:
+
+```typescript
+import { RunCache, SourceFnError } from 'run-cache';
+
+try {
+  await RunCache.refetch('api-data');
+} catch (error) {
+  if (error instanceof SourceFnError) {
+    console.error(`Refetch of ${error.key} failed`, error.cause);
+  }
 }
 ```
 
-## Enums
-
-### EvictionPolicy
-
-Enum for cache eviction policies.
+## EvictionPolicy
 
 ```typescript
 enum EvictionPolicy {
-  /**
-   * No automatic eviction
-   */
-  NONE = 'none',
-  
-  /**
-   * Least Recently Used eviction policy
-   */
-  LRU = 'lru',
-  
-  /**
-   * Least Frequently Used eviction policy
-   */
-  LFU = 'lfu'
+  NONE = 'NONE', // never evict (default)
+  LRU = 'LRU',   // evict the least recently used entry
+  LFU = 'LFU',   // evict the least frequently used entry
 }
 ```
 
-## Internal Types
+## Examples
 
-These types are used internally by RunCache but may be useful for understanding the library's implementation.
-
-### CacheEntry
-
-Represents a single cache entry.
-
-```typescript
-interface CacheEntry {
-  /**
-   * The cached value
-   */
-  value: string;
-  
-  /**
-   * Time-to-live in milliseconds
-   */
-  ttl?: number;
-  
-  /**
-   * Timestamp when the entry was last updated
-   */
-  updatedAt: number;
-  
-  /**
-   * Timestamp when the entry was last accessed
-   */
-  accessedAt: number;
-  
-  /**
-   * Number of times the entry has been accessed
-   */
-  accessCount: number;
-  
-  /**
-   * Function to generate cache value
-   */
-  sourceFn?: () => string | Promise<string>;
-  
-  /**
-   * Whether to automatically refetch on expiry
-   */
-  autoRefetch?: boolean;
-  
-  /**
-   * Array of tags associated with the entry
-   */
-  tags?: string[];
-  
-  /**
-   * Array of cache keys this entry depends on
-   */
-  dependencies?: string[];
-  
-  /**
-   * Custom metadata associated with the entry
-   */
-  metadata?: any;
-}
-```
-
-### CacheState
-
-Represents the entire cache state.
-
-```typescript
-interface CacheState {
-  /**
-   * Map of cache entries
-   */
-  entries: Map<string, CacheEntry>;
-  
-  /**
-   * Map of tags to sets of keys
-   */
-  tagMap: Map<string, Set<string>>;
-  
-  /**
-   * Map of dependencies to sets of dependent keys
-   */
-  dependencyMap: Map<string, Set<string>>;
-  
-  /**
-   * Cache configuration
-   */
-  config: CacheConfig;
-}
-```
-
-## Using Types in Your Code
-
-### Import Types
-
-```typescript
-import {
-  RunCache,
-  EvictionPolicy,
-  EVENT,
-  type CacheConfig,
-  type SetOptions,
-  type StorageAdapter,
-  type MiddlewareFunction
-} from 'run-cache';
-```
-
-### Example: Configuring RunCache with Types
+### Configuration
 
 ```typescript
 import { RunCache, EvictionPolicy, type CacheConfig } from 'run-cache';
@@ -542,93 +225,39 @@ import { RunCache, EvictionPolicy, type CacheConfig } from 'run-cache';
 const config: CacheConfig = {
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU,
-  debug: true
+  debug: process.env.NODE_ENV !== 'production'
 };
 
-RunCache.configure(config);
+await RunCache.configure(config);
 ```
 
-### Example: Setting Cache Entry with Types
+### Middleware
 
 ```typescript
-import { RunCache, type SetOptions } from 'run-cache';
+import { RunCache, type MiddlewareFunction } from 'run-cache';
 
-const options: SetOptions = {
-  key: 'user:1',
-  value: JSON.stringify({ name: 'John Doe' }),
-  ttl: 3600000,
-  tags: ['user', 'user:1']
-};
-
-await RunCache.set(options);
-```
-
-### Example: Creating a Custom Storage Adapter
-
-```typescript
-import { StorageAdapter } from 'run-cache';
-
-class CustomStorageAdapter implements StorageAdapter {
-  async save(data: string): Promise<void> {
-    // Implementation
-  }
-  
-  async load(): Promise<string | null> {
-    // Implementation
-    return null;
-  }
-}
-```
-
-### Example: Creating a Middleware Function
-
-```typescript
-import { MiddlewareFunction, MiddlewareContext } from 'run-cache';
-
-const loggingMiddleware: MiddlewareFunction = async (value, context, next) => {
-  console.log(`${context.operation} operation for key: ${context.key}`);
+const logOperations: MiddlewareFunction<string | undefined> = async (value, context, next) => {
+  console.log(`${context.operation} ${context.key}`);
   return next(value);
 };
 
-RunCache.use(loggingMiddleware);
+await RunCache.use(logOperations);
 ```
 
-### Example: Handling Events with Types
+### Event handler
 
 ```typescript
-import { RunCache, EVENT, ExpiryEvent, RefetchEvent } from 'run-cache';
+import { RunCache, type EventParam } from 'run-cache';
 
-const handleExpiry = (event: ExpiryEvent) => {
-  console.log(`Cache key ${event.key} expired`);
-};
+function logExpiry(event: EventParam) {
+  console.log(`${event.key} expired after ${event.ttl}ms`);
+}
 
-const handleRefetch = (event: RefetchEvent) => {
-  console.log(`Cache key ${event.key} was refreshed`);
-};
-
-RunCache.onExpiry(handleExpiry);
-RunCache.onRefetch(handleRefetch);
-
-// Later, remove specific handlers
-RunCache.clearEventListeners({
-  event: EVENT.EXPIRE,
-  handler: handleExpiry
-});
+await RunCache.onExpiry(logExpiry);
 ```
-
-## Type Compatibility
-
-RunCache is compatible with TypeScript 4.0 and above. The library uses modern TypeScript features like:
-
-- Discriminated unions
-- Generic types
-- Function types
-- Interface inheritance
-- Optional properties
-- Readonly properties
 
 ## Next Steps
 
-- [RunCache API](./run-cache.md) - Learn about the main RunCache API
-- [Events](./events.md) - Understand the event system
-- [Storage Adapters](./storage-adapters.md) - Learn about persistent storage options 
+- [RunCache API](run-cache.md) - Method reference
+- [Events](events.md) - Event reference
+- [Typed Cache Interface](typed-cache-interface.md) - `createTypedCache<T>()`

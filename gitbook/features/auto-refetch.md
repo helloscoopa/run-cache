@@ -30,7 +30,7 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.weather.com/current');
     const data = await response.json();
-    return JSON.stringify(data);
+    return data;
   },
   ttl: 5 * 60 * 1000, // 5 minutes
   autoRefetch: true
@@ -65,17 +65,17 @@ RunCache provides events to monitor automatic refetching:
 
 ```typescript
 // Global refetch event
-RunCache.onRefetch((event) => {
+await RunCache.onRefetch((event) => {
   console.log(`Cache key ${event.key} was refreshed at ${new Date().toISOString()}`);
 });
 
 // Specific key refetch
-RunCache.onKeyRefetch("weather-data", (event) => {
+await RunCache.onKeyRefetch("weather-data", (event) => {
   console.log(`Weather data was refreshed`);
 });
 
 // Pattern-based refetch events
-RunCache.onKeyRefetch("user:*:profile", (event) => {
+await RunCache.onKeyRefetch("user:*:profile", (event) => {
   console.log(`User profile ${event.key} was refreshed`);
 });
 ```
@@ -86,14 +86,14 @@ If a background refresh fails, RunCache provides events to handle the failure:
 
 ```typescript
 // Global refetch failure event
-RunCache.onRefetchFailure((event) => {
-  console.error(`Failed to refresh cache key ${event.key}: ${event.error.message}`);
+await RunCache.onRefetchFailure((event) => {
+  console.error(`Failed to refresh cache key ${event.key}: ${event.error}`);
 });
 
 // Specific key refetch failure
-RunCache.onKeyRefetchFailure("weather-data", (event) => {
-  console.error(`Weather data refresh failed: ${event.error.message}`);
-  
+await RunCache.onKeyRefetchFailure("weather-data", (event) => {
+  console.error(`Weather data refresh failed: ${event.error}`);
+
   // Implement retry logic
   setTimeout(() => RunCache.refetch("weather-data"), 30000); // Retry after 30 seconds
 });
@@ -188,45 +188,45 @@ await RunCache.set({
 Always implement error handling for refetch failures:
 
 ```typescript
-RunCache.onRefetchFailure((event) => {
+// Attempts per key; RunCache events carry no custom metadata
+const retryCounts = new Map<string, number>();
+
+await RunCache.onRefetchFailure((event) => {
   // Log the error
   console.error(`Refetch failed for ${event.key}:`, event.error);
-  
+
   // Implement exponential backoff retry
-  const retryCount = (event.metadata?.retryCount || 0) + 1;
+  const retryCount = (retryCounts.get(event.key) ?? 0) + 1;
+  retryCounts.set(event.key, retryCount);
   const delay = Math.min(1000 * Math.pow(2, retryCount), 30000); // Max 30 seconds
-  
+
   setTimeout(() => {
-    RunCache.refetch(event.key, { 
-      metadata: { retryCount } 
-    });
+    RunCache.refetch(event.key)
+      .then((ok) => { if (ok) retryCounts.delete(event.key); })
+      .catch(() => { /* reported again through onRefetchFailure */ });
   }, delay);
 });
 ```
 
-### 5. Use Metadata for Tracking
+### 5. Track Refetch Statistics
 
-You can use the metadata parameter to track information about refetches:
+Cache entries have no metadata option, and refetch events only carry the entry's key, value, TTL and timestamps. Track anything else yourself, keyed by cache key:
 
 ```typescript
+const refreshStats = new Map<string, { refreshCount: number; lastRefreshedAt: number }>();
+
 await RunCache.set({
   key: 'api-data',
   sourceFn: () => fetchApiData(),
   ttl: 300000,
-  autoRefetch: true,
-  metadata: {
-    lastRefreshSource: 'initial',
-    refreshCount: 0
-  }
+  autoRefetch: true
 });
 
-RunCache.onRefetch((event) => {
-  // Update metadata
-  const metadata = event.metadata || {};
-  metadata.lastRefreshSource = 'auto';
-  metadata.refreshCount = (metadata.refreshCount || 0) + 1;
-  
-  // You can update metadata here if needed
+await RunCache.onRefetch((event) => {
+  const stats = refreshStats.get(event.key) ?? { refreshCount: 0, lastRefreshedAt: 0 };
+  stats.refreshCount++;
+  stats.lastRefreshedAt = event.updatedAt;
+  refreshStats.set(event.key, stats);
 });
 ```
 
@@ -234,7 +234,7 @@ RunCache.onRefetch((event) => {
 
 ### Cascading Refreshes
 
-You can implement cascading refreshes using dependencies:
+You can implement cascading refreshes using dependencies. Each automatic refetch of the primary entry invalidates its dependents:
 
 ```typescript
 // Primary data
@@ -251,9 +251,11 @@ await RunCache.set({
   sourceFn: () => fetchUserRecommendations(1),
   ttl: 300000,
   autoRefetch: true,
-  dependencies: ['user:1:profile'] // Will be invalidated when profile changes
+  dependencies: ['user:1:profile'] // Invalidated each time the profile is refetched
 });
 ```
+
+Invalidated entries are removed, not refetched, even when they have their own `sourceFn` and `autoRefetch`: set `user:1:recommendations` again the next time you need it, or from a `dependency_invalidation` listener.
 
 ### Conditional Refetching
 
@@ -261,11 +263,11 @@ You can implement conditional refetching by checking certain conditions:
 
 ```typescript
 // Custom refetch logic
-RunCache.onKeyExpiry('conditional-data', async (event) => {
+await RunCache.onKeyExpiry('conditional-data', async (event) => {
   const shouldRefresh = await checkIfRefreshNeeded(event.key);
-  
+
   if (shouldRefresh) {
-    RunCache.refetch(event.key);
+    await RunCache.refetch(event.key);
   } else {
     console.log('Skipping refresh based on condition');
   }

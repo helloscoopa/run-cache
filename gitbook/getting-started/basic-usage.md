@@ -21,12 +21,12 @@ The most basic operation is storing a value in the cache:
 await RunCache.set({ key: 'greeting', value: 'Hello, World!' });
 ```
 
-When working with objects or complex data, you need to stringify them first:
+Objects, arrays, numbers and booleans can be stored directly. RunCache stores them as JSON and `get()` returns them parsed (see [Value Serialization](../advanced/serialization-adapters.md) for types JSON cannot represent):
 
 ```typescript
 // Store a JSON object
 const user = { id: 1, name: 'John Doe', email: 'john@example.com' };
-await RunCache.set({ key: 'user:1', value: JSON.stringify(user) });
+await RunCache.set({ key: 'user:1', value: user });
 ```
 
 ### Getting Cache Values
@@ -38,10 +38,10 @@ To retrieve values from the cache:
 const greeting = await RunCache.get('greeting');
 console.log(greeting); // Output: Hello, World!
 
-// Get and parse a JSON object
-const userJson = await RunCache.get('user:1');
-if (userJson) {
-  const user = JSON.parse(userJson);
+// Get an object: it comes back parsed
+// (get() is typed T | T[] | undefined, because a key may be a wildcard pattern)
+const user = (await RunCache.get('user:1')) as { name: string } | undefined;
+if (user) {
   console.log(user.name); // Output: John Doe
 }
 ```
@@ -81,8 +81,8 @@ You can set an expiration time for cache entries using the `ttl` parameter (in m
 
 ```typescript
 // Cache with 5-minute expiration
-await RunCache.set({ 
-  key: 'temporary-data', 
+await RunCache.set({
+  key: 'temporary-data',
   value: 'This will expire soon',
   ttl: 5 * 60 * 1000 // 5 minutes in milliseconds
 });
@@ -99,11 +99,11 @@ Source functions allow you to generate cache values dynamically. This is particu
 async function fetchUserData(userId) {
   console.log(`Fetching data for user ${userId}...`);
   // Simulate API call
-  return JSON.stringify({ 
-    id: userId, 
+  return {
+    id: userId,
     name: `User ${userId}`,
     lastUpdated: new Date().toISOString()
-  });
+  };
 }
 
 // Cache the result of the source function
@@ -139,7 +139,7 @@ await RunCache.set({
   sourceFn: async () => {
     // Simulate API call
     const price = Math.floor(Math.random() * 1000) / 10;
-    return JSON.stringify({ symbol: 'AAPL', price });
+    return { symbol: 'AAPL', price };
   },
   ttl: 60000, // 1 minute
   autoRefetch: true
@@ -232,14 +232,14 @@ Configure RunCache with global settings:
 import { RunCache, EvictionPolicy } from 'run-cache';
 
 // Configure cache settings
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000, // Maximum number of entries
   evictionPolicy: EvictionPolicy.LRU, // Least Recently Used eviction policy
   debug: true // Enable debug logging for debugging
 });
 
 // Get current configuration
-const config = RunCache.getConfig();
+const config = await RunCache.getConfig();
 console.log(config);
 ```
 
@@ -256,27 +256,27 @@ Here's a practical example of using RunCache to cache API responses:
 ```typescript
 async function fetchUserWithCache(userId) {
   const cacheKey = `user:${userId}`;
-  
+
   // Try to get from cache first
   const cachedUser = await RunCache.get(cacheKey);
   if (cachedUser) {
     console.log('Cache hit for user:', userId);
-    return JSON.parse(cachedUser);
+    return cachedUser;
   }
-  
+
   // Cache miss, fetch from API
   console.log('Cache miss for user:', userId);
   try {
     const response = await fetch(`https://api.example.com/users/${userId}`);
     const userData = await response.json();
-    
+
     // Store in cache with 1-hour TTL
-    await RunCache.set({ 
-      key: cacheKey, 
-      value: JSON.stringify(userData),
+    await RunCache.set({
+      key: cacheKey,
+      value: userData,
       ttl: 60 * 60 * 1000 // 1 hour
     });
-    
+
     return userData;
   } catch (error) {
     console.error('Error fetching user data:', error);

@@ -120,21 +120,21 @@ Dependencies establish relationships between cache entries:
 ```typescript
 // Set up dependencies
 await RunCache.set({ key: 'user:1', value: '...' });
-await RunCache.set({ 
-  key: 'user:1:dashboard', 
-  value: '...', 
-  dependencies: ['user:1'] 
+await RunCache.set({
+  key: 'user:1:dashboard',
+  value: '...',
+  dependencies: ['user:1']
 });
 
 // When the primary entry changes
 await RunCache.set({ key: 'user:1', value: 'new value' });
 // The dependent entry is automatically invalidated
 
-// Or invalidate explicitly
-RunCache.invalidateByDependency('user:1');
+// Or invalidate the dependents explicitly, keeping 'user:1' itself
+await RunCache.invalidateByDependency('user:1');
 ```
 
-When a cache entry is updated or invalidated, all entries that depend on it are also invalidated, creating a cascading effect through the dependency chain.
+When a cache entry is updated, refetched, deleted, evicted, invalidated by tag or expires, all entries that depend on it are also invalidated, creating a cascading effect through the dependency chain. Invalidated dependents are removed, not refetched.
 
 ### How does tag-based invalidation differ from dependencies?
 
@@ -160,15 +160,15 @@ function UserProfile({ userId }) {
     async function loadUser() {
       setLoading(true);
       const cacheKey = `user:${userId}`;
-      
-      // Try to get from cache
+
+      // Try to get from cache (objects come back parsed)
       let userData = await RunCache.get(cacheKey);
-      
-      if (!userData) {
+
+      if (userData === undefined) {
         // Cache miss, fetch from API
         const response = await fetch(`/api/users/${userId}`);
-        userData = await response.text(); // Already stringified
-        
+        userData = await response.json();
+
         // Store in cache
         await RunCache.set({
           key: cacheKey,
@@ -176,25 +176,22 @@ function UserProfile({ userId }) {
           ttl: 300000 // 5 minutes
         });
       }
-      
-      setUser(JSON.parse(userData));
+
+      setUser(userData);
       setLoading(false);
     }
-    
-    loadUser();
-    
-    // Set up event listener for cache changes
-    const handleRefresh = () => loadUser();
-    RunCache.onKeyRefetch(`user:${userId}`, handleRefresh);
-    
+
+    // Register the refresh listener, then do the initial load
+    const ready = RunCache.onKeyRefetch(`user:${userId}`, loadUser).then(loadUser);
+
     return () => {
-      RunCache.clearEventListeners({
+      ready.then(() => RunCache.clearEventListeners({
         event: 'refetch',
         key: `user:${userId}`
-      });
+      }));
     };
   }, [userId]);
-  
+
   if (loading) return <div>Loading...</div>;
   return <div>{user.name}</div>;
 }
@@ -206,22 +203,22 @@ function UserProfile({ userId }) {
 // Cache warming function
 async function warmCache() {
   console.log('Warming cache...');
-  
+
   // Check if data already exists in cache
   const hasConfig = await RunCache.has('app:config');
   const hasGlobalData = await RunCache.has('app:global-data');
-  
+
   // Only fetch what's missing
   if (!hasConfig) {
     const config = await fetchAppConfig();
-    await RunCache.set({ key: 'app:config', value: JSON.stringify(config) });
+    await RunCache.set({ key: 'app:config', value: config });
   }
-  
+
   if (!hasGlobalData) {
     const globalData = await fetchGlobalData();
-    await RunCache.set({ key: 'app:global-data', value: JSON.stringify(globalData) });
+    await RunCache.set({ key: 'app:global-data', value: globalData });
   }
-  
+
   console.log('Cache warming complete');
 }
 
@@ -238,11 +235,11 @@ import { RunCache } from 'run-cache';
 import { encrypt, decrypt } from './your-crypto-lib';
 
 // Add encryption middleware
-RunCache.use(async (value, context, next) => {
-  if (context.operation === 'set' && value) {
+await RunCache.use(async (value, context, next) => {
+  if ((context.operation === 'set' || context.operation === 'refetch') && value) {
     // Encrypt value before storing in cache
     return next(encrypt(value));
-  } else if (context.operation === 'get' || context.operation === 'refetch') {
+  } else if (context.operation === 'get') {
     // Decrypt value after retrieving from cache
     const encrypted = await next(value);
     return encrypted ? decrypt(encrypted) : undefined;
@@ -264,7 +261,7 @@ Common issues include:
 Solution:
 ```typescript
 // Enable debug logging
-RunCache.configure({ debug: true });
+await RunCache.configure({ debug: true });
 
 // Check for errors in source function
 try {
@@ -272,7 +269,7 @@ try {
     key: 'data',
     sourceFn: async () => {
       const data = await fetchData();
-      return JSON.stringify(data); // Ensure you return a string
+      return data; // Return a string or a JSON-serializable value
     }
   });
 } catch (error) {
@@ -299,7 +296,7 @@ await RunCache.set({
 });
 
 // Monitor expiration
-RunCache.onKeyExpiry('data', (event) => {
+await RunCache.onKeyExpiry('data', (event) => {
   console.log(`Data expired at ${new Date().toISOString()}`);
   console.log(`TTL was ${event.ttl}ms, set at ${new Date(event.updatedAt).toISOString()}`);
 });
@@ -318,21 +315,21 @@ Solution:
 import { RunCache, EVENT } from 'run-cache';
 
 // Use the correct event type
-RunCache.onExpiry((event) => {
+await RunCache.onExpiry((event) => {
   console.log(`Key expired: ${event.key}`);
 });
 
 // For specific key patterns, ensure correct syntax
-RunCache.onKeyExpiry('user:*', (event) => {
+await RunCache.onKeyExpiry('user:*', (event) => {
   console.log(`User data expired: ${event.key}`);
 });
 
 // Keep reference to handler for manual removal
 const handler = (event) => console.log(event);
-RunCache.onRefetch(handler);
+await RunCache.onRefetch(handler);
 
 // Later, if needed:
-RunCache.clearEventListeners({
+await RunCache.clearEventListeners({
   event: EVENT.REFETCH,
   handler: handler
 });
@@ -383,7 +380,7 @@ await RunCache.set({
 });
 
 // Handle refetch failures
-RunCache.onKeyRefetchFailure('api-data', (event) => {
+await RunCache.onKeyRefetchFailure('api-data', (event) => {
   console.error('API data refresh failed:', event.error);
   notifyAdmins('API data refresh failed');
 });
@@ -402,13 +399,13 @@ RunCache can be appropriate for session data with some considerations:
 // Store session data
 await RunCache.set({
   key: `session:${sessionId}:user`,
-  value: JSON.stringify(userData),
+  value: userData,
   ttl: 30 * 60 * 1000, // 30 minutes
   tags: [`session:${sessionId}`, 'user-sessions']
 });
 
 // On logout, invalidate all session data
-RunCache.invalidateByTag(`session:${sessionId}`);
+await RunCache.invalidateByTag(`session:${sessionId}`);
 ```
 
 ## More Help

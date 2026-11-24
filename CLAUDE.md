@@ -49,6 +49,9 @@ npm run build:min     # Minified build only
 # Linting
 npm run lint          # Check for issues
 npm run lint:fix      # Auto-fix issues
+
+# Docs
+npm run docs:check    # Check doc code samples against the exported API
 ```
 
 ## Architecture
@@ -103,13 +106,13 @@ await RunCache.set({
 });
 
 // Tag-based invalidation
-RunCache.invalidateByTag("user");
+await RunCache.invalidateByTag("user");
 
 // Dependency-based invalidation
-RunCache.invalidateByDependency("user:session");
+await RunCache.invalidateByDependency("user:session");
 
 // Middleware
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   console.log(`${context.operation} on ${context.key}`);
   return next(value);
 });
@@ -119,7 +122,7 @@ RunCache.use(async (value, context, next) => {
 ```typescript
 import { EvictionPolicy, LocalStorageAdapter } from 'run-cache';
 
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU,
   debug: true,
@@ -130,12 +133,12 @@ RunCache.configure({
 ### Event Handling
 ```typescript
 // Global events
-RunCache.onExpiry((event) => console.log(`Expired: ${event.key}`));
-RunCache.onRefetch((event) => console.log(`Refetched: ${event.key}`));
-RunCache.onRefetchFailure((event) => console.error(`Failed: ${event.key}`));
+await RunCache.onExpiry((event) => console.log(`Expired: ${event.key}`));
+await RunCache.onRefetch((event) => console.log(`Refetched: ${event.key}`));
+await RunCache.onRefetchFailure((event) => console.error(`Failed: ${event.key}`));
 
 // Key-specific events (supports wildcards)
-RunCache.onKeyExpiry("user:*", (event) => {
+await RunCache.onKeyExpiry("user:*", (event) => {
   console.log(`User cache expired: ${event.key}`);
 });
 ```
@@ -147,7 +150,7 @@ RunCache.onKeyExpiry("user:*", (event) => {
 2. Implement core logic in `src/core/cache-store.ts`
 3. Add static wrapper methods in `src/run-cache.ts`
 4. Add comprehensive tests in `.test.ts` files
-5. Update documentation in `gitbook/` (see [Documentation & Versioning](#documentation--versioning))
+5. Update documentation in `gitbook/` (see [Documentation & Versioning](#documentation--versioning)) and add an entry under `Unreleased` in `CHANGELOG.md`
 
 ### Testing Strategy
 - Unit tests for each component (`.unit.test.ts`)
@@ -195,7 +198,7 @@ The docs are published on GitBook with a version menu above the sidebar, so read
 - Pushing a tag `vX.Y.Z` runs the **Docs version** workflow: it freezes `gitbook/` at that tag into `gitbook-versions/vX.Y/`, regenerates `gitbook-docs.yaml`, and opens a PR (`docs/version-vX.Y.Z`). Merging it makes vX.Y the new default.
 - A patch tag (`vX.Y.Z+1`) replaces `gitbook-versions/vX.Y/` in place; there is one version per minor line.
 - Manual equivalent: `node scripts/docs-version.mjs snapshot vX.Y.Z`. The workflow can also be run by hand (workflow_dispatch) with a `tag` input.
-- The snapshot drops legacy tooling files (`book.json`, `mint.json`, `setup-gitbook.sh`, `README_GITBOOK.md`, `README_MAIN.md`, `DOCUMENTATION_SUMMARY.md`, `styles/`), strips live shields.io badges, and adds a version hint under the README's first heading.
+- The snapshot drops legacy tooling files that older tags still contain (`book.json`, `mint.json`, `setup-gitbook.sh`, `README_GITBOOK.md`, `README_MAIN.md`, `DOCUMENTATION_SUMMARY.md`, `styles/`; GitBook Git Sync is the only docs toolchain, so `gitbook/` no longer has them), strips live shields.io badges, and adds a version hint under the README's first heading.
 - Running the snapshot rewrites the whole version directory, so hand fixes made in `gitbook-versions/vX.Y/` are lost if that line is snapshotted again. Fix them in `gitbook/` before tagging, or re-apply after.
 
 ### `gitbook-docs.yaml` rules
@@ -205,6 +208,7 @@ The docs are published on GitBook with a version menu above the sidebar, so read
 - Version URL paths use hyphens (`v1-6`, `next`).
 
 ### Checks before committing doc changes
+- `npm run docs:check` passes. It reads the fenced js/ts blocks in `README.md`, `CLAUDE.md` and `gitbook/`, plus `examples/`, and flags imports the package does not export, `RunCache` methods that do not exist, async calls without `await`, and known-stale patterns. Put `<!-- docs-check-ignore -->` above a block that breaks a rule on purpose.
 - `node scripts/docs-version.mjs config` leaves no diff (`git status` is clean for `gitbook-docs.yaml`).
 - Every relative `.md` link in the changed space resolves to a file in that space.
 - No new pages are missing from the space's `SUMMARY.md`.
@@ -217,7 +221,7 @@ The docs are published on GitBook with a version menu above the sidebar, so read
 
 ### Debug Mode
 ```typescript
-RunCache.configure({ debug: true });
+await RunCache.configure({ debug: true });
 ```
 
 ### Common Issues

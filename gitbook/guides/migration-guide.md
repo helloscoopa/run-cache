@@ -12,6 +12,7 @@ RunCache now supports any serializable JavaScript type while maintaining 100% ba
 
 Your existing code continues to work without any modifications:
 
+<!-- docs-check-ignore: shows the legacy string-based pattern -->
 ```typescript
 // This code works exactly as before
 await RunCache.set({ key: 'user:name', value: 'John Doe' });
@@ -47,12 +48,13 @@ await RunCache.set({ key: 'legacy:user:name', value: 'John Doe' });
 
 Gradually convert existing string-based code to use types:
 
+<!-- docs-check-ignore: shows the legacy string-based pattern -->
 ```typescript
 // Before: Manual JSON stringification
 const userData = { id: 1, name: 'John', email: 'john@example.com' };
-await RunCache.set({ 
-  key: 'user:1', 
-  value: JSON.stringify(userData) 
+await RunCache.set({
+  key: 'user:1',
+  value: JSON.stringify(userData)
 });
 const userJson = await RunCache.get('user:1');
 const user = userJson ? JSON.parse(userJson) : null;
@@ -74,6 +76,7 @@ const user = await RunCache.get<User>('user:1'); // User | undefined
 ### 1. Simple Object Caching
 
 **Before:**
+<!-- docs-check-ignore: shows the legacy string-based pattern -->
 ```typescript
 const config = { theme: 'dark', language: 'en' };
 await RunCache.set({ key: 'config', value: JSON.stringify(config) });
@@ -98,27 +101,28 @@ const parsedConfig = await RunCache.get<Config>('config'); // Config | undefined
 ### 2. API Response Caching
 
 **Before:**
+<!-- docs-check-ignore: shows the legacy string-based pattern -->
 ```typescript
 async function fetchUserData(userId: number) {
   const cacheKey = `user:${userId}`;
-  
+
   // Check cache
   const cached = await RunCache.get(cacheKey);
   if (cached) {
     return JSON.parse(cached);
   }
-  
+
   // Fetch from API
   const response = await fetch(`/api/users/${userId}`);
   const userData = await response.json();
-  
+
   // Cache the stringified result
-  await RunCache.set({ 
-    key: cacheKey, 
+  await RunCache.set({
+    key: cacheKey,
     value: JSON.stringify(userData),
-    ttl: 300000 
+    ttl: 300000
   });
-  
+
   return userData;
 }
 ```
@@ -137,24 +141,24 @@ interface User {
 
 async function fetchUserData(userId: number): Promise<User | null> {
   const cacheKey = `user:${userId}`;
-  
+
   // Check cache with type safety
   const cached = await RunCache.get<User>(cacheKey);
   if (cached) {
     return cached; // No parsing needed, already typed
   }
-  
+
   // Fetch from API
   const response = await fetch(`/api/users/${userId}`);
   const userData: User = await response.json();
-  
+
   // Cache with automatic serialization
-  await RunCache.set<User>({ 
-    key: cacheKey, 
+  await RunCache.set<User>({
+    key: cacheKey,
     value: userData,
-    ttl: 300000 
+    ttl: 300000
   });
-  
+
   return userData;
 }
 ```
@@ -162,6 +166,7 @@ async function fetchUserData(userId: number): Promise<User | null> {
 ### 3. Source Functions with Types
 
 **Before:**
+<!-- docs-check-ignore: shows the legacy string-based pattern -->
 ```typescript
 await RunCache.set({
   key: 'weather:current',
@@ -201,15 +206,16 @@ const weather = await RunCache.get<WeatherData>('weather:current'); // WeatherDa
 ### 4. Array and Collection Caching
 
 **Before:**
+<!-- docs-check-ignore: shows the legacy string-based pattern -->
 ```typescript
 const products = [
   { id: 1, name: 'Laptop', price: 999 },
   { id: 2, name: 'Mouse', price: 29 }
 ];
 
-await RunCache.set({ 
-  key: 'products:featured', 
-  value: JSON.stringify(products) 
+await RunCache.set({
+  key: 'products:featured',
+  value: JSON.stringify(products)
 });
 
 const productsJson = await RunCache.get('products:featured');
@@ -229,9 +235,9 @@ const products: Product[] = [
   { id: 2, name: 'Mouse', price: 29 }
 ];
 
-await RunCache.set<Product[]>({ 
-  key: 'products:featured', 
-  value: products 
+await RunCache.set<Product[]>({
+  key: 'products:featured',
+  value: products
 });
 
 const productList = await RunCache.get<Product[]>('products:featured'); // Product[] | undefined
@@ -261,17 +267,8 @@ const productList = await RunCache.get<Product[]>('products:featured'); // Produ
 You can use these utilities to help with migration:
 
 ```typescript
-// Helper function to detect if a cached value is typed or legacy
-function isLegacyStringValue(value: string): boolean {
-  try {
-    JSON.parse(value);
-    return true; // It's a JSON string
-  } catch {
-    return true; // It's a plain string
-  }
-}
-
-// Migration helper for gradual conversion
+// Migration helper for gradual conversion: entries stored with
+// JSON.stringify() come back as strings, so parse and re-store them
 async function migrateToTyped<T>(key: string): Promise<T | undefined> {
   const value = await RunCache.get(key);
   if (typeof value === 'string') {
@@ -298,14 +295,14 @@ For large-scale migrations, you can use pattern matching:
 async function migrateUserCache() {
   // Get all user cache keys
   const userValues = await RunCache.get('user:*');
-  
+
   if (Array.isArray(userValues)) {
     for (const value of userValues) {
       if (typeof value === 'string') {
         try {
           const userData = JSON.parse(value);
           const key = `user:${userData.id}`;
-          
+
           // Migrate to typed cache
           await RunCache.delete(key); // Remove old entry
           await RunCache.set<User>({ key, value: userData });
@@ -332,9 +329,9 @@ interface AppSettings {
   version: string;
 }
 
-await RunCache.set<AppSettings>({ 
-  key: 'modern:settings', 
-  value: { theme: 'dark', version: '2.0.0' } 
+await RunCache.set<AppSettings>({
+  key: 'modern:settings',
+  value: { theme: 'dark', version: '2.0.0' }
 });
 
 // Both work together
@@ -357,10 +354,10 @@ describe('Migration Tests', () => {
   it('should support new typed caching', async () => {
     interface TestData { id: number; name: string; }
     const data: TestData = { id: 1, name: 'test' };
-    
+
     await RunCache.set<TestData>({ key: 'test:typed', value: data });
     const result = await RunCache.get<TestData>('test:typed');
-    
+
     expect(result).toEqual(data);
     expect(typeof result?.id).toBe('number');
   });
@@ -402,7 +399,7 @@ await RunCache.set({ key: 'circular', value: obj }); // Will fail
 **Solution:**
 ```typescript
 // Use custom serialization or break circular references
-const safeObj = { 
+const safeObj = {
   name: obj.name,
   // Don't include circular properties
 };
@@ -421,12 +418,11 @@ const retrieved = await RunCache.get('date');
 
 **Solution:**
 ```typescript
-// Use serialization adapters for Date objects
-import { DateSerializationAdapter } from 'run-cache';
+// Store dates as ISO strings and convert them back after reading
+await RunCache.set({ key: 'date', value: { timestamp: new Date().toISOString() } });
 
-RunCache.addSerializationAdapter(new DateSerializationAdapter());
-
-// Now Date objects are properly serialized/deserialized
+const retrieved = (await RunCache.get('date')) as { timestamp: string } | undefined;
+const timestamp = retrieved && new Date(retrieved.timestamp);
 ```
 
 ### 3. Function Properties
@@ -474,7 +470,7 @@ const serializableObj = {
 
 ## Next Steps
 
-- Explore [Serialization Adapters](../advanced/serialization-adapters.md) for custom types
-- Learn about [Type Validation](../advanced/type-validation.md) for runtime checking
+- Read [Value Serialization](../advanced/serialization-adapters.md) for which types round-trip
+- Learn about [Type Safety](../advanced/type-validation.md) for runtime checking
 - Review [Best Practices](best-practices.md) for typed caching
 - Check the [API Reference](../api/run-cache.md) for complete method signatures

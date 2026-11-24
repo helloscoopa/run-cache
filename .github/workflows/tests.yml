@@ -24,3 +24,6 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Check doc code samples
+        run: npm run docs:check

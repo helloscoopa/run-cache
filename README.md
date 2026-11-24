@@ -5,7 +5,7 @@
 
 # RunCache
 
-A dependency-free, lightweight runtime caching library for JavaScript and TypeScript applications. RunCache allows you to cache string values with configurable time-to-live (TTL) settings and supports automatic value regeneration through source functions.
+A dependency-free, lightweight runtime caching library for JavaScript and TypeScript applications. RunCache allows you to cache strings and other JSON-serializable values with configurable time-to-live (TTL) settings and supports automatic value regeneration through source functions.
 
 ## Key Features
 
@@ -48,20 +48,20 @@ For use without a bundler, a minified ES module build is available from a CDN:
 import { RunCache } from "run-cache";
 
 // Basic caching
-await RunCache.set({ key: "user-profile", value: JSON.stringify({ name: "John Doe" }) });
+await RunCache.set({ key: "user-profile", value: { name: "John Doe" } });
 const profile = await RunCache.get("user-profile");
 
 // Cache with expiration (TTL in milliseconds)
-await RunCache.set({ 
-  key: "api-data", 
-  value: JSON.stringify({ data: [1, 2, 3] }),
+await RunCache.set({
+  key: "api-data",
+  value: { data: [1, 2, 3] },
   ttl: 60000 // 1 minute
 });
 
 // Cache with automatic refresh
 await RunCache.set({
   key: "weather-data",
-  sourceFn: async () => JSON.stringify(await fetchWeatherData()),
+  sourceFn: async () => await fetchWeatherData(),
   ttl: 300000, // 5 minutes
   autoRefetch: true
 });
@@ -88,7 +88,7 @@ RunCache supports configurable cache eviction policies to manage memory usage by
 import { RunCache, EvictionPolicy } from "run-cache";
 
 // Configure the cache with a max size of 100 entries and LRU eviction policy
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 100,
   evictionPolicy: EvictionPolicy.LRU
 });
@@ -102,12 +102,12 @@ for (let i = 0; i < 150; i++) {
 // The oldest 50 entries will be automatically evicted
 
 // Change to LFU eviction policy
-RunCache.configure({
+await RunCache.configure({
   evictionPolicy: EvictionPolicy.LFU
 });
 
 // Get the current configuration
-const config = RunCache.getConfig();
+const config = await RunCache.getConfig();
 console.log(config); // { maxEntries: 100, evictionPolicy: "lfu" }
 ```
 
@@ -117,31 +117,31 @@ RunCache supports tagging cache entries and invalidating groups of related entri
 
 ```typescript
 // Set entries with tags
-await RunCache.set({ 
-  key: "user:123:profile", 
-  value: JSON.stringify({ name: "John Doe" }),
+await RunCache.set({
+  key: "user:123:profile",
+  value: { name: "John Doe" },
   tags: ["user:123", "profile"]
 });
 
-await RunCache.set({ 
-  key: "user:123:settings", 
-  value: JSON.stringify({ theme: "dark" }),
+await RunCache.set({
+  key: "user:123:settings",
+  value: { theme: "dark" },
   tags: ["user:123", "settings"]
 });
 
-await RunCache.set({ 
-  key: "user:123:posts", 
-  value: JSON.stringify([{ id: 1, title: "Hello" }]),
+await RunCache.set({
+  key: "user:123:posts",
+  value: [{ id: 1, title: "Hello" }],
   tags: ["user:123", "posts"]
 });
 
 // Later, when user data changes, invalidate all related cache entries with a single call
-RunCache.invalidateByTag("user:123");
+await RunCache.invalidateByTag("user:123");
 
 // This removes all three entries with the "user:123" tag
 
 // You can also listen for tag invalidation events
-RunCache.onTagInvalidation((event) => {
+await RunCache.onTagInvalidation((event) => {
   console.log(`Cache entry ${event.key} was invalidated by tag: ${event.tag}`);
 });
 ```
@@ -152,28 +152,28 @@ RunCache enables establishing dependency relationships between cache entries wit
 
 ```typescript
 // Set the primary data cache
-await RunCache.set({ 
-  key: "user:123:profile", 
-  value: JSON.stringify({ name: "John Doe" })
+await RunCache.set({
+  key: "user:123:profile",
+  value: { name: "John Doe" }
 });
 
 // Set dependent caches that rely on the profile data
-await RunCache.set({ 
-  key: "user:123:dashboard", 
-  value: JSON.stringify({ widgets: [...] }),
+await RunCache.set({
+  key: "user:123:dashboard",
+  value: { widgets: [...] },
   dependencies: ["user:123:profile"]
 });
 
-await RunCache.set({ 
-  key: "user:123:recommendations", 
-  value: JSON.stringify([...]),
+await RunCache.set({
+  key: "user:123:recommendations",
+  value: [...],
   dependencies: ["user:123:profile"]
 });
 
 // Create multi-level dependencies
-await RunCache.set({ 
-  key: "home:feed", 
-  value: JSON.stringify([...]),
+await RunCache.set({
+  key: "home:feed",
+  value: [...],
   dependencies: ["user:123:recommendations"]
 });
 
@@ -182,7 +182,7 @@ const isDependency = await RunCache.isDependencyOf("home:feed", "user:123:profil
 console.log(isDependency); // true
 
 // When the primary data changes, invalidate dependent entries with cascading effect
-RunCache.invalidateByDependency("user:123:profile");
+await RunCache.invalidateByDependency("user:123:profile");
 
 // This will invalidate all dependent entries, including nested dependencies:
 // - user:123:dashboard
@@ -190,7 +190,7 @@ RunCache.invalidateByDependency("user:123:profile");
 // - home:feed (because it depends on user:123:recommendations)
 
 // You can also listen for dependency invalidation events
-RunCache.onDependencyInvalidation((event) => {
+await RunCache.onDependencyInvalidation((event) => {
   console.log(`Cache entry ${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
 });
 ```
@@ -241,23 +241,23 @@ await RunCache.refetch("api-data-*");
 
 ```typescript
 // Remove a specific entry
-RunCache.delete("cache-key");
+await RunCache.delete("cache-key");
 
 // Remove multiple entries using wildcards
-RunCache.delete("temp-*");
+await RunCache.delete("temp-*");
 
 // Remove all cache entries
-RunCache.flush();
+await RunCache.flush();
 ```
 
 #### Tag and Dependency Management
 
 ```typescript
 // Invalidate all entries with a specific tag
-RunCache.invalidateByTag("user:123");
+await RunCache.invalidateByTag("user:123");
 
 // Invalidate all entries dependent on a specific key
-RunCache.invalidateByDependency("user:123:profile");
+await RunCache.invalidateByDependency("user:123:profile");
 
 // Check if one key depends on another
 const isDependency = await RunCache.isDependencyOf("dashboard:123", "user:123");
@@ -277,13 +277,13 @@ const hasItems = await RunCache.has("session-*");
 
 ```typescript
 // Configure cache settings
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 1000,                  // Maximum number of entries before eviction
   evictionPolicy: EvictionPolicy.LRU  // Eviction policy to use
 });
 
 // Get current configuration
-const config = RunCache.getConfig();
+const config = await RunCache.getConfig();
 ```
 
 ### Event System
@@ -296,17 +296,17 @@ Listeners are isolated from cache operations: if a listener throws or rejects, t
 
 ```typescript
 // Global expiry event
-RunCache.onExpiry((event) => {
+await RunCache.onExpiry((event) => {
   console.log(`Cache key ${event.key} expired at ${new Date(event.updatedAt + event.ttl).toISOString()}`);
 });
 
 // Specific key expiry
-RunCache.onKeyExpiry("api-data", (event) => {
+await RunCache.onKeyExpiry("api-data", (event) => {
   console.log(`API data cache expired`);
 });
 
 // Pattern-based expiry events
-RunCache.onKeyExpiry("user-*", (event) => {
+await RunCache.onKeyExpiry("user-*", (event) => {
   console.log(`User cache ${event.key} expired`);
 });
 ```
@@ -317,17 +317,17 @@ Expiry events carry the entry's stored `value`, `ttl`, `createdAt` and `updatedA
 
 ```typescript
 // Global refetch event
-RunCache.onRefetch((event) => {
+await RunCache.onRefetch((event) => {
   console.log(`Cache key ${event.key} was refreshed`);
 });
 
 // Specific key refetch
-RunCache.onKeyRefetch("weather-data", (event) => {
+await RunCache.onKeyRefetch("weather-data", (event) => {
   console.log(`Weather data was refreshed`);
 });
 
 // Pattern-based refetch events
-RunCache.onKeyRefetch("stats-*", (event) => {
+await RunCache.onKeyRefetch("stats-*", (event) => {
   console.log(`Statistics for ${event.key} were refreshed`);
 });
 ```
@@ -336,17 +336,17 @@ RunCache.onKeyRefetch("stats-*", (event) => {
 
 ```typescript
 // Global refetch failure event
-RunCache.onRefetchFailure((event) => {
+await RunCache.onRefetchFailure((event) => {
   console.error(`Failed to refresh cache key ${event.key}`);
 });
 
 // Specific key refetch failure
-RunCache.onKeyRefetchFailure("api-data", (event) => {
+await RunCache.onKeyRefetchFailure("api-data", (event) => {
   console.error(`API data refresh failed`);
 });
 
 // Pattern-based refetch failure events
-RunCache.onKeyRefetchFailure("external-*", (event) => {
+await RunCache.onKeyRefetchFailure("external-*", (event) => {
   console.error(`External data refresh failed for ${event.key}`);
 });
 ```
@@ -355,12 +355,12 @@ RunCache.onKeyRefetchFailure("external-*", (event) => {
 
 ```typescript
 // Global tag invalidation event
-RunCache.onTagInvalidation((event) => {
+await RunCache.onTagInvalidation((event) => {
   console.log(`Cache key ${event.key} was invalidated by tag: ${event.tag}`);
 });
 
 // Specific key tag invalidation
-RunCache.onKeyTagInvalidation("user:profile:*", (event) => {
+await RunCache.onKeyTagInvalidation("user:profile:*", (event) => {
   console.log(`User profile cache was invalidated by tag: ${event.tag}`);
 });
 ```
@@ -369,12 +369,12 @@ RunCache.onKeyTagInvalidation("user:profile:*", (event) => {
 
 ```typescript
 // Global dependency invalidation event
-RunCache.onDependencyInvalidation((event) => {
+await RunCache.onDependencyInvalidation((event) => {
   console.log(`Cache key ${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
 });
 
 // Specific key dependency invalidation
-RunCache.onKeyDependencyInvalidation("dashboard:*", (event) => {
+await RunCache.onKeyDependencyInvalidation("dashboard:*", (event) => {
   console.log(`Dashboard cache was invalidated due to dependency on: ${event.dependencyKey}`);
 });
 ```
@@ -383,27 +383,27 @@ RunCache.onKeyDependencyInvalidation("dashboard:*", (event) => {
 
 ```typescript
 // Remove all event listeners
-RunCache.clearEventListeners();
+await RunCache.clearEventListeners();
 
 // Remove listeners for a specific event type
-RunCache.clearEventListeners({
+await RunCache.clearEventListeners({
   event: EVENT.EXPIRE
 });
 
 // Remove listeners for a specific key
-RunCache.clearEventListeners({
+await RunCache.clearEventListeners({
   event: EVENT.REFETCH,
   key: "api-data"
 });
 
 // Remove listeners using wildcard patterns
-RunCache.clearEventListeners({
+await RunCache.clearEventListeners({
   event: EVENT.REFETCH_FAILURE,
   key: "external-*"
 });
 
 // Remove all listeners for a key, across every event type
-RunCache.clearEventListeners({ key: "api-data" });
+await RunCache.clearEventListeners({ key: "api-data" });
 ```
 
 `clearEventListeners()` resolves to `true` if at least one listener was removed and `false` otherwise. Clearing one event type never affects another; for example, clearing `EVENT.REFETCH` keeps `EVENT.REFETCH_FAILURE` listeners.
@@ -418,7 +418,7 @@ RunCache supports middleware functions that can intercept and transform cache op
 import { RunCache } from "run-cache";
 
 // Add a simple logging middleware
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   console.log(`${context.operation} operation for key: ${context.key}`);
   return next(value);
 });
@@ -431,11 +431,11 @@ import { RunCache } from "run-cache";
 import { encrypt, decrypt } from "./your-crypto-lib";
 
 // Add encryption middleware
-RunCache.use(async (value, context, next) => {
-  if (context.operation === 'set' && value) {
+await RunCache.use(async (value, context, next) => {
+  if ((context.operation === 'set' || context.operation === 'refetch') && value) {
     // Encrypt value before storing in cache
     return next(encrypt(value));
-  } else if (context.operation === 'get' || context.operation === 'refetch') {
+  } else if (context.operation === 'get') {
     // Decrypt value after retrieving from cache
     const encrypted = await next(value);
     return encrypted ? decrypt(encrypted) : undefined;
@@ -454,7 +454,7 @@ Middleware functions are executed in the order they are added:
 
 ```typescript
 // First middleware validates input
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   if (context.operation === 'set' && (!value || value.length < 3)) {
     throw new Error("Value must be at least 3 characters");
   }
@@ -462,8 +462,8 @@ RunCache.use(async (value, context, next) => {
 });
 
 // Second middleware adds a timestamp
-RunCache.use(async (value, context, next) => {
-  if (context.operation === 'set' && value) {
+await RunCache.use(async (value, context, next) => {
+  if ((context.operation === 'set' || context.operation === 'refetch') && value) {
     return next(`${value}|${Date.now()}`);
   } else if (context.operation === 'get' && value) {
     const result = await next(value);
@@ -477,7 +477,7 @@ RunCache.use(async (value, context, next) => {
 
 ```typescript
 // Remove all middleware
-RunCache.clearMiddleware();
+await RunCache.clearMiddleware();
 ```
 
 For more detailed information on middleware, see the [middleware documentation](./docs/middleware.md).
@@ -502,7 +502,7 @@ const profiles = await RunCache.get("user:*:profile");
 const user1Data = await RunCache.get("user:1:*");
 
 // Delete all preference data
-RunCache.delete("user:*:preferences");
+await RunCache.delete("user:*:preferences");
 
 // Check if any user 2 data exists
 const hasUser2Data = await RunCache.has("user:2:*");
@@ -541,7 +541,7 @@ You can also manually trigger a complete shutdown of the cache:
 
 ```typescript
 // Manually shut down the cache, clearing all entries, intervals, and event listeners
-RunCache.shutdown();
+await RunCache.shutdown();
 ```
 
 The `shutdown` method performs the following cleanup:
@@ -561,7 +561,7 @@ Enable debug logging to see detailed information about all cache operations:
 
 ```typescript
 // Enable debug logging when configuring the cache
-RunCache.configure({
+await RunCache.configure({
   debug: true
 });
 ```
@@ -576,14 +576,14 @@ All logs include timestamps and log levels for easy filtering.
 
 ```typescript
 // Example of enabling debug logging for debugging
-RunCache.configure({ debug: true });
+await RunCache.configure({ debug: true });
 
 // Perform some cache operations
 await RunCache.set({ key: "user-1", value: "Alice" });
 await RunCache.get("user-1");
 
 // Disable debug logging when done debugging
-RunCache.configure({ debug: false });
+await RunCache.configure({ debug: false });
 ```
 
 ### Log Levels
@@ -631,10 +631,10 @@ You can configure automatic saving at regular intervals:
 
 ```typescript
 // Save cache to storage every 5 minutes (300,000 ms)
-RunCache.setupAutoSave(300000);
+await RunCache.setupAutoSave(300000);
 
 // Disable auto-saving
-RunCache.setupAutoSave(0);
+await RunCache.setupAutoSave(0);
 ```
 
 You can also manually control when to save and load:
@@ -649,16 +649,16 @@ await RunCache.loadFromStorage();
 
 ### Adapter Configuration Options
 
-Each adapter accepts the following common options:
+Each adapter accepts the following options:
 
 ```typescript
 interface StorageAdapterConfig {
   // Storage key/filename to use
   storageKey?: string; // Default: "run-cache-data"
-  
+
   // Auto-save interval in milliseconds, applied when the adapter is attached
   autoSaveInterval?: number; // Default: 0 (disabled)
-  
+
   // Whether to load existing data when the adapter is attached
   autoLoadOnInit?: boolean; // Default: true
 }
@@ -692,22 +692,22 @@ The FilesystemAdapter writes atomically (temporary file plus rename), so an inte
 ### Example: Full Cache Persistence Setup
 
 ```typescript
-import { RunCache, LocalStorageAdapter } from 'run-cache';
+import { RunCache, EvictionPolicy, LocalStorageAdapter } from 'run-cache';
 
-// Configure RunCache with persistence
-RunCache.configure({
+// Configure RunCache with persistence; this also loads the saved entries
+await RunCache.configure({
   maxEntries: 1000,
   evictionPolicy: EvictionPolicy.LRU,
   storageAdapter: new LocalStorageAdapter({
-    storageKey: 'my-app-cache'
-  })
+    storageKey: 'my-app-cache',
+    autoSaveInterval: 60000 // save every minute
+  }),
+  // Save via RunCache.shutdown() on SIGINT/SIGTERM (Node.js) or page unload (browser)
+  handleProcessSignals: true
 });
 
-// Set up auto-save every minute
-RunCache.setupAutoSave(60000);
-
-// When the app shuts down, the cache will be saved automatically
-// When the app starts up, the cache will be loaded automatically
+// Or save explicitly before your app exits
+await RunCache.shutdown();
 ```
 
 ## License

@@ -40,20 +40,20 @@ await RunCache.configure({
 
 Gets the current cache configuration.
 
-**Returns:** `CacheConfig` - The current configuration object
+**Returns:** `Promise<CacheConfig>` - A copy of the current configuration
 
 **Example:**
 
 ```typescript
-const config = RunCache.getConfig();
-console.log(config); // { maxEntries: 1000, evictionPolicy: "lru", debug: true }
+const config = await RunCache.getConfig();
+console.log(config); // { maxEntries: 1000, evictionPolicy: "LRU", debug: true }
 ```
 
 ## Cache Operations
 
 ### `set<T = string>(options)`
 
-Sets a cache entry with the specified options. Supports any serializable JavaScript type.
+Sets a cache entry with the specified options. Strings are stored as-is; any other value is stored as JSON and parsed again by `get()`, so it must be JSON-serializable (see [Value Serialization](../advanced/serialization-adapters.md)).
 
 **Type Parameters:**
 
@@ -69,9 +69,6 @@ Sets a cache entry with the specified options. Supports any serializable JavaScr
   - `sourceFn?`: `() => T | Promise<T>` - Function to generate cache value (required if no value)
   - `tags?`: `string[]` - Array of tags for tag-based invalidation
   - `dependencies?`: `string[]` - Array of cache keys this entry depends on. The entry is invalidated automatically when any of them changes. Overwriting an existing key with `set()` also invalidates the entries that depend on it.
-  - `metadata?`: `any` - Custom metadata to associate with the entry
-  - `validator?`: `TypeValidator<T>` - Optional type validator for runtime checking
-  - `validateOnSet?`: `boolean` - Validate value before caching (default: false)
 
 **Returns:** `Promise<boolean>` - Returns `true` if the value was successfully set. Returns `false` if another `set()` for the same key started later and has already written its value while this one was still waiting for its `sourceFn` or middleware; the newer value is kept. A later `set()` that fails does not affect an earlier one. `delete()` and `flush()` act on what is cached when they run, so they do not cancel a `set()` that is still waiting for its value.
 
@@ -105,11 +102,11 @@ await RunCache.set<User>({ key: 'user:1', value: user });
 // Array caching with types
 await RunCache.set<number[]>({ key: 'scores', value: [95, 87, 92] });
 
-// With TTL and types
-await RunCache.set<Date>({ 
-  key: 'last-update', 
-  value: new Date(), 
-  ttl: 60000 
+// With TTL (a Date would come back as a string, so store the ISO string)
+await RunCache.set({
+  key: 'last-update',
+  value: new Date().toISOString(),
+  ttl: 60000
 });
 
 // Typed source function
@@ -130,16 +127,12 @@ await RunCache.set<{ temperature: number; humidity: number }>({
   autoRefetch: true
 });
 
-// With tags, dependencies, and validation
-import { userValidator } from './validators';
-
+// With tags and dependencies
 await RunCache.set<User>({
   key: 'user:1:profile',
   value: user,
   tags: ['user:1', 'profile'],
-  dependencies: ['user:1:session'],
-  validator: userValidator,
-  validateOnSet: true
+  dependencies: ['user:1:session']
 });
 ```
 
@@ -240,40 +233,38 @@ Removes a cache entry or entries matching a pattern.
 
 - `key`: `string` - The key to delete, or a pattern with wildcards
 
-**Returns:** `void`
+**Returns:** `Promise<boolean>` - `true` if at least one entry was deleted
 
 **Example:**
 
 ```typescript
 // Delete a specific entry
-RunCache.delete('greeting');
+await RunCache.delete('greeting');
 
 // Delete entries matching a pattern
-RunCache.delete('user:1:*');
+await RunCache.delete('user:1:*');
 ```
 
 ### `flush()`
 
 Removes all cache entries.
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
 // Clear the entire cache
-RunCache.flush();
+await RunCache.flush();
 ```
 
-### `refetch(key, options?)`
+### `refetch(key)`
 
-Manually refreshes a cache entry or entries matching a pattern.
+Manually refreshes a cache entry or entries matching a pattern by running their stored `sourceFn`.
 
 **Parameters:**
 
 - `key`: `string` - The key to refresh, or a pattern with wildcards
-- `options?`: `Object` - Optional refresh options
-  - `metadata?`: `any` - Custom metadata to include in refetch events
 
 **Returns:** `Promise<boolean>`
 - `true` if the entry (or, for a pattern, at least one matching entry) was refreshed
@@ -294,8 +285,6 @@ await RunCache.refetch('api-data');
 // Refresh entries matching a pattern
 await RunCache.refetch('user:*:profile');
 
-// Refresh with metadata
-await RunCache.refetch('api-data', { metadata: { reason: 'manual' } });
 ```
 
 ## Tag Operations
@@ -308,13 +297,13 @@ Invalidates all cache entries with the specified tag.
 
 - `tag`: `string` - The tag to invalidate
 
-**Returns:** `void`
+**Returns:** `Promise<boolean>` - `true` if at least one entry was invalidated
 
 **Example:**
 
 ```typescript
 // Invalidate all entries with the 'user:1' tag
-RunCache.invalidateByTag('user:1');
+await RunCache.invalidateByTag('user:1');
 ```
 
 ## Dependency Operations
@@ -367,14 +356,14 @@ Registers a callback for all expiry events.
 
 **Parameters:**
 
-- `callback`: `(event: ExpiryEvent) => void` - Function to call when any entry expires
+- `callback`: `(event: EventParam) => void | Promise<void>` - Function to call when any entry expires
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
-RunCache.onExpiry((event) => {
+await RunCache.onExpiry((event) => {
   console.log(`Cache key ${event.key} expired`);
 });
 ```
@@ -386,18 +375,18 @@ Registers a callback for expiry events for a specific key or pattern.
 **Parameters:**
 
 - `key`: `string` - The key or pattern to watch
-- `callback`: `(event: ExpiryEvent) => void` - Function to call when matching entries expire
+- `callback`: `(event: EventParam) => void | Promise<void>` - Function to call when matching entries expire
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
-RunCache.onKeyExpiry('api-data', (event) => {
+await RunCache.onKeyExpiry('api-data', (event) => {
   console.log('API data expired');
 });
 
-RunCache.onKeyExpiry('user:*:profile', (event) => {
+await RunCache.onKeyExpiry('user:*:profile', (event) => {
   console.log(`User profile ${event.key} expired`);
 });
 ```
@@ -408,14 +397,14 @@ Registers a callback for all refetch events.
 
 **Parameters:**
 
-- `callback`: `(event: RefetchEvent) => void` - Function to call when any entry is refreshed
+- `callback`: `(event: EventParam) => void | Promise<void>` - Function to call when any entry is refreshed
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
-RunCache.onRefetch((event) => {
+await RunCache.onRefetch((event) => {
   console.log(`Cache key ${event.key} was refreshed`);
 });
 ```
@@ -427,14 +416,14 @@ Registers a callback for refetch events for a specific key or pattern.
 **Parameters:**
 
 - `key`: `string` - The key or pattern to watch
-- `callback`: `(event: RefetchEvent) => void` - Function to call when matching entries are refreshed
+- `callback`: `(event: EventParam) => void | Promise<void>` - Function to call when matching entries are refreshed
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
-RunCache.onKeyRefetch('weather-data', (event) => {
+await RunCache.onKeyRefetch('weather-data', (event) => {
   console.log('Weather data was refreshed');
 });
 ```
@@ -445,14 +434,14 @@ Registers a callback for all refetch failure events.
 
 **Parameters:**
 
-- `callback`: `(event: RefetchFailureEvent) => void` - Function to call when any refresh fails
+- `callback`: `(event: EventParam) => void | Promise<void>` - Function to call when any refresh fails
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
-RunCache.onRefetchFailure((event) => {
+await RunCache.onRefetchFailure((event) => {
   console.error(`Failed to refresh ${event.key}:`, event.error);
 });
 ```
@@ -464,15 +453,15 @@ Registers a callback for refetch failure events for a specific key or pattern.
 **Parameters:**
 
 - `key`: `string` - The key or pattern to watch
-- `callback`: `(event: RefetchFailureEvent) => void` - Function to call when matching refreshes fail
+- `callback`: `(event: EventParam) => void | Promise<void>` - Function to call when matching refreshes fail
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
-RunCache.onKeyRefetchFailure('api-data', (event) => {
-  console.error('API data refresh failed:', event.error);
+await RunCache.onKeyRefetchFailure('api-data', (event) => {
+  console.error(`API data refresh failed: ${event.key}`, event.error);
 });
 ```
 
@@ -482,14 +471,14 @@ Registers a callback for all tag invalidation events.
 
 **Parameters:**
 
-- `callback`: `(event: TagInvalidationEvent) => void` - Function to call when any entry is invalidated by tag
+- `callback`: `(event: EventParam) => void | Promise<void>` - Function to call when any entry is invalidated by tag
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
-RunCache.onTagInvalidation((event) => {
+await RunCache.onTagInvalidation((event) => {
   console.log(`${event.key} was invalidated by tag: ${event.tag}`);
 });
 ```
@@ -501,14 +490,14 @@ Registers a callback for tag invalidation events for a specific key or pattern.
 **Parameters:**
 
 - `key`: `string` - The key or pattern to watch
-- `callback`: `(event: TagInvalidationEvent) => void` - Function to call when matching entries are invalidated by tag
+- `callback`: `(event: EventParam) => void | Promise<void>` - Function to call when matching entries are invalidated by tag
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
-RunCache.onKeyTagInvalidation('user:*:profile', (event) => {
+await RunCache.onKeyTagInvalidation('user:*:profile', (event) => {
   console.log(`User profile ${event.key} was invalidated by tag: ${event.tag}`);
 });
 ```
@@ -519,14 +508,14 @@ Registers a callback for all dependency invalidation events.
 
 **Parameters:**
 
-- `callback`: `(event: DependencyInvalidationEvent) => void` - Function to call when any entry is invalidated by dependency
+- `callback`: `(event: EventParam) => void | Promise<void>` - Function to call when any entry is invalidated by dependency
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
-RunCache.onDependencyInvalidation((event) => {
+await RunCache.onDependencyInvalidation((event) => {
   console.log(`${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
 });
 ```
@@ -538,14 +527,14 @@ Registers a callback for dependency invalidation events for a specific key or pa
 **Parameters:**
 
 - `key`: `string` - The key or pattern to watch
-- `callback`: `(event: DependencyInvalidationEvent) => void` - Function to call when matching entries are invalidated by dependency
+- `callback`: `(event: EventParam) => void | Promise<void>` - Function to call when matching entries are invalidated by dependency
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
-RunCache.onKeyDependencyInvalidation('dashboard:*', (event) => {
+await RunCache.onKeyDependencyInvalidation('dashboard:*', (event) => {
   console.log(`Dashboard ${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
 });
 ```
@@ -560,22 +549,22 @@ Removes event listeners based on the specified options.
   - `event?`: `EventName` - The event type to remove listeners for. Only that exact event is affected; for example, clearing `EVENT.REFETCH` keeps `EVENT.REFETCH_FAILURE` listeners.
   - `key?`: `string` - The key or wildcard pattern to remove listeners for. Without `event`, the key's listeners are removed for every event type. An exact key does not remove wildcard listeners that match it.
 
-**Returns:** `Promise<boolean>` - `true` if at least one listener was removed, `false` otherwise
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
 // Remove all event listeners
-RunCache.clearEventListeners();
+await RunCache.clearEventListeners();
 
 // Remove all expiry listeners
-RunCache.clearEventListeners({ event: EVENT.EXPIRE });
+await RunCache.clearEventListeners({ event: EVENT.EXPIRE });
 
 // Remove listeners for a specific key
-RunCache.clearEventListeners({ key: 'api-data' });
+await RunCache.clearEventListeners({ key: 'api-data' });
 
 // Remove specific event listeners for a key
-RunCache.clearEventListeners({ event: EVENT.REFETCH, key: 'api-data' });
+await RunCache.clearEventListeners({ event: EVENT.REFETCH, key: 'api-data' });
 ```
 
 ## Middleware
@@ -588,20 +577,20 @@ Adds a middleware function to intercept and transform cache operations.
 
 - `middleware`: `MiddlewareFunction` - The middleware function to add
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
 // Add a logging middleware
-RunCache.use(async (value, context, next) => {
+await RunCache.use(async (value, context, next) => {
   console.log(`${context.operation} operation for key: ${context.key}`);
   return next(value);
 });
 
 // Add an encryption middleware
-RunCache.use(async (value, context, next) => {
-  if (context.operation === 'set' && value) {
+await RunCache.use(async (value, context, next) => {
+  if ((context.operation === 'set' || context.operation === 'refetch') && value) {
     return next(encrypt(value));
   } else if (context.operation === 'get' && value) {
     const encrypted = await next(value);
@@ -615,13 +604,13 @@ RunCache.use(async (value, context, next) => {
 
 Removes all middleware functions.
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
 // Remove all middleware
-RunCache.clearMiddleware();
+await RunCache.clearMiddleware();
 ```
 
 ## Storage Operations
@@ -634,16 +623,16 @@ Configures automatic saving to persistent storage.
 
 - `interval`: `number` - The interval in milliseconds between saves (0 to disable)
 
-**Returns:** `void`
+**Returns:** `Promise<void>`
 
 **Example:**
 
 ```typescript
 // Save cache to storage every 5 minutes
-RunCache.setupAutoSave(300000);
+await RunCache.setupAutoSave(300000);
 
 // Disable auto-saving
-RunCache.setupAutoSave(0);
+await RunCache.setupAutoSave(0);
 ```
 
 ### `saveToStorage()`
@@ -682,7 +671,7 @@ Creates a typed cache interface that provides type-safe operations for a specifi
 
 - `T` - The type of values that will be cached
 
-**Returns:** `TypedCacheInterface<T>` - A typed cache interface instance
+**Returns:** A typed wrapper around the same global cache. See [Typed Cache Interface](typed-cache-interface.md).
 
 **Example:**
 
@@ -704,19 +693,19 @@ const userCache = RunCache.createTypedCache<User>();
 const productCache = RunCache.createTypedCache<Product>();
 
 // All operations are now strongly typed
-await userCache.set({ 
-  key: 'user:123', 
-  value: { id: 123, name: 'John', email: 'john@example.com' } 
+await userCache.set({
+  key: 'user:123',
+  value: { id: 123, name: 'John', email: 'john@example.com' }
 });
 
-await productCache.set({ 
-  key: 'product:456', 
-  value: { id: 456, name: 'Laptop', price: 999.99 } 
+await productCache.set({
+  key: 'product:456',
+  value: { id: 456, name: 'Laptop', price: 999.99 }
 });
 
 // Type-safe retrieval
-const user = await userCache.get('user:123'); // User | undefined
-const product = await productCache.get('product:456'); // Product | undefined
+const user = await userCache.get('user:123'); // User | User[] | undefined (an array for wildcard keys)
+const product = await productCache.get('product:456'); // Product | Product[] | undefined
 
 // TypeScript will enforce correct types
 // userCache.set({ key: 'test', value: { wrong: 'type' } }); // ❌ Type error
@@ -755,7 +744,7 @@ Enum for cache eviction policies:
 ```typescript
 import { RunCache, EvictionPolicy } from 'run-cache';
 
-RunCache.configure({
+await RunCache.configure({
   evictionPolicy: EvictionPolicy.LRU
 });
 ```
@@ -775,130 +764,11 @@ Enum for event types:
 ```typescript
 import { RunCache, EVENT } from 'run-cache';
 
-RunCache.clearEventListeners({
+await RunCache.clearEventListeners({
   event: EVENT.EXPIRE
 });
 ```
 
 ## Type Definitions
 
-### `CacheConfig`
-
-Configuration options for RunCache:
-
-```typescript
-interface CacheConfig {
-  maxEntries?: number;
-  evictionPolicy?: EvictionPolicy;
-  debug?: boolean;
-  storageAdapter?: StorageAdapter;
-}
-```
-
-### `ExpiryEvent`
-
-Event object for expiry events:
-
-```typescript
-interface ExpiryEvent {
-  key: string;
-  ttl: number;
-  updatedAt: number;
-  metadata?: any;
-}
-```
-
-### `RefetchEvent`
-
-Event object for refetch events:
-
-```typescript
-interface RefetchEvent {
-  key: string;
-  metadata?: any;
-}
-```
-
-### `RefetchFailureEvent`
-
-Event object for refetch failure events:
-
-```typescript
-interface RefetchFailureEvent {
-  key: string;
-  error: Error;
-  metadata?: any;
-}
-```
-
-### `TagInvalidationEvent`
-
-Event object for tag invalidation events:
-
-```typescript
-interface TagInvalidationEvent {
-  key: string;
-  tag: string;
-  metadata?: any;
-}
-```
-
-### `DependencyInvalidationEvent`
-
-Event object for dependency invalidation events:
-
-```typescript
-interface DependencyInvalidationEvent {
-  key: string;
-  dependencyKey: string;
-  metadata?: any;
-}
-```
-
-### `MiddlewareFunction`
-
-Type definition for middleware functions:
-
-```typescript
-type MiddlewareFunction = (
-  value: string | undefined,
-  context: MiddlewareContext,
-  next: (value: string | undefined) => Promise<string | undefined>
-) => Promise<string | undefined>;
-```
-
-### `MiddlewareContext`
-
-Context object passed to middleware functions:
-
-```typescript
-interface MiddlewareContext {
-  operation: 'get' | 'set' | 'delete' | 'refetch' | 'evict';
-  key: string;
-  metadata?: any;
-}
-```
-
-### `StorageAdapter`
-
-Interface for storage adapters:
-
-```typescript
-interface StorageAdapter {
-  save(data: string): Promise<void>;
-  load(): Promise<string | null>;
-}
-```
-
-### `StorageAdapterConfig`
-
-Configuration options for storage adapters:
-
-```typescript
-interface StorageAdapterConfig {
-  storageKey?: string;
-  autoSaveInterval?: number;
-  autoLoadOnInit?: boolean;
-  filePath?: string; // FilesystemAdapter only
-}
-``` 
+The exported types (`CacheConfig`, `EventParam`, `EventName`, `MiddlewareFunction`, `MiddlewareContext`, `StorageAdapter`, `StorageAdapterConfig`) and the `EvictionPolicy` enum are documented in [Types](types.md).

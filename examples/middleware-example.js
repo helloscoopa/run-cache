@@ -5,37 +5,37 @@
 
 const { RunCache } = require('../dist');
 
-// Create a simple logging middleware
-RunCache.use(async (value, context, next) => {
-  console.log(`[Middleware] ${context.operation} operation for key: ${context.key}`);
-  return next(value);
-});
-
-// Add an encryption middleware
-RunCache.use(async (value, context, next) => {
-  if (context.operation === 'set' && value) {
-    // Simple "encryption" for demonstration (base64 encoding)
-    console.log(`[Encryption] Encoding value for key: ${context.key}`);
-    const encodedValue = Buffer.from(value).toString('base64');
-    return next(encodedValue);
-  } else if (context.operation === 'get' && value) {
-    // Get the encrypted value and decrypt it
-    const encryptedValue = await next(value);
-    if (encryptedValue) {
-      console.log(`[Encryption] Decoding value for key: ${context.key}`);
-      return Buffer.from(encryptedValue, 'base64').toString('utf-8');
-    }
-    return encryptedValue;
-  }
-  return next(value);
-});
-
-// Set a value in the cache
 (async () => {
+  // Create a simple logging middleware
+  await RunCache.use(async (value, context, next) => {
+    console.log(`[Middleware] ${context.operation} operation for key: ${context.key}`);
+    return next(value);
+  });
+
+  // Add an encryption middleware.
+  // Middleware sees values after serialization, so `value` is always a string here.
+  await RunCache.use(async (value, context, next) => {
+    if ((context.operation === 'set' || context.operation === 'refetch') && value) {
+      // Simple "encryption" for demonstration (base64 encoding)
+      console.log(`[Encryption] Encoding value for key: ${context.key}`);
+      const encodedValue = Buffer.from(value).toString('base64');
+      return next(encodedValue);
+    } else if (context.operation === 'get' && value) {
+      // Get the encrypted value and decrypt it
+      const encryptedValue = await next(value);
+      if (encryptedValue) {
+        console.log(`[Encryption] Decoding value for key: ${context.key}`);
+        return Buffer.from(encryptedValue, 'base64').toString('utf-8');
+      }
+      return encryptedValue;
+    }
+    return next(value);
+  });
+
   // Cache some data
   await RunCache.set({ 
     key: 'user:123', 
-    value: JSON.stringify({ name: 'John Doe', email: 'john@example.com' }),
+    value: { name: 'John Doe', email: 'john@example.com' },
     ttl: 10000 // 10 seconds
   });
   
@@ -48,7 +48,7 @@ RunCache.use(async (value, context, next) => {
   
   // Clear middleware to demonstrate how middleware works
   console.log('\nClearing middleware to show the difference:');
-  RunCache.clearMiddleware();
+  await RunCache.clearMiddleware();
   
   // Now retrieve the data without decryption middleware
   const encryptedData = await RunCache.get('user:123');
@@ -57,4 +57,4 @@ RunCache.use(async (value, context, next) => {
   // Manually decode to show it's the same data
   const decodedData = Buffer.from(encryptedData, 'base64').toString('utf-8');
   console.log('Manually decoded:', decodedData);
-})(); 
+})();

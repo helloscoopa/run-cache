@@ -68,7 +68,7 @@ RunCache includes TypeScript definitions, so no additional packages are required
 import { RunCache, EvictionPolicy } from 'run-cache';
 
 // Configure with proper type checking
-RunCache.configure({
+await RunCache.configure({
   maxEntries: 100,
   evictionPolicy: EvictionPolicy.LRU
 });

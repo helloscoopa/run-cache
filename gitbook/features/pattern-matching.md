@@ -56,13 +56,13 @@ The `delete` method supports patterns to remove multiple cache entries:
 
 ```typescript
 // Delete all data for user 1
-RunCache.delete('user:1:*');
+await RunCache.delete('user:1:*');
 
 // Delete all email entries
-RunCache.delete('user:*:email');
+await RunCache.delete('user:*:email');
 
 // Delete all user data
-RunCache.delete('user:*');
+await RunCache.delete('user:*');
 ```
 
 ## Using Patterns with Has
@@ -104,12 +104,12 @@ You can use patterns when registering event listeners:
 
 ```typescript
 // Listen for expiry of any user profile
-RunCache.onKeyExpiry('user:*:profile', (event) => {
+await RunCache.onKeyExpiry('user:*:profile', (event) => {
   console.log(`User profile ${event.key} expired`);
 });
 
 // Listen for refetch of any API data
-RunCache.onKeyRefetch('api:*', (event) => {
+await RunCache.onKeyRefetch('api:*', (event) => {
   console.log(`API data ${event.key} was refreshed`);
 });
 ```
@@ -170,20 +170,20 @@ For complex grouping needs, consider using tags instead of relying solely on pat
 
 ```typescript
 // Set entries with tags
-await RunCache.set({ 
-  key: 'user:1:profile', 
-  value: '...', 
+await RunCache.set({
+  key: 'user:1:profile',
+  value: '...',
   tags: ['user:1', 'profile']
 });
 
-await RunCache.set({ 
-  key: 'user:1:settings', 
-  value: '...', 
+await RunCache.set({
+  key: 'user:1:settings',
+  value: '...',
   tags: ['user:1', 'settings']
 });
 
 // Later, invalidate by tag
-RunCache.invalidateByTag('user:1');
+await RunCache.invalidateByTag('user:1');
 ```
 
 ## Common Pattern Matching Use Cases
@@ -199,7 +199,7 @@ await RunCache.set({ key: `user:${userId}:preferences`, value: preferencesData }
 await RunCache.set({ key: `user:${userId}:activity`, value: activityData });
 
 // When user logs out, clear all their data
-RunCache.delete(`user:${userId}:*`);
+await RunCache.delete(`user:${userId}:*`);
 ```
 
 ### 2. API Response Caching
@@ -208,14 +208,14 @@ Cache API responses with structured keys:
 
 ```typescript
 // Cache API responses
-await RunCache.set({ 
-  key: `api:users:list:page=${page}:limit=${limit}`, 
-  value: JSON.stringify(usersList),
+await RunCache.set({
+  key: `api:users:list:page=${page}:limit=${limit}`,
+  value: usersList,
   ttl: 300000 // 5 minutes
 });
 
 // Invalidate all user list caches when data changes
-RunCache.delete('api:users:list:*');
+await RunCache.delete('api:users:list:*');
 ```
 
 ### 3. Feature Flags
@@ -249,7 +249,7 @@ await RunCache.set({ key: 'org:1:dept:marketing:team:content', value: '...' });
 const engineeringTeams = await RunCache.get('org:1:dept:engineering:team:*');
 
 // Delete all marketing teams
-RunCache.delete('org:1:dept:marketing:team:*');
+await RunCache.delete('org:1:dept:marketing:team:*');
 ```
 
 ## Advanced Pattern Matching Techniques
@@ -268,7 +268,7 @@ function generateUserPattern(userId, section = null) {
 
 // Usage
 const userProfileData = await RunCache.get(generateUserPattern(userId, 'profile'));
-RunCache.delete(generateUserPattern(userId)); // Delete all user data
+await RunCache.delete(generateUserPattern(userId)); // Delete all user data
 ```
 
 ### 2. Pattern-Based Cache Warming
@@ -279,12 +279,12 @@ Use patterns to implement cache warming strategies:
 async function warmUserCache(userId) {
   // Check if user data is already cached
   const hasUserData = await RunCache.has(`user:${userId}:*`);
-  
+
   if (!hasUserData) {
     // Fetch and cache user data
     const userData = await fetchUserData(userId);
-    await RunCache.set({ key: `user:${userId}:profile`, value: JSON.stringify(userData.profile) });
-    await RunCache.set({ key: `user:${userId}:preferences`, value: JSON.stringify(userData.preferences) });
+    await RunCache.set({ key: `user:${userId}:profile`, value: userData.profile });
+    await RunCache.set({ key: `user:${userId}:preferences`, value: userData.preferences });
     // ...more user data
   }
 }
@@ -304,7 +304,7 @@ await RunCache.set({
 });
 
 // Listen for refetch events on all region stats
-RunCache.onKeyRefetch('data:region:*:stats', (event) => {
+await RunCache.onKeyRefetch('data:region:*:stats', (event) => {
   console.log(`Stats for ${event.key} were refreshed`);
 });
 

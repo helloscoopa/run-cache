@@ -8,7 +8,7 @@
  * import { RunCache, EvictionPolicy } from 'run-cache';
  * 
  * // Configure the cache
- * RunCache.configure({ maxEntries: 1000, evictionPolicy: EvictionPolicy.LRU });
+ * await RunCache.configure({ maxEntries: 1000, evictionPolicy: EvictionPolicy.LRU });
  * 
  * // Set a cache entry
  * await RunCache.set({ key: 'user:123', value: 'John Doe', ttl: 60000 });

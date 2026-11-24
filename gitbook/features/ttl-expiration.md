@@ -17,9 +17,9 @@ Key benefits of using TTL:
 You can set TTL when creating a cache entry using the `set` method:
 
 ```typescript
-await RunCache.set({ 
-  key: 'user-profile', 
-  value: JSON.stringify({ name: 'John Doe' }),
+await RunCache.set({
+  key: 'user-profile',
+  value: { name: 'John Doe' },
   ttl: 3600000 // 1 hour in milliseconds
 });
 ```
@@ -85,17 +85,17 @@ RunCache provides an event system to monitor when cache entries expire:
 
 ```typescript
 // Global expiry event
-RunCache.onExpiry((event) => {
+await RunCache.onExpiry((event) => {
   console.log(`Cache key ${event.key} expired at ${new Date(event.updatedAt + event.ttl).toISOString()}`);
 });
 
 // Specific key expiry
-RunCache.onKeyExpiry("api-data", (event) => {
+await RunCache.onKeyExpiry("api-data", (event) => {
   console.log(`API data cache expired`);
 });
 
 // Pattern-based expiry events
-RunCache.onKeyExpiry("user-*", (event) => {
+await RunCache.onKeyExpiry("user-*", (event) => {
   console.log(`User cache ${event.key} expired`);
 });
 ```
@@ -117,7 +117,7 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.weather.com/current');
     const data = await response.json();
-    return JSON.stringify(data);
+    return data;
   },
   ttl: 30 * 60 * 1000 // 30 minutes
 });
@@ -138,7 +138,7 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.example.com/stats');
     const data = await response.json();
-    return JSON.stringify(data);
+    return data;
   },
   ttl: 5 * 60 * 1000, // 5 minutes
   autoRefetch: true
@@ -159,14 +159,14 @@ When using `autoRefetch`, it's important to handle potential failures in the bac
 
 ```typescript
 // Global refetch failure event
-RunCache.onRefetchFailure((event) => {
-  console.error(`Failed to refresh cache key ${event.key}: ${event.error.message}`);
+await RunCache.onRefetchFailure((event) => {
+  console.error(`Failed to refresh cache key ${event.key}: ${event.error}`);
 });
 
 // Specific key refetch failure
-RunCache.onKeyRefetchFailure("critical-stats", (event) => {
-  console.error(`Critical stats refresh failed: ${event.error.message}`);
-  
+await RunCache.onKeyRefetchFailure("critical-stats", (event) => {
+  console.error(`Critical stats refresh failed: ${event.error}`);
+
   // Implement retry logic or fallback mechanism
   setTimeout(() => RunCache.refetch("critical-stats"), 30000); // Retry after 30 seconds
 });
@@ -229,13 +229,13 @@ You can implement conditional expiration by checking certain conditions before r
 ```typescript
 async function getWithConditionalRefresh(key) {
   const value = await RunCache.get(key);
-  
+
   // If value exists but some condition requires refresh
-  if (value && shouldRefreshData(JSON.parse(value))) {
+  if (value !== undefined && shouldRefreshData(value)) {
     await RunCache.refetch(key);
     return await RunCache.get(key);
   }
-  
+
   return value;
 }
 

@@ -20,21 +20,21 @@ When setting a cache entry, you can assign one or more tags to it:
 // Set a cache entry with tags
 await RunCache.set({
   key: 'user:1:profile',
-  value: JSON.stringify({ name: 'John Doe', email: 'john@example.com' }),
+  value: { name: 'John Doe', email: 'john@example.com' },
   tags: ['user:1', 'profile']
 });
 
 // Another entry with some overlapping tags
 await RunCache.set({
   key: 'user:1:settings',
-  value: JSON.stringify({ theme: 'dark', notifications: true }),
+  value: { theme: 'dark', notifications: true },
   tags: ['user:1', 'settings']
 });
 
 // Entry for a different user
 await RunCache.set({
   key: 'user:2:profile',
-  value: JSON.stringify({ name: 'Jane Smith', email: 'jane@example.com' }),
+  value: { name: 'Jane Smith', email: 'jane@example.com' },
   tags: ['user:2', 'profile']
 });
 ```
@@ -50,7 +50,7 @@ To invalidate all cache entries with a specific tag:
 
 ```typescript
 // Invalidate all entries tagged with 'user:1'
-RunCache.invalidateByTag('user:1');
+await RunCache.invalidateByTag('user:1');
 ```
 
 This would invalidate both `user:1:profile` and `user:1:settings`, but not `user:2:profile`.
@@ -59,7 +59,7 @@ Similarly:
 
 ```typescript
 // Invalidate all profile entries
-RunCache.invalidateByTag('profile');
+await RunCache.invalidateByTag('profile');
 ```
 
 This would invalidate both `user:1:profile` and `user:2:profile`, but not `user:1:settings`.
@@ -74,19 +74,19 @@ You can create hierarchical relationships using tag naming conventions:
 // Set cache entries with hierarchical tags
 await RunCache.set({
   key: 'product:1:details',
-  value: JSON.stringify({ name: 'Product 1', price: 99.99 }),
+  value: { name: 'Product 1', price: 99.99 },
   tags: ['product', 'product:1', 'product:details']
 });
 
 await RunCache.set({
   key: 'product:1:reviews',
-  value: JSON.stringify([{ rating: 5, text: 'Great product!' }]),
+  value: [{ rating: 5, text: 'Great product!' }],
   tags: ['product', 'product:1', 'product:reviews']
 });
 
 await RunCache.set({
   key: 'product:2:details',
-  value: JSON.stringify({ name: 'Product 2', price: 149.99 }),
+  value: { name: 'Product 2', price: 149.99 },
   tags: ['product', 'product:2', 'product:details']
 });
 ```
@@ -95,13 +95,13 @@ This allows for flexible invalidation:
 
 ```typescript
 // Invalidate all product data
-RunCache.invalidateByTag('product');
+await RunCache.invalidateByTag('product');
 
 // Invalidate all data for product 1
-RunCache.invalidateByTag('product:1');
+await RunCache.invalidateByTag('product:1');
 
 // Invalidate details for all products
-RunCache.invalidateByTag('product:details');
+await RunCache.invalidateByTag('product:details');
 ```
 
 ### Role-based Tags
@@ -112,19 +112,19 @@ Tags can represent roles or categories:
 // Set cache entries with role-based tags
 await RunCache.set({
   key: 'user:1:dashboard',
-  value: JSON.stringify({ widgets: [...] }),
+  value: { widgets: [...] },
   tags: ['user:1', 'dashboard', 'admin-view']
 });
 
 await RunCache.set({
   key: 'user:2:dashboard',
-  value: JSON.stringify({ widgets: [...] }),
+  value: { widgets: [...] },
   tags: ['user:2', 'dashboard', 'customer-view']
 });
 
 await RunCache.set({
   key: 'global:admin-settings',
-  value: JSON.stringify({ settings: [...] }),
+  value: { settings: [...] },
   tags: ['global', 'admin-view']
 });
 ```
@@ -133,10 +133,10 @@ This allows for role-based invalidation:
 
 ```typescript
 // Invalidate all admin views when admin settings change
-RunCache.invalidateByTag('admin-view');
+await RunCache.invalidateByTag('admin-view');
 
 // Invalidate all dashboards
-RunCache.invalidateByTag('dashboard');
+await RunCache.invalidateByTag('dashboard');
 ```
 
 ### Version Tags
@@ -147,13 +147,13 @@ Tags can be used for version-based invalidation:
 // Set cache entries with version tags
 await RunCache.set({
   key: 'app:config',
-  value: JSON.stringify({ theme: 'light', features: [...] }),
+  value: { theme: 'light', features: [...] },
   tags: ['config', 'v1.2.3']
 });
 
 await RunCache.set({
   key: 'app:translations',
-  value: JSON.stringify({ en: {...}, es: {...} }),
+  value: { en: {...}, es: {...} },
   tags: ['translations', 'v1.2.3']
 });
 ```
@@ -162,12 +162,12 @@ When a new version is deployed:
 
 ```typescript
 // Invalidate all cache entries from the previous version
-RunCache.invalidateByTag('v1.2.3');
+await RunCache.invalidateByTag('v1.2.3');
 
 // Set new cache entries with the new version tag
 await RunCache.set({
   key: 'app:config',
-  value: JSON.stringify({ theme: 'dark', features: [...] }),
+  value: { theme: 'dark', features: [...] },
   tags: ['config', 'v1.3.0']
 });
 ```
@@ -178,17 +178,17 @@ RunCache provides events to monitor tag invalidations:
 
 ```typescript
 // Global tag invalidation event
-RunCache.onTagInvalidation((event) => {
+await RunCache.onTagInvalidation((event) => {
   console.log(`Cache key ${event.key} was invalidated by tag: ${event.tag}`);
 });
 
 // Specific key tag invalidation
-RunCache.onKeyTagInvalidation("user:1:profile", (event) => {
+await RunCache.onKeyTagInvalidation("user:1:profile", (event) => {
   console.log(`User profile was invalidated by tag: ${event.tag}`);
 });
 
 // Pattern-based tag invalidation events
-RunCache.onKeyTagInvalidation("user:*:profile", (event) => {
+await RunCache.onKeyTagInvalidation("user:*:profile", (event) => {
   console.log(`User profile ${event.key} was invalidated by tag: ${event.tag}`);
 });
 ```
@@ -205,7 +205,7 @@ Combine tags with TTL for time-based invalidation:
 // Set cache entry with tags and TTL
 await RunCache.set({
   key: 'weather:nyc',
-  value: JSON.stringify({ temp: 72, conditions: 'sunny' }),
+  value: { temp: 72, conditions: 'sunny' },
   tags: ['weather', 'location:nyc'],
   ttl: 3600000 // 1 hour
 });
@@ -213,7 +213,7 @@ await RunCache.set({
 // Set cache entry with tags and TTL
 await RunCache.set({
   key: 'weather:la',
-  value: JSON.stringify({ temp: 85, conditions: 'clear' }),
+  value: { temp: 85, conditions: 'clear' },
   tags: ['weather', 'location:la'],
   ttl: 3600000 // 1 hour
 });
@@ -223,10 +223,10 @@ This allows for both time-based expiration and manual invalidation:
 
 ```typescript
 // Invalidate all weather data regardless of TTL
-RunCache.invalidateByTag('weather');
+await RunCache.invalidateByTag('weather');
 
 // Invalidate just NYC weather data
-RunCache.invalidateByTag('location:nyc');
+await RunCache.invalidateByTag('location:nyc');
 ```
 
 ### Tags with Source Functions
@@ -240,7 +240,7 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.example.com/stocks/AAPL');
     const data = await response.json();
-    return JSON.stringify(data);
+    return data;
   },
   tags: ['stock', 'tech-stock'],
   ttl: 60000, // 1 minute
@@ -252,7 +252,7 @@ await RunCache.set({
   sourceFn: async () => {
     const response = await fetch('https://api.example.com/stocks/MSFT');
     const data = await response.json();
-    return JSON.stringify(data);
+    return data;
   },
   tags: ['stock', 'tech-stock'],
   ttl: 60000, // 1 minute
@@ -264,7 +264,7 @@ This allows for both automatic refreshing and manual invalidation:
 
 ```typescript
 // Force refresh all tech stock data immediately
-RunCache.invalidateByTag('tech-stock');
+await RunCache.invalidateByTag('tech-stock');
 ```
 
 ### Tags with Dependencies
@@ -275,21 +275,21 @@ Combine tags with dependencies for complex invalidation strategies:
 // Primary data with tags
 await RunCache.set({
   key: 'products',
-  value: JSON.stringify([...]),
+  value: [...],
   tags: ['product-data', 'catalog']
 });
 
 // Dependent data with tags
 await RunCache.set({
   key: 'featured-products',
-  value: JSON.stringify([...]),
+  value: [...],
   dependencies: ['products'],
   tags: ['product-data', 'featured']
 });
 
 await RunCache.set({
   key: 'product-recommendations',
-  value: JSON.stringify([...]),
+  value: [...],
   dependencies: ['products', 'user-preferences'],
   tags: ['product-data', 'personalized']
 });
@@ -299,13 +299,13 @@ This provides multiple ways to invalidate:
 
 ```typescript
 // Option 1: Invalidate by dependency (cascades to dependents)
-RunCache.invalidateByDependency('products');
+await RunCache.invalidateByDependency('products');
 
 // Option 2: Invalidate by tag (direct invalidation)
-RunCache.invalidateByTag('product-data');
+await RunCache.invalidateByTag('product-data');
 
 // Option 3: Invalidate just personalized content
-RunCache.invalidateByTag('personalized');
+await RunCache.invalidateByTag('personalized');
 ```
 
 ## Advanced Tag Patterns
@@ -317,19 +317,19 @@ Generate tags dynamically based on data or context:
 ```typescript
 function generateUserTags(user) {
   const tags = [`user:${user.id}`];
-  
+
   if (user.role) {
     tags.push(`role:${user.role}`);
   }
-  
+
   if (user.subscriptionLevel) {
     tags.push(`subscription:${user.subscriptionLevel}`);
   }
-  
+
   if (user.region) {
     tags.push(`region:${user.region}`);
   }
-  
+
   return tags;
 }
 
@@ -337,7 +337,7 @@ function generateUserTags(user) {
 const user = await fetchUser(1);
 await RunCache.set({
   key: `user:${user.id}:profile`,
-  value: JSON.stringify(user),
+  value: user,
   tags: generateUserTags(user)
 });
 ```
@@ -348,7 +348,7 @@ Use tags to implement prefetching strategies:
 
 ```typescript
 // Listen for tag invalidations
-RunCache.onTagInvalidation((event) => {
+await RunCache.onTagInvalidation((event) => {
   if (event.tag === 'product-data') {
     // Prefetch related data that might be needed soon
     prefetchRelatedData();
@@ -360,7 +360,7 @@ async function prefetchRelatedData() {
   const relatedData = await fetchRelatedData();
   await RunCache.set({
     key: 'related-products',
-    value: JSON.stringify(relatedData),
+    value: relatedData,
     tags: ['product-data', 'related']
   });
 }
@@ -374,7 +374,7 @@ Implement conditional tag invalidation logic:
 async function conditionalInvalidate(tag, condition) {
   if (await condition()) {
     console.log(`Invalidating tag: ${tag}`);
-    RunCache.invalidateByTag(tag);
+    await RunCache.invalidateByTag(tag);
     return true;
   }
   console.log(`Condition not met, tag ${tag} not invalidated`);
@@ -471,26 +471,26 @@ Cache and invalidate user-specific data:
 // Store user data with tags
 await RunCache.set({
   key: `user:${userId}:profile`,
-  value: JSON.stringify(profile),
+  value: profile,
   tags: [`user:${userId}`]
 });
 
 await RunCache.set({
   key: `user:${userId}:preferences`,
-  value: JSON.stringify(preferences),
+  value: preferences,
   tags: [`user:${userId}`]
 });
 
 await RunCache.set({
   key: `user:${userId}:activity`,
-  value: JSON.stringify(activity),
+  value: activity,
   tags: [`user:${userId}`]
 });
 
 // When user data changes
-function handleUserDataChange(userId) {
+async function handleUserDataChange(userId) {
   // Invalidate all data for this user
-  RunCache.invalidateByTag(`user:${userId}`);
+  await RunCache.invalidateByTag(`user:${userId}`);
 }
 ```
 
@@ -502,24 +502,24 @@ Cache and invalidate content by category:
 // Store content with category tags
 await RunCache.set({
   key: `article:${articleId}`,
-  value: JSON.stringify(article),
+  value: article,
   tags: ['content', `category:${article.category}`, `author:${article.authorId}`]
 });
 
 // Invalidation scenarios
-function handleCategoryUpdate(category) {
+async function handleCategoryUpdate(category) {
   // Invalidate all content in this category
-  RunCache.invalidateByTag(`category:${category}`);
+  await RunCache.invalidateByTag(`category:${category}`);
 }
 
-function handleAuthorUpdate(authorId) {
+async function handleAuthorUpdate(authorId) {
   // Invalidate all content by this author
-  RunCache.invalidateByTag(`author:${authorId}`);
+  await RunCache.invalidateByTag(`author:${authorId}`);
 }
 
-function handleGlobalContentUpdate() {
+async function handleGlobalContentUpdate() {
   // Invalidate all content
-  RunCache.invalidateByTag('content');
+  await RunCache.invalidateByTag('content');
 }
 ```
 
@@ -531,42 +531,42 @@ Cache API responses with appropriate tags:
 async function cachedApiRequest(endpoint, params = {}, options = {}) {
   // Generate a cache key based on the endpoint and params
   const key = `api:${endpoint}:${JSON.stringify(params)}`;
-  
+
   // Define tags based on the endpoint and params
   const tags = ['api'];
   tags.push(`api:${endpoint}`);
-  
+
   if (params.userId) {
     tags.push(`user:${params.userId}`);
   }
-  
+
   if (params.category) {
     tags.push(`category:${params.category}`);
   }
-  
+
   // Check cache first
   const cachedResponse = await RunCache.get(key);
   if (cachedResponse) {
-    return JSON.parse(cachedResponse);
+    return cachedResponse;
   }
-  
+
   // If not in cache, make the API request
   const response = await fetch(`https://api.example.com/${endpoint}`, {
     method: 'POST',
     body: JSON.stringify(params),
     headers: { 'Content-Type': 'application/json' }
   });
-  
+
   const data = await response.json();
-  
+
   // Cache the response with appropriate tags and TTL
   await RunCache.set({
     key,
-    value: JSON.stringify(data),
+    value: data,
     tags,
     ttl: options.ttl || 300000 // 5 minutes default
   });
-  
+
   return data;
 }
 
@@ -574,8 +574,8 @@ async function cachedApiRequest(endpoint, params = {}, options = {}) {
 const userData = await cachedApiRequest('users/profile', { userId: 123 });
 
 // When user data changes
-function invalidateUserApiCache(userId) {
-  RunCache.invalidateByTag(`user:${userId}`);
+async function invalidateUserApiCache(userId) {
+  await RunCache.invalidateByTag(`user:${userId}`);
 }
 ```
 
@@ -587,7 +587,7 @@ Implement multi-level caching with tags:
 // L1 cache (short TTL, frequently accessed)
 await RunCache.set({
   key: 'dashboard:summary',
-  value: JSON.stringify(summary),
+  value: summary,
   tags: ['dashboard', 'summary', 'l1-cache'],
   ttl: 60000 // 1 minute
 });
@@ -595,18 +595,18 @@ await RunCache.set({
 // L2 cache (longer TTL, less frequently accessed)
 await RunCache.set({
   key: 'dashboard:details',
-  value: JSON.stringify(details),
+  value: details,
   tags: ['dashboard', 'details', 'l2-cache'],
   ttl: 3600000 // 1 hour
 });
 
 // Selective invalidation
-function invalidateL1Cache() {
-  RunCache.invalidateByTag('l1-cache');
+async function invalidateL1Cache() {
+  await RunCache.invalidateByTag('l1-cache');
 }
 
-function invalidateDashboard() {
-  RunCache.invalidateByTag('dashboard');
+async function invalidateDashboard() {
+  await RunCache.invalidateByTag('dashboard');
 }
 ```
 

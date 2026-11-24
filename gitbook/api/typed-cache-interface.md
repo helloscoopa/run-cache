@@ -1,6 +1,8 @@
 # Typed Cache Interface
 
-The `TypedCacheInterface<T>` provides a type-safe wrapper around RunCache operations for a specific type. This interface ensures compile-time type checking and better developer experience when working with consistently typed cache entries.
+`RunCache.createTypedCache<T>()` returns a thin wrapper around the static RunCache methods with `T` filled in, so you do not have to repeat the type parameter on every call. It does not create a separate cache: every typed cache reads and writes the same global store, and the typing is compile-time only (see [Type Safety](../advanced/type-validation.md)).
+
+The class itself (`TypedCacheInterface`) is not exported; use `ReturnType<typeof RunCache.createTypedCache<User>>` if you need to name the type.
 
 ## Class: TypedCacheInterface<T>
 
@@ -14,7 +16,7 @@ Created using `RunCache.createTypedCache<T>()`, this interface provides all stan
 
 ### `set(options)`
 
-Sets a cache entry with type-safe value validation.
+Sets a cache entry. Same as `RunCache.set<T>()`.
 
 **Parameters:**
 
@@ -26,8 +28,6 @@ Sets a cache entry with type-safe value validation.
   - `sourceFn?`: `() => T | Promise<T>` - Function to generate typed cache value (required if no value)
   - `tags?`: `string[]` - Array of tags for tag-based invalidation
   - `dependencies?`: `string[]` - Array of cache keys this entry depends on
-  - `metadata?`: `any` - Custom metadata to associate with the entry
-  - `validator?`: `TypeValidator<T>` - Optional type validator for runtime checking
 
 **Returns:** `Promise<boolean>` - Returns `true` if the value was successfully set
 
@@ -141,7 +141,7 @@ Removes a cache entry or entries matching a pattern.
 
 - `key`: `string` - The key to delete, or a pattern with wildcards
 
-**Returns:** `Promise<void>`
+**Returns:** `Promise<boolean>` - `true` if at least one entry was deleted
 
 **Example:**
 
@@ -153,17 +153,15 @@ await userCache.delete('user:123');
 await userCache.delete('user:*');
 ```
 
-### `refetch(key, options?)`
+### `refetch(key)`
 
-Manually refreshes a cache entry or entries matching a pattern.
+Runs the stored `sourceFn` again for an entry, or for every entry matching a pattern.
 
 **Parameters:**
 
 - `key`: `string` - The key to refresh, or a pattern with wildcards
-- `options?`: `Object` - Optional refresh options
-  - `metadata?`: `any` - Custom metadata to include in refetch events
 
-**Returns:** `Promise<void>`
+**Returns:** `Promise<boolean>` - `true` if at least one entry was refetched
 
 **Example:**
 
@@ -173,32 +171,31 @@ await userCache.refetch('user:123');
 
 // Refresh all users
 await userCache.refetch('user:*');
-
-// Refresh with metadata
-await userCache.refetch('user:123', { 
-  metadata: { reason: 'manual-refresh', userId: 123 } 
-});
 ```
 
 ## Event System Integration
 
-Typed cache interfaces work seamlessly with the event system, providing typed event parameters.
+The typed cache has `onExpiry`, `onKeyExpiry`, `onRefetch`, `onKeyRefetch`, `onRefetchFailure` and `onKeyRefetchFailure`. They register the same listeners as the static RunCache methods, so:
+
+- `onExpiry`, `onRefetch` and `onRefetchFailure` fire for **every** key in the cache, not only keys set through this typed cache. Use the `onKey...` variants with a pattern to scope them.
+- `event.value` is the entry's stored form: strings as they were set, other values as their JSON string, even though it is typed as `T`. Parse it when you need the object.
 
 ### Event Registration
 
 ```typescript
-// Type-safe event handlers
-userCache.onExpiry((event) => {
-  console.log(`User ${event.value.name} expired from cache`);
-  // event.value is typed as User
+// Scope listeners to this cache's keys with a pattern
+await userCache.onKeyExpiry('user:*', (event) => {
+  // event.value is the stored JSON string for object values
+  const user = JSON.parse(event.value as unknown as string) as User;
+  console.log(`User ${user.name} expired from cache`);
 });
 
-userCache.onRefetch((event) => {
+await userCache.onKeyRefetch('user:*', (event) => {
   console.log(`User cache refreshed: ${event.key}`);
 });
 
-userCache.onRefetchFailure((event) => {
-  console.error(`Failed to refresh user: ${event.error.message}`);
+await userCache.onKeyRefetchFailure('user:*', (event) => {
+  console.error(`Failed to refresh user: ${event.key}`, event.error);
 });
 ```
 
@@ -211,11 +208,12 @@ Use typed cache interfaces to implement repository patterns:
 ```typescript
 class UserRepository {
   private cache = RunCache.createTypedCache<User>();
-  
+
   async findById(id: number): Promise<User | undefined> {
-    return this.cache.get(`user:${id}`);
+    // get() is typed T | T[] | undefined because a key may be a wildcard pattern
+    return (await this.cache.get(`user:${id}`)) as User | undefined;
   }
-  
+
   async save(user: User, ttl?: number): Promise<void> {
     await this.cache.set({
       key: `user:${user.id}`,
@@ -224,7 +222,7 @@ class UserRepository {
       tags: ['user', `user:${user.id}`]
     });
   }
-  
+
   async findByEmail(email: string): Promise<User | undefined> {
     const users = await this.cache.get('user:*');
     if (Array.isArray(users)) {
@@ -232,11 +230,11 @@ class UserRepository {
     }
     return undefined;
   }
-  
+
   async invalidateUser(id: number): Promise<void> {
     await this.cache.delete(`user:${id}`);
   }
-  
+
   async refreshUser(id: number): Promise<void> {
     await this.cache.refetch(`user:${id}`);
   }
@@ -265,14 +263,14 @@ interface Product {
 
 class ProductService {
   private cache = RunCache.createTypedCache<Product>();
-  
+
   async getProduct(id: number): Promise<Product | null> {
     // Try cache first
-    const cached = await this.cache.get(`product:${id}`);
+    const cached = (await this.cache.get(`product:${id}`)) as Product | undefined;
     if (cached) {
       return cached;
     }
-    
+
     // Fetch from database/API
     const product = await this.fetchProductFromDB(id);
     if (product) {
@@ -284,13 +282,13 @@ class ProductService {
         tags: ['product', `category:${product.category}`]
       });
     }
-    
+
     return product;
   }
-  
+
   async updateProduct(product: Product): Promise<void> {
     await this.updateProductInDB(product);
-    
+
     // Update cache
     await this.cache.set({
       key: `product:${product.id}`,
@@ -299,17 +297,17 @@ class ProductService {
       tags: ['product', `category:${product.category}`]
     });
   }
-  
+
   async invalidateCategory(category: string): Promise<void> {
-    // This would require tag invalidation on the main RunCache
+    // Tag invalidation is only on RunCache; it covers entries set through any typed cache
     await RunCache.invalidateByTag(`category:${category}`);
   }
-  
+
   private async fetchProductFromDB(id: number): Promise<Product | null> {
     // Database fetch logic
     return null; // Placeholder
   }
-  
+
   private async updateProductInDB(product: Product): Promise<void> {
     // Database update logic
   }
@@ -333,12 +331,12 @@ class CacheManager {
   private userCache = RunCache.createTypedCache<User>();
   private productCache = RunCache.createTypedCache<Product>();
   private orderCache = RunCache.createTypedCache<Order>();
-  
+
   // User operations
   async getUser(id: number): Promise<User | undefined> {
-    return this.userCache.get(`user:${id}`);
+    return (await this.userCache.get(`user:${id}`)) as User | undefined;
   }
-  
+
   async setUser(user: User): Promise<void> {
     await this.userCache.set({
       key: `user:${user.id}`,
@@ -347,12 +345,12 @@ class CacheManager {
       tags: ['user']
     });
   }
-  
+
   // Product operations
   async getProduct(id: number): Promise<Product | undefined> {
-    return this.productCache.get(`product:${id}`);
+    return (await this.productCache.get(`product:${id}`)) as Product | undefined;
   }
-  
+
   async setProduct(product: Product): Promise<void> {
     await this.productCache.set({
       key: `product:${product.id}`,
@@ -361,12 +359,12 @@ class CacheManager {
       tags: ['product', `category:${product.category}`]
     });
   }
-  
+
   // Order operations
   async getOrder(id: number): Promise<Order | undefined> {
-    return this.orderCache.get(`order:${id}`);
+    return (await this.orderCache.get(`order:${id}`)) as Order | undefined;
   }
-  
+
   async setOrder(order: Order): Promise<void> {
     await this.orderCache.set({
       key: `order:${order.id}`,
@@ -376,7 +374,7 @@ class CacheManager {
       dependencies: [`user:${order.userId}`]
     });
   }
-  
+
   // Cross-type operations
   async getUserOrders(userId: number): Promise<Order[]> {
     const orders = await this.orderCache.get('order:*');
@@ -385,7 +383,7 @@ class CacheManager {
     }
     return [];
   }
-  
+
   async invalidateUserData(userId: number): Promise<void> {
     await this.userCache.delete(`user:${userId}`);
     await RunCache.invalidateByTag(`user:${userId}`);
@@ -402,7 +400,7 @@ interface StrictUser {
   id: number;
   name: string;
   email: string;
-  createdAt: Date;
+  createdAt: string; // ISO date: a Date would come back from get() as a string
 }
 
 const strictUserCache = RunCache.createTypedCache<StrictUser>();
@@ -414,7 +412,7 @@ await strictUserCache.set({
     id: 1,
     name: 'John',
     email: 'john@example.com',
-    createdAt: new Date()
+    createdAt: new Date().toISOString()
   }
 });
 
@@ -434,25 +432,7 @@ await strictUserCache.set({
 
 ### Runtime Type Validation
 
-Combine with type validators for runtime checking:
-
-```typescript
-import { ValidatorUtils, NumberValidator, StringValidator } from 'run-cache';
-
-const userValidator = ValidatorUtils.object({
-  id: NumberValidator,
-  name: StringValidator,
-  email: ValidatorUtils.string(email => email.includes('@')),
-  createdAt: ValidatorUtils.instanceOf(Date)
-});
-
-await strictUserCache.set({
-  key: 'user:1',
-  value: userData,
-  validator: userValidator, // Runtime validation
-  validateOnSet: true
-});
-```
+The type parameter is not checked at runtime, and no cache method accepts a validator. See [Type Safety](../advanced/type-validation.md#adding-a-runtime-check) for checking values after reading them.
 
 ## Performance Considerations
 
@@ -460,20 +440,20 @@ Typed cache interfaces have minimal overhead compared to the main RunCache:
 
 - **Type Checking**: Zero runtime cost (compile-time only)
 - **Memory Usage**: Same as main RunCache (just a wrapper)
-- **Serialization**: Same performance characteristics
-- **Method Calls**: Minimal indirection overhead (< 1ms)
+- **Serialization**: Same as RunCache: non-string values are stored as JSON
+- **Method Calls**: One extra function call per operation
 
 ## Best Practices
 
 1. **Use for Consistent Types**: Create typed interfaces for types you cache frequently
 2. **Repository Pattern**: Combine with repository patterns for clean architecture
 3. **Service Integration**: Integrate with service layers for business logic separation
-4. **Type Validation**: Use runtime validators for critical data integrity
-5. **Event Handling**: Leverage typed events for better debugging and monitoring
+4. **Runtime Checks**: Validate values that may come from outside your control after reading them
+5. **Event Handling**: Scope listeners with the `onKey...` methods and a key pattern
 
 ## Next Steps
 
-- Learn about [Serialization Adapters](serialization-system.md) for complex types
-- Explore [Type Validation](../advanced/type-validation.md) for runtime checking
+- Learn about [Value Serialization](../advanced/serialization-adapters.md) for complex types
+- Read [Type Safety](../advanced/type-validation.md) for runtime checking
 - See [Best Practices](../guides/best-practices.md) for typed caching patterns
 - Check the main [RunCache API](run-cache.md) for additional methods

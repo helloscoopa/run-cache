@@ -213,7 +213,7 @@ export class RunCache {
    * // Basic usage with tags
    * await RunCache.set({ 
    *   key: "user:profile:123", 
-   *   value: JSON.stringify({name: "John"}), 
+   *   value: {name: "John"}, 
    *   tags: ["user:123", "profile"]
    * });
    * 

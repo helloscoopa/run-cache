@@ -20,11 +20,13 @@ RunCache provides several event types you can subscribe to:
 
 | Event Type | Description | Event Object Properties |
 |------------|-------------|------------------------|
-| `EXPIRE` | Triggered when a cache entry expires | `key`, `ttl`, `updatedAt` |
-| `REFETCH` | Triggered when a cache entry is refreshed | `key`, `metadata` |
-| `REFETCH_FAILURE` | Triggered when a cache refresh fails | `key`, `error`, `metadata` |
-| `TAG_INVALIDATION` | Triggered when a cache entry is invalidated by tag | `key`, `tag` |
-| `DEPENDENCY_INVALIDATION` | Triggered when a cache entry is invalidated by dependency | `key`, `dependencyKey` |
+| `EXPIRE` | Triggered when a cache entry expires | `key`, `value`, `ttl`, `createdAt`, `updatedAt` |
+| `REFETCH` | Triggered when a cache entry is refreshed | `key`, `value`, `ttl`, `createdAt`, `updatedAt` |
+| `REFETCH_FAILURE` | Triggered when a cache refresh fails | `key`, `value`, `ttl`, `createdAt`, `updatedAt` |
+| `TAG_INVALIDATION` | Triggered when a cache entry is invalidated by tag | the above, plus `tag` |
+| `DEPENDENCY_INVALIDATION` | Triggered when a cache entry is invalidated by dependency | the above, plus `dependencyKey` |
+
+`value` is the stored form of the entry: non-string values arrive as their JSON string. No event carries an error object or custom metadata.
 
 ## Global Event Listeners
 
@@ -34,7 +36,7 @@ Global event listeners are triggered for all cache entries that match the specif
 
 ```typescript
 // Listen for all expiry events
-RunCache.onExpiry((event) => {
+await RunCache.onExpiry((event) => {
   console.log(`Cache key ${event.key} expired at ${new Date(event.updatedAt + event.ttl).toISOString()}`);
 });
 ```
@@ -43,13 +45,13 @@ RunCache.onExpiry((event) => {
 
 ```typescript
 // Listen for all successful refetch events
-RunCache.onRefetch((event) => {
+await RunCache.onRefetch((event) => {
   console.log(`Cache key ${event.key} was refreshed at ${new Date().toISOString()}`);
 });
 
 // Listen for all refetch failure events
-RunCache.onRefetchFailure((event) => {
-  console.error(`Failed to refresh cache key ${event.key}:`, event.error.message);
+await RunCache.onRefetchFailure((event) => {
+  console.error(`Failed to refresh cache key ${event.key}:`, event.error);
 });
 ```
 
@@ -57,7 +59,7 @@ RunCache.onRefetchFailure((event) => {
 
 ```typescript
 // Listen for all tag invalidation events
-RunCache.onTagInvalidation((event) => {
+await RunCache.onTagInvalidation((event) => {
   console.log(`Cache key ${event.key} was invalidated by tag: ${event.tag}`);
 });
 ```
@@ -66,7 +68,7 @@ RunCache.onTagInvalidation((event) => {
 
 ```typescript
 // Listen for all dependency invalidation events
-RunCache.onDependencyInvalidation((event) => {
+await RunCache.onDependencyInvalidation((event) => {
   console.log(`Cache key ${event.key} was invalidated due to dependency on: ${event.dependencyKey}`);
 });
 ```
@@ -79,12 +81,12 @@ Key-specific event listeners are triggered only for cache entries with keys that
 
 ```typescript
 // Listen for expiry of a specific key
-RunCache.onKeyExpiry("api-data", (event) => {
+await RunCache.onKeyExpiry("api-data", (event) => {
   console.log(`API data cache expired`);
 });
 
 // Listen for expiry of keys matching a pattern
-RunCache.onKeyExpiry("user:*:profile", (event) => {
+await RunCache.onKeyExpiry("user:*:profile", (event) => {
   console.log(`User profile ${event.key} expired`);
 });
 ```
@@ -93,13 +95,13 @@ RunCache.onKeyExpiry("user:*:profile", (event) => {
 
 ```typescript
 // Listen for refetch of a specific key
-RunCache.onKeyRefetch("weather-data", (event) => {
+await RunCache.onKeyRefetch("weather-data", (event) => {
   console.log(`Weather data was refreshed`);
 });
 
 // Listen for refetch failures of keys matching a pattern
-RunCache.onKeyRefetchFailure("api:*", (event) => {
-  console.error(`API data ${event.key} refresh failed:`, event.error.message);
+await RunCache.onKeyRefetchFailure("api:*", (event) => {
+  console.error(`API data ${event.key} refresh failed:`, event.error);
 });
 ```
 
@@ -107,7 +109,7 @@ RunCache.onKeyRefetchFailure("api:*", (event) => {
 
 ```typescript
 // Listen for tag invalidation of keys matching a pattern
-RunCache.onKeyTagInvalidation("user:*:profile", (event) => {
+await RunCache.onKeyTagInvalidation("user:*:profile", (event) => {
   console.log(`User profile ${event.key} was invalidated by tag: ${event.tag}`);
 });
 ```
@@ -116,7 +118,7 @@ RunCache.onKeyTagInvalidation("user:*:profile", (event) => {
 
 ```typescript
 // Listen for dependency invalidation of a specific key
-RunCache.onKeyDependencyInvalidation("dashboard:main", (event) => {
+await RunCache.onKeyDependencyInvalidation("dashboard:main", (event) => {
   console.log(`Main dashboard was invalidated due to dependency on: ${event.dependencyKey}`);
 });
 ```
@@ -129,7 +131,7 @@ To remove all event listeners:
 
 ```typescript
 // Remove all event listeners
-RunCache.clearEventListeners();
+await RunCache.clearEventListeners();
 ```
 
 ### Removing Specific Event Listeners
@@ -138,7 +140,7 @@ To remove listeners for a specific event type:
 
 ```typescript
 // Remove all expiry event listeners
-RunCache.clearEventListeners({
+await RunCache.clearEventListeners({
   event: EVENT.EXPIRE
 });
 ```
@@ -149,13 +151,13 @@ To remove listeners for a specific key or pattern:
 
 ```typescript
 // Remove refetch listeners for a specific key
-RunCache.clearEventListeners({
+await RunCache.clearEventListeners({
   event: EVENT.REFETCH,
   key: "api-data"
 });
 
 // Remove refetch failure listeners for keys matching a pattern
-RunCache.clearEventListeners({
+await RunCache.clearEventListeners({
   event: EVENT.REFETCH_FAILURE,
   key: "api:*"
 });
@@ -169,23 +171,23 @@ Use events to implement comprehensive logging:
 
 ```typescript
 // Set up logging for all major events
-RunCache.onExpiry((event) => {
+await RunCache.onExpiry((event) => {
   logger.info(`Cache expired: ${event.key}`);
 });
 
-RunCache.onRefetch((event) => {
+await RunCache.onRefetch((event) => {
   logger.info(`Cache refreshed: ${event.key}`);
 });
 
-RunCache.onRefetchFailure((event) => {
+await RunCache.onRefetchFailure((event) => {
   logger.error(`Cache refresh failed: ${event.key}`, event.error);
 });
 
-RunCache.onTagInvalidation((event) => {
+await RunCache.onTagInvalidation((event) => {
   logger.info(`Cache invalidated by tag: ${event.key} (tag: ${event.tag})`);
 });
 
-RunCache.onDependencyInvalidation((event) => {
+await RunCache.onDependencyInvalidation((event) => {
   logger.info(`Cache invalidated by dependency: ${event.key} (depends on: ${event.dependencyKey})`);
 });
 ```
@@ -196,17 +198,21 @@ Use events to implement retry logic for failed refetches:
 
 ```typescript
 // Set up retry logic with exponential backoff
-RunCache.onRefetchFailure((event) => {
-  const retryCount = (event.metadata?.retryCount || 0) + 1;
-  
+// Attempts per key; RunCache events carry no custom metadata
+const retryCounts = new Map<string, number>();
+
+await RunCache.onRefetchFailure((event) => {
+  const retryCount = (retryCounts.get(event.key) ?? 0) + 1;
+  retryCounts.set(event.key, retryCount);
+
   if (retryCount <= 3) {
     const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
     console.log(`Retrying ${event.key} in ${delay}ms (attempt ${retryCount})`);
-    
+
     setTimeout(() => {
-      RunCache.refetch(event.key, { 
-        metadata: { retryCount } 
-      });
+      RunCache.refetch(event.key)
+        .then((ok) => { if (ok) retryCounts.delete(event.key); })
+        .catch(() => { /* reported again through onRefetchFailure */ });
     }, delay);
   } else {
     console.error(`Failed to refresh ${event.key} after ${retryCount} attempts`);
@@ -222,28 +228,25 @@ Use events to trigger UI updates when cache data changes:
 // React component example
 function UserProfile({ userId }) {
   const [profile, setProfile] = useState(null);
-  
+
   useEffect(() => {
-    // Set up event listener for cache refreshes
-    RunCache.onKeyRefetch(`user:${userId}:profile`, () => {
-      // Update UI when profile is refreshed
-      RunCache.get(`user:${userId}:profile`)
-        .then(data => data && setProfile(JSON.parse(data)));
-    });
-    
-    // Initial data fetch
-    RunCache.get(`user:${userId}:profile`)
-      .then(data => data && setProfile(JSON.parse(data)));
-    
-    // Clean up listener on unmount
+    const key = `user:${userId}:profile`;
+
+    // get() returns the stored object, no parsing needed
+    const load = async () => {
+      const data = await RunCache.get(key);
+      if (data !== undefined) setProfile(data);
+    };
+
+    // Register the listener, then do the initial load
+    const ready = RunCache.onKeyRefetch(key, load).then(load);
+
+    // Clean up on unmount, once the listener has been registered
     return () => {
-      RunCache.clearEventListeners({
-        event: EVENT.REFETCH,
-        key: `user:${userId}:profile`
-      });
+      ready.then(() => RunCache.clearEventListeners({ event: EVENT.REFETCH, key }));
     };
   }, [userId]);
-  
+
   // Render profile...
 }
 ```
@@ -262,18 +265,18 @@ let metrics = {
   dependencyInvalidationCount: 0
 };
 
-RunCache.onExpiry(() => metrics.expiryCount++);
-RunCache.onRefetch(() => metrics.refetchCount++);
-RunCache.onRefetchFailure(() => metrics.refetchFailureCount++);
-RunCache.onTagInvalidation(() => metrics.tagInvalidationCount++);
-RunCache.onDependencyInvalidation(() => metrics.dependencyInvalidationCount++);
+await RunCache.onExpiry(() => metrics.expiryCount++);
+await RunCache.onRefetch(() => metrics.refetchCount++);
+await RunCache.onRefetchFailure(() => metrics.refetchFailureCount++);
+await RunCache.onTagInvalidation(() => metrics.tagInvalidationCount++);
+await RunCache.onDependencyInvalidation(() => metrics.dependencyInvalidationCount++);
 
 // Report metrics periodically
 setInterval(() => {
   console.log('Cache metrics:', metrics);
   // Send metrics to monitoring system
   sendMetricsToMonitoring(metrics);
-  
+
   // Reset counters
   metrics = {
     expiryCount: 0,
@@ -291,9 +294,9 @@ Use events to implement custom cascading update logic:
 
 ```typescript
 // When user data is refreshed, also refresh related data
-RunCache.onKeyRefetch('user:*:profile', async (event) => {
+await RunCache.onKeyRefetch('user:*:profile', async (event) => {
   const userId = event.key.split(':')[1];
-  
+
   // Refresh related data
   await RunCache.refetch(`user:${userId}:recommendations`);
   await RunCache.refetch(`user:${userId}:activity`);
@@ -302,23 +305,17 @@ RunCache.onKeyRefetch('user:*:profile', async (event) => {
 
 ## Event Metadata
 
-You can attach custom metadata to cache entries, which will be included in event objects:
+Cache entries cannot carry custom metadata, and event objects only contain the fields listed in the [Events API](../api/events.md). To associate extra information with a key, keep it in your own map:
 
 ```typescript
-// Set cache entry with metadata
-await RunCache.set({
-  key: 'api-data',
-  value: JSON.stringify({ results: [...] }),
-  metadata: {
-    source: 'external-api',
-    version: '1.0',
-    timestamp: Date.now()
-  }
-});
+const entryInfo = new Map<string, { source: string; version: string }>();
 
-// Access metadata in event handlers
-RunCache.onKeyExpiry('api-data', (event) => {
-  console.log(`API data expired. Source: ${event.metadata.source}, Version: ${event.metadata.version}`);
+await RunCache.set({ key: 'api-data', value: { results: [] } });
+entryInfo.set('api-data', { source: 'external-api', version: '1.0' });
+
+await RunCache.onKeyExpiry('api-data', (event) => {
+  const info = entryInfo.get(event.key);
+  console.log(`API data expired. Source: ${info?.source}, Version: ${info?.version}`);
 });
 ```
 
@@ -330,12 +327,12 @@ Event handlers should be fast and non-blocking:
 
 ```typescript
 // Good - lightweight handler
-RunCache.onExpiry((event) => {
+await RunCache.onExpiry((event) => {
   console.log(`Cache expired: ${event.key}`);
 });
 
 // Avoid - heavy processing in handler
-RunCache.onExpiry(async (event) => {
+await RunCache.onExpiry(async (event) => {
   // DON'T do this - blocks the event loop
   await heavyProcessing();
   await networkRequest();
@@ -358,7 +355,7 @@ To react to errors inside a specific listener, handle them there:
 
 ```typescript
 // Good - error handling
-RunCache.onRefetch((event) => {
+await RunCache.onRefetch((event) => {
   try {
     processRefetchEvent(event);
   } catch (error) {
@@ -373,12 +370,12 @@ Use specific key patterns to minimize unnecessary event processing:
 
 ```typescript
 // Too broad - triggers for all keys
-RunCache.onKeyExpiry('*', (event) => {
+await RunCache.onKeyExpiry('*', (event) => {
   // This will run for EVERY expiry
 });
 
 // Better - more specific pattern
-RunCache.onKeyExpiry('api:*', (event) => {
+await RunCache.onKeyExpiry('api:*', (event) => {
   // This will only run for API-related expirations
 });
 ```
@@ -389,23 +386,22 @@ Remove event listeners when they're no longer needed:
 
 ```typescript
 // In a component or module initialization
-function initializeModule() {
+async function initializeModule() {
   // Set up event listeners
-  RunCache.onKeyRefetch('module-data', handleRefetch);
-  
+  await RunCache.onKeyRefetch('module-data', handleRefetch);
+
   // Return cleanup function
-  return () => {
+  return () =>
     RunCache.clearEventListeners({
       event: EVENT.REFETCH,
       key: 'module-data'
     });
-  };
 }
 
 // Later, when shutting down
-const cleanup = initializeModule();
+const cleanup = await initializeModule();
 // When module is unloaded
-cleanup();
+await cleanup();
 ```
 
 ### 5. Avoid Circular Event Handling
@@ -414,12 +410,12 @@ Be careful not to create circular event handling patterns:
 
 ```typescript
 // Dangerous - potential circular handling
-RunCache.onKeyRefetch('data-a', () => {
-  RunCache.refetch('data-b');
+await RunCache.onKeyRefetch('data-a', async () => {
+  await RunCache.refetch('data-b');
 });
 
-RunCache.onKeyRefetch('data-b', () => {
-  RunCache.refetch('data-a'); // Creates a loop!
+await RunCache.onKeyRefetch('data-b', async () => {
+  await RunCache.refetch('data-a'); // Creates a loop!
 });
 ```
 
