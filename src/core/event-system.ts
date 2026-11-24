@@ -105,7 +105,7 @@ export class EventSystem {
   onExpiry(callback: EventFn): void {
     this.logger.log('debug', 'Registering global expiry listener');
     const normalizedEvent = this.normalizeEventName(EVENT.EXPIRE);
-    this.emitter.on(normalizedEvent, callback);
+    this.emitter.on(normalizedEvent, this.isolate(normalizedEvent, callback));
   }
 
   /**
@@ -131,7 +131,7 @@ export class EventSystem {
   onRefetch(callback: EventFn): void {
     this.logger.log('debug', 'Registering global refetch listener');
     const normalizedEvent = this.normalizeEventName(EVENT.REFETCH);
-    this.emitter.on(normalizedEvent, callback);
+    this.emitter.on(normalizedEvent, this.isolate(normalizedEvent, callback));
   }
 
   /**
@@ -157,7 +157,7 @@ export class EventSystem {
   onRefetchFailure(callback: EventFn): void {
     this.logger.log('debug', 'Registering global refetch failure listener');
     const normalizedEvent = this.normalizeEventName(EVENT.REFETCH_FAILURE);
-    this.emitter.on(normalizedEvent, callback);
+    this.emitter.on(normalizedEvent, this.isolate(normalizedEvent, callback));
   }
 
   /**
@@ -183,7 +183,7 @@ export class EventSystem {
   onTagInvalidation(callback: EventFn): void {
     this.logger.log('debug', 'Registering global tag invalidation listener');
     const normalizedEvent = this.normalizeEventName(EVENT.TAG_INVALIDATION);
-    this.emitter.on(normalizedEvent, callback);
+    this.emitter.on(normalizedEvent, this.isolate(normalizedEvent, callback));
   }
 
   /**
@@ -209,7 +209,7 @@ export class EventSystem {
   onDependencyInvalidation(callback: EventFn): void {
     this.logger.log('debug', 'Registering global dependency invalidation listener');
     const normalizedEvent = this.normalizeEventName(EVENT.DEPENDENCY_INVALIDATION);
-    this.emitter.on(normalizedEvent, callback);
+    this.emitter.on(normalizedEvent, this.isolate(normalizedEvent, callback));
   }
 
   /**
@@ -265,6 +265,45 @@ export class EventSystem {
   }
 
   /**
+   * Wraps a listener so that an exception it throws, or a promise it rejects, is
+   * reported instead of propagating into the cache operation that emitted the event.
+   * Without this a failing listener could abort an invalidation part-way, crash the
+   * process from a timer callback, or cause an unhandled promise rejection.
+   *
+   * @param {string} event - The event the listener is registered for, used in error reports
+   * @param {EventFn} callback - The listener supplied by the application
+   * @returns {EventFn} The isolated listener
+   * @private
+   */
+  private isolate(event: string, callback: EventFn): EventFn {
+    return (params: EventParam) => {
+      try {
+        const result = callback(params);
+        if (result && typeof (result as Promise<void>).then === 'function') {
+          (result as Promise<void>).then(undefined, (error: unknown) => {
+            this.reportListenerError(event, params.key, error);
+          });
+        }
+      } catch (error) {
+        this.reportListenerError(event, params.key, error);
+      }
+    };
+  }
+
+  /**
+   * Reports a listener failure. Always written to the console (not only in debug mode),
+   * since a silently failing listener is otherwise very hard to diagnose.
+   *
+   * @private
+   */
+  private reportListenerError(event: string, key: string, error: unknown): void {
+    this.logger.log('error', `Listener for ${event} event on key ${key} failed`, error);
+    if (typeof console !== 'undefined' && typeof console.error === 'function') {
+      console.error(`RunCache: a ${event} listener for key "${key}" threw an error`, error);
+    }
+  }
+
+  /**
    * Helper method to add a key-specific listener with wildcard support.
    * Handles the complexity of registering pattern-based listeners.
    *
@@ -273,8 +312,9 @@ export class EventSystem {
    * @param {EventFn} callback - The function to call when matching events occur
    * @private
    */
-  private addKeyListener(event: EventName, key: string, callback: EventFn): void {
+  private addKeyListener(event: EventName, key: string, listener: EventFn): void {
     const normalizedEvent = this.normalizeEventName(event);
+    const callback = this.isolate(normalizedEvent, listener);
 
     if (key.includes('*')) {
       this.logger.log('debug', `Adding wildcard listener for event: ${normalizedEvent}, pattern: ${key}`);
