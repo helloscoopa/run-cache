@@ -196,3 +196,68 @@ describe('isDependencyOf()', () => {
     await store.shutdown();
   });
 });
+
+describe('dependency invalidation details', () => {
+  afterEach(async () => {
+    await RunCache.flush();
+    await RunCache.clearEventListeners();
+  });
+
+  it('emits tag_invalidation for every tagged entry, even one that depends on another', async () => {
+    const tagEvents: string[] = [];
+    const depEvents: string[] = [];
+    await RunCache.onTagInvalidation((event) => { tagEvents.push(event.key); });
+    await RunCache.onDependencyInvalidation((event) => { depEvents.push(event.key); });
+    await RunCache.set({ key: 'p', value: 'p', tags: ['t'] });
+    await RunCache.set({ key: 'c', value: 'c', tags: ['t'], dependencies: ['p'] });
+    await RunCache.set({ key: 'untagged', value: 'u', dependencies: ['c'] });
+
+    await RunCache.invalidateByTag('t');
+
+    expect(tagEvents.sort()).toEqual(['c', 'p']);
+    expect(depEvents).toEqual(['untagged']);
+    expect(await RunCache.has('untagged')).toBe(false);
+  });
+
+  it('ignores expired entries when checking for cycles', async () => {
+    jest.useFakeTimers();
+    try {
+      await RunCache.set({ key: 'a', value: '1', ttl: 100, dependencies: ['b'] });
+      jest.setSystemTime(Date.now() + 1000); // 'a' has expired but was not removed yet
+      await expect(RunCache.set({ key: 'b', value: '2', dependencies: ['a'] })).resolves.toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps the reverse index in step with the cache', async () => {
+    const store = await CacheStore.create();
+    const index = (store as unknown as { dependents: Map<string, Set<string>> }).dependents;
+    await store.set({ key: 'parent', value: 'p' });
+    await store.set({ key: 'child', value: 'c', dependencies: ['parent', 'other'] });
+    expect([...index.keys()].sort()).toEqual(['other', 'parent']);
+
+    // Re-setting the child with different dependencies replaces its edges
+    await store.set({ key: 'child', value: 'c2', dependencies: ['parent'] });
+    expect([...index.keys()]).toEqual(['parent']);
+
+    await store.set({ key: 'parent', value: 'p2' }); // cascades: child removed
+    expect(index.size).toBe(0);
+
+    await store.set({ key: 'x', value: 'x', dependencies: ['y'] });
+    store.flush();
+    expect(index.size).toBe(0);
+    await store.shutdown();
+  });
+
+  it('adds no index entries for caches without dependencies', async () => {
+    const store = await CacheStore.create();
+    const index = (store as unknown as { dependents: Map<string, Set<string>> }).dependents;
+    for (let i = 0; i < 50; i++) await store.set({ key: `k${i}`, value: 'v' });
+    await store.set({ key: 'k1', value: 'updated' });
+    store.delete('k*');
+    expect(index.size).toBe(0);
+    await store.shutdown();
+  });
+});
+

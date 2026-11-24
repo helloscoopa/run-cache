@@ -90,6 +90,13 @@ export class CacheStore {
   private serialization: SerializationManager;
 
   /**
+   * Reverse dependency index: for each key, the keys of entries that list it in their
+   * `dependencies`. Keeps dependency invalidation proportional to the number of
+   * dependents (and free when no entry declares dependencies).
+   */
+  private dependents = new Map<string, Set<string>>();
+
+  /**
    * Creates a new CacheStore instance.
    * Note: Use the static `create` method instead for proper initialization with storage adapters.
    * @param config Configuration options
@@ -361,6 +368,11 @@ export class CacheStore {
     // Process and sanitize tags and dependencies
     const finalTags = tags ? normalizeTags(tags) : (existingCache?.tags || []);
     const finalDependencies = dependencies ? [...dependencies] : (existingCache?.dependencies || []);
+
+    // Replace this key's edges in the reverse dependency index. The live entry is read
+    // here (not the one captured before the awaits) so the index matches what is replaced.
+    this.unindexDependencies(key, this.cache.get(key)?.dependencies);
+    this.indexDependencies(key, finalDependencies);
 
     this.cache.set(key, {
       value: cacheValue ?? 'undefined',
@@ -852,6 +864,7 @@ export class CacheStore {
     }
 
     this.logger.log('info', `Deleted key: ${key}`);
+    this.unindexDependencies(key, cache.dependencies);
     return this.cache.delete(key);
   }
 
@@ -871,6 +884,7 @@ export class CacheStore {
     });
 
     this.cache.clear();
+    this.dependents.clear();
     this.logger.log('debug', `Cache flushed successfully, removed ${count} entries`);
   }
 
@@ -1169,6 +1183,7 @@ export class CacheStore {
           };
 
           this.cache.set(key, state);
+          this.indexDependencies(key, state.dependencies);
         }
       }
 
@@ -1333,29 +1348,42 @@ export class CacheStore {
     const normalizedTag = normalizeTag(tag);
     this.logger.log('info', `Invalidating cache entries with tag: ${normalizedTag}`);
 
-    let invalidated = false;
-
-    // Find all keys that have the specified tag
+    // Collect every tagged entry first, so each one gets its tag_invalidation event even
+    // if it also depends on another tagged entry (otherwise the cascade from that entry
+    // could remove it first and report it as a dependency invalidation instead)
+    const taggedKeys: string[] = [];
     for (const [key, cacheState] of this.cache.entries()) {
       if (cacheState.tags && cacheState.tags.includes(normalizedTag)) {
-        this.logger.log('debug', `Invalidating ${key} due to tag match: ${normalizedTag}`);
-
-        // Emit event before deleting
-        this.eventSystem.emitEvent(
-          EVENT.TAG_INVALIDATION,
-          {
-            key,
-            value: cacheState.value,
-            createdAt: cacheState.createdAt,
-            updatedAt: cacheState.updatedAt,
-            tag: normalizedTag,
-            _params: { tag: normalizedTag },
-          },
-        );
-
-        this.deleteSingle(key);
-        invalidated = true;
+        taggedKeys.push(key);
       }
+    }
+
+    let invalidated = false;
+    for (const key of taggedKeys) {
+      const cacheState = this.cache.get(key);
+      if (!cacheState) continue;
+      this.logger.log('debug', `Invalidating ${key} due to tag match: ${normalizedTag}`);
+
+      // Emit event before deleting
+      this.eventSystem.emitEvent(
+        EVENT.TAG_INVALIDATION,
+        {
+          key,
+          value: cacheState.value,
+          createdAt: cacheState.createdAt,
+          updatedAt: cacheState.updatedAt,
+          tag: normalizedTag,
+          _params: { tag: normalizedTag },
+        },
+      );
+
+      this.removeEntry(key);
+      invalidated = true;
+    }
+
+    // Then invalidate whatever depended on the removed entries
+    for (const key of taggedKeys) {
+      this.invalidateDependentsOf(key);
     }
 
     if (invalidated) {
@@ -1392,20 +1420,23 @@ export class CacheStore {
    * @returns {boolean} - Whether any entries were invalidated
    */
   private invalidateDependentsOf(key: string): boolean {
+    // Fast path: no entry declares any dependencies
+    if (!this.dependents.size) {
+      return false;
+    }
+
     const invalidatedKeys = new Set<string>();
     const queue = [key];
 
-    // Breadth-first walk over the reverse dependency graph. The root is never added,
+    // Breadth-first walk over the reverse dependency index. The root is never added,
     // so even a cycle that predates cycle detection cannot remove the root entry.
     while (queue.length) {
       const current = queue.shift() as string;
-      for (const [entryKey, cacheState] of this.cache.entries()) {
-        if (entryKey === key || invalidatedKeys.has(entryKey)) continue;
-        if (cacheState.dependencies && cacheState.dependencies.includes(current)) {
-          this.logger.log('debug', `Invalidating ${entryKey} due to dependency on: ${current}`);
-          invalidatedKeys.add(entryKey);
-          queue.push(entryKey);
-        }
+      for (const dependentKey of this.dependents.get(current) ?? []) {
+        if (dependentKey === key || invalidatedKeys.has(dependentKey)) continue;
+        this.logger.log('debug', `Invalidating ${dependentKey} due to dependency on: ${current}`);
+        invalidatedKeys.add(dependentKey);
+        queue.push(dependentKey);
       }
     }
 
@@ -1439,15 +1470,48 @@ export class CacheStore {
   }
 
   /**
-   * Returns true if the stored entry for `fromKey` depends on `targetKey`, directly or
-   * through other stored entries. Used for cycle detection; ignores expiry.
+   * Returns true if the entry for `fromKey` depends on `targetKey`, directly or through
+   * other entries. Used for cycle detection. Expired entries are treated as absent, as
+   * they are by get(), has() and isDependencyOf().
    */
   private dependsTransitively(fromKey: string, targetKey: string, visited = new Set<string>()): boolean {
     if (fromKey === targetKey) return true;
     if (visited.has(fromKey)) return false;
     visited.add(fromKey);
-    const deps = this.cache.get(fromKey)?.dependencies ?? [];
-    return deps.some((dep) => this.dependsTransitively(dep, targetKey, visited));
+    const state = this.cache.get(fromKey);
+    if (!state || (state.ttl && isExpired(state.updatedAt, state.ttl))) {
+      return false;
+    }
+    return (state.dependencies ?? []).some((dep) => this.dependsTransitively(dep, targetKey, visited));
+  }
+
+  /**
+   * Records `key` as a dependent of each of its dependencies in the reverse index
+   */
+  private indexDependencies(key: string, dependencies: string[] | undefined): void {
+    for (const dependency of dependencies ?? []) {
+      let set = this.dependents.get(dependency);
+      if (!set) {
+        set = new Set();
+        this.dependents.set(dependency, set);
+      }
+      set.add(key);
+    }
+  }
+
+  /**
+   * Removes `key` from the reverse index entries of its dependencies
+   */
+  private unindexDependencies(key: string, dependencies: string[] | undefined): void {
+    for (const dependency of dependencies ?? []) {
+      const set = this.dependents.get(dependency);
+      if (set) {
+        set.delete(key);
+        if (!set.size) {
+          this.dependents.delete(dependency);
+        }
+      }
+    }
   }
 
   /**
@@ -1536,6 +1600,7 @@ export class CacheStore {
 
     // Clear the cache
     this.cache.clear();
+    this.dependents.clear();
 
     // Clear all event listeners
     this.clearEventListeners();
