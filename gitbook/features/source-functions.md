@@ -126,19 +126,23 @@ This will:
 
 If a source function throws an error, RunCache handles it appropriately:
 
-### Initial Cache Miss
+### Initial Fetch
 
-If the source function throws an error on initial cache miss:
-1. The error is propagated to the caller
-2. No cache entry is created
+`set()` calls the source function before anything is written. If it throws:
+1. The error is propagated to the caller of `set()`
+2. No cache entry is created, and no TTL timer is started for it (so no `expire` event or auto-refetch follows)
 
 ```typescript
 try {
-  await RunCache.get('api-data'); // First call, source function throws
+  await RunCache.set({ key: 'api-data', sourceFn: fetchApiData, ttl: 60000 });
 } catch (error) {
   console.error('Failed to fetch API data:', error);
 }
 ```
+
+### Overwriting an Existing Entry
+
+If `set()` is called for a key that already exists and the source function (or a middleware) throws, the existing entry is left exactly as it was. It keeps its value, its TTL timer and, if enabled, its automatic refetching. A new value only replaces the old one, together with its TTL, once it has been produced successfully.
 
 ### Refetch Failures
 
@@ -298,28 +302,27 @@ await RunCache.set({
 });
 ```
 
-### 3. Return Stringified Data
+### 3. Return the Value You Want Back
 
-Source functions should always return string values:
+A source function can return a string or any serializable value. Whatever it returns is what `get()` gives back:
 
 ```typescript
-// Good - returns stringified data
-await RunCache.set({
+// Returns an object: get() returns the object
+await RunCache.set<UserData>({
   key: 'user-data',
-  sourceFn: async () => {
-    const data = await fetchUserData();
-    return JSON.stringify(data);
-  }
+  sourceFn: async () => fetchUserData()
 });
+const user = await RunCache.get<UserData>('user-data'); // UserData object
 
-// Avoid - returning objects directly
+// Returns a string: get() returns the same string, even if it looks like JSON
 await RunCache.set({
-  key: 'user-data',
-  sourceFn: async () => {
-    return fetchUserData(); // Wrong! Should stringify the result
-  }
+  key: 'user-data:raw',
+  sourceFn: async () => JSON.stringify(await fetchUserData())
 });
+const raw = await RunCache.get('user-data:raw'); // string; JSON.parse it yourself
 ```
+
+Non-string results are serialized on every fetch and refetch, so middleware always receives a string.
 
 ### 4. Optimize for Performance
 

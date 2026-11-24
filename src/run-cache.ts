@@ -4,7 +4,6 @@ import { EventParam, EventName, EVENT } from './types/events';
 import { SourceFn } from './types/cache-state';
 import { MiddlewareFunction } from './types/middleware';
 import { StorageAdapter, StorageAdapterConfig } from './types/storage-adapter';
-import { SerializationManager } from './core/serialization';
 
 // Re-export needed types for backwards compatibility with tests
 export { EvictionPolicy, EVENT, EventParam };
@@ -12,63 +11,88 @@ export { EvictionPolicy, EVENT, EventParam };
 // Re-export storage adapters
 export * from './storage/index';
 
+type ShutdownSignal = 'SIGTERM' | 'SIGINT';
+
+const SHUTDOWN_SIGNALS: ShutdownSignal[] = ['SIGTERM', 'SIGINT'];
+
+/** Signal handlers installed by {@link enableShutdownHandlers}, keyed by signal */
+let signalHandlers: Map<ShutdownSignal, () => void> | null = null;
+
+/** Browser unload handler installed by {@link enableShutdownHandlers} */
+let unloadHandler: (() => void) | null = null;
+
 /**
- * Registers shutdown handlers to properly clean up resources when the application is terminated.
- * This ensures the cache is properly cleared to prevent memory leaks.
- * 
- * Handles the following scenarios:
- * - Node.js environment: Registers handlers for SIGTERM and SIGINT signals
- * - Browser environment: Registers handler for beforeunload event
- * 
+ * Installs handlers that shut RunCache down when the process or page is terminating.
+ * Only called when the application opts in with `configure({ handleProcessSignals: true })`.
+ *
+ * In Node.js, SIGTERM and SIGINT handlers await `RunCache.shutdown()` (which saves to
+ * the configured storage adapter) and then re-raise the signal if no other listener
+ * handles it, so the process still terminates the way it would without RunCache.
+ * The handlers remove themselves first, so a second signal terminates immediately.
+ *
  * @private
  */
-function registerShutdownHandlers(): void {
-  // Node.js environment
-  if (typeof process !== 'undefined' && 
-      process !== null && 
-      typeof process.on === 'function') {
-    try {
-      // Handle graceful shutdown in Node.js environments
-      process.once('SIGTERM', () => {
-        // Clean up all resources when the application is shutting down
-        RunCache.shutdown();
-      });
-      
-      // Also handle SIGINT (Ctrl+C) for development environments
-      process.once('SIGINT', () => {
-        RunCache.shutdown();
-        // Only exit if we're in a Node.js process
-        if (typeof process.exit === 'function') {
-          process.exit(0);
-        }
-      });
-    } catch (e) {
-      // Silently handle errors in environments where process events aren't fully supported
-      if (typeof console !== 'undefined' && console.debug) {
-        console.debug('RunCache: Unable to register process termination handlers', e);
-      }
+function enableShutdownHandlers(): void {
+  if (signalHandlers || unloadHandler) {
+    return;
+  }
+
+  if (typeof process !== 'undefined'
+      && process !== null
+      && typeof process.on === 'function') {
+    signalHandlers = new Map();
+    for (const signal of SHUTDOWN_SIGNALS) {
+      const handler = () => {
+        // eslint-disable-next-line @typescript-eslint/no-use-before-define
+        disableShutdownHandlers();
+        // eslint-disable-next-line @typescript-eslint/no-use-before-define
+        RunCache.shutdown()
+          .catch((error) => {
+            if (typeof console !== 'undefined') {
+              console.error(`RunCache: shutdown on ${signal} failed`, error);
+            }
+          })
+          .finally(() => {
+            // Keep the default termination behaviour unless the application handles the signal itself
+            if (process.listenerCount(signal) === 0 && typeof process.kill === 'function') {
+              process.kill(process.pid, signal);
+            }
+          });
+      };
+      process.on(signal, handler);
+      signalHandlers.set(signal, handler);
     }
   }
 
-  // Browser environment
-  if (typeof window !== 'undefined' && 
-      window !== null && 
-      typeof window.addEventListener === 'function') {
-    try {
-      window.addEventListener(
-        'beforeunload',
-        () => {
-          RunCache.shutdown();
-        },
-        { once: true }
-      );
-    } catch (e) {
-      // Silently handle errors in environments where window events aren't fully supported
-      if (typeof console !== 'undefined' && console.debug) {
-        console.debug('RunCache: Unable to register window unload handler', e);
-      }
+  if (typeof window !== 'undefined'
+      && window !== null
+      && typeof window.addEventListener === 'function') {
+    unloadHandler = () => {
+      // Best effort: the browser does not wait for asynchronous work during unload
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define
+      RunCache.shutdown().catch(() => { /* page is unloading */ });
+    };
+    window.addEventListener('beforeunload', unloadHandler, { once: true });
+  }
+}
+
+/**
+ * Removes any handlers installed by {@link enableShutdownHandlers}.
+ *
+ * @private
+ */
+function disableShutdownHandlers(): void {
+  if (signalHandlers && typeof process !== 'undefined' && typeof process.removeListener === 'function') {
+    for (const [signal, handler] of signalHandlers) {
+      process.removeListener(signal, handler);
     }
   }
+  signalHandlers = null;
+
+  if (unloadHandler && typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+    window.removeEventListener('beforeunload', unloadHandler);
+  }
+  unloadHandler = null;
 }
 
 /**
@@ -113,13 +137,13 @@ export class RunCache {
   private static instance: CacheStore;
   private static instancePromise: Promise<CacheStore> | null = null;
   private static isInitialized = false;
-  private static serialization = new SerializationManager();
 
-  // Register shutdown handlers when the class is loaded
+  // Initialize the cache store when the class is loaded. Process signal handlers are
+  // opt-in (see `handleProcessSignals`), so importing RunCache has no global side effects.
   static {
-    registerShutdownHandlers();
-    // Initialize the cache store
-    RunCache.initialize();
+    RunCache.initialize().catch(() => {
+      // Initialization is retried, and any error surfaced, on first use
+    });
   }
 
   /**
@@ -127,19 +151,33 @@ export class RunCache {
    * This is automatically called when the class is loaded.
    * @private
    */
-  private static async initialize() {
+  private static async initialize(): Promise<CacheStore> {
     if (!RunCache.instancePromise) {
       RunCache.instancePromise = CacheStore.create();
-      try {
-        RunCache.instance = await RunCache.instancePromise;
-        RunCache.isInitialized = true;
-      } catch (error) {
-        console.error('Failed to initialize RunCache:', error);
-        // Log the error but don't create a new instance as the constructor is private
-        // The error will propagate to methods that try to use RunCache before it's initialized
-        throw new Error('Failed to initialize RunCache storage');
-      }
     }
+    // Always await the shared promise so concurrent callers never see an unset instance
+    const pending = RunCache.instancePromise;
+    let instance: CacheStore;
+    try {
+      instance = await pending;
+    } catch (error) {
+      if (RunCache.instancePromise !== pending) {
+        // Replaced (e.g. by shutdown()) while waiting: start over with the current state
+        return RunCache.initialize();
+      }
+      // Allow a later call to retry instead of caching the rejected promise
+      RunCache.instancePromise = null;
+      throw new Error('Failed to initialize RunCache storage');
+    }
+
+    if (RunCache.instancePromise !== pending) {
+      // shutdown() cleared or replaced the promise while it was pending. The instance it
+      // produced has been discarded, so initialize again instead of returning nothing.
+      return RunCache.initialize();
+    }
+
+    RunCache.instance = instance;
+    RunCache.isInitialized = true;
     return RunCache.instance;
   }
 
@@ -197,27 +235,13 @@ export class RunCache {
     dependencies?: string[];
   }): Promise<boolean> {
     await RunCache.ensureInitialized();
-    
-    // For backward compatibility, if T is string, pass through directly
-    if (typeof params.value === 'string' || params.value === undefined) {
-      return RunCache.instance.set({
-        ...params,
-        value: params.value as string,
-        sourceFn: params.sourceFn as SourceFn<string> | undefined,
-      });
-    }
-    
-    // For non-string types, serialize the value and wrap the sourceFn
-    const serializedValue = params.value !== undefined ? RunCache.serialization.serialize(params.value) : undefined;
-    const wrappedSourceFn = params.sourceFn ? async () => {
-      const result = await params.sourceFn!();
-      return RunCache.serialization.serialize(result);
-    } : undefined;
-    
+
+    // Strings are stored as-is; any other value is serialized by the store and
+    // flagged so that get() can restore it. This applies to values returned by
+    // `sourceFn` as well, on both the initial fetch and every refetch.
     return RunCache.instance.set({
       ...params,
-      value: serializedValue,
-      sourceFn: wrappedSourceFn,
+      sourceFn: params.sourceFn as SourceFn<unknown> | undefined,
     });
   }
 
@@ -248,31 +272,9 @@ export class RunCache {
    */
   static async get<T = string>(key: string): Promise<T | T[] | undefined> {
     await RunCache.ensureInitialized();
-    const result = await RunCache.instance.get(key);
-    
-    if (result === undefined) {
-      return undefined;
-    }
-    
-    // Handle array results (wildcard patterns)
-    if (Array.isArray(result)) {
-      return result.map(item => {
-        try {
-          // Try to deserialize, if it fails, return the original string
-          return RunCache.serialization.deserialize<T>(item);
-        } catch {
-          return item as T;
-        }
-      });
-    }
-    
-    // Handle single result
-    try {
-      // Try to deserialize, if it fails, return the original string
-      return RunCache.serialization.deserialize<T>(result);
-    } catch {
-      return result as T;
-    }
+    // Only values that were stored from non-string types are deserialized, so a
+    // string such as "123" or '{"a":1}' is returned exactly as it was stored.
+    return (await RunCache.instance.getDeserialized(key)) as T | T[] | undefined;
   }
 
   /**
@@ -402,12 +404,15 @@ export class RunCache {
    * If only event is provided, clears all listeners for that event.
    * If only key is provided, clears all event listeners for that key.
    * If both event and key are provided, clears only listeners for that specific combination.
+   * An options object with neither `event` nor `key` (for example `{}`) removes nothing.
+   * An exact key only clears listeners registered for that key; wildcard listeners such as
+   * `user:*` stay registered even if they match it. Pass the pattern itself to clear them.
    * 
    * @param {Object} [params] - Optional parameters to specify which event listeners to clear.
    * @param {EventName} [params.event] - Optional event name to clear listeners for.
    * @param {string} [params.key] - Optional key to clear listeners for.
    * 
-   * @returns {boolean} - Returns `true` if any listeners were cleared, `false` otherwise.
+   * @returns {boolean} - Returns `true` if at least one listener was removed, `false` otherwise.
    */
   static async clearEventListeners(params?: {
     event?: EventName;
@@ -425,10 +430,21 @@ export class RunCache {
    *   - evictionPolicy: The eviction policy to use when the cache exceeds its maximum size (default: EvictionPolicy.NONE)
    *   - debug: Enable debug logging (default: false)
    *   - storageAdapter: Optional adapter for persisting cache data (default: undefined)
+   *   - handleProcessSignals: Shut RunCache down (saving to storage) on SIGTERM/SIGINT in Node.js and
+   *     on `beforeunload` in browsers (default: false). The signal is re-raised afterwards unless the
+   *     application has its own listener, so default termination behaviour is preserved.
    */
   static async configure(config: CacheConfig): Promise<void> {
     await RunCache.ensureInitialized();
     await RunCache.instance.configure(config);
+
+    if ('handleProcessSignals' in config) {
+      if (config.handleProcessSignals) {
+        enableShutdownHandlers();
+      } else {
+        disableShutdownHandlers();
+      }
+    }
   }
 
   /**
@@ -448,9 +464,12 @@ export class RunCache {
    * Performs a complete shutdown of the cache, cleaning up all resources:
    * - Clears all cache entries and their associated intervals
    * - Removes all event listeners
+   * - Removes process signal handlers installed with `handleProcessSignals`
    * - Resets the cache to its initial state
    */
   static async shutdown(): Promise<void> {
+    disableShutdownHandlers();
+
     if (RunCache.isInitialized) {
       await RunCache.instance.shutdown();
       
@@ -459,7 +478,8 @@ export class RunCache {
         maxEntries: Number.POSITIVE_INFINITY,
         evictionPolicy: EvictionPolicy.NONE,
         debug: false,
-        storageAdapter: undefined
+        storageAdapter: undefined,
+        handleProcessSignals: false,
       });
     }
     // Reset initialization state

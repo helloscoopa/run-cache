@@ -31,6 +31,14 @@ interface CacheConfig {
   storageAdapter?: StorageAdapter;
 
   /**
+   * Shut the cache down (saving to the storage adapter) on SIGTERM/SIGINT in
+   * Node.js and on `beforeunload` in browsers. The signal is re-raised afterwards
+   * unless the application has its own listener for it.
+   * @default false
+   */
+  handleProcessSignals?: boolean;
+
+  /**
    * Receives errors thrown or rejected by event listeners.
    * Defaults to writing them to console.error.
    */
@@ -141,21 +149,26 @@ interface ExpiryEvent {
    * The key of the expired entry
    */
   key: string;
-  
+
+  /**
+   * The stored value at the time it expired
+   */
+  value: string;
+
   /**
    * The TTL value in milliseconds
    */
   ttl: number;
-  
+
+  /**
+   * Timestamp when the entry was created
+   */
+  createdAt: number;
+
   /**
    * Timestamp when the entry was last updated
    */
   updatedAt: number;
-  
-  /**
-   * Optional custom metadata associated with the entry
-   */
-  metadata?: any;
 }
 ```
 
@@ -169,11 +182,22 @@ interface RefetchEvent {
    * The key of the refreshed entry
    */
   key: string;
-  
+
   /**
-   * Optional custom metadata associated with the entry
+   * The value returned by the source function
    */
-  metadata?: any;
+  value: string;
+
+  /**
+   * The entry's TTL in milliseconds, if it has one
+   */
+  ttl?: number;
+
+  /**
+   * Timestamps of the refetch
+   */
+  createdAt: number;
+  updatedAt: number;
 }
 ```
 

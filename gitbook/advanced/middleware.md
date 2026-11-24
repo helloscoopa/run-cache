@@ -94,7 +94,8 @@ RunCache.use(async (value, context, next) => {
 // Valid value - passes through middleware
 await RunCache.set({ key: 'valid-key', value: 'valid-value' });
 
-// Invalid value - throws error
+// Invalid value - throws error. Nothing is written: if 'invalid-key' already
+// existed, it keeps its previous value and TTL.
 try {
   await RunCache.set({ key: 'invalid-key', value: 'a' });
 } catch (error) {

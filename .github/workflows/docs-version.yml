@@ -1,0 +1,53 @@
+name: Docs version
+
+# When a release tag is pushed, freeze that release's docs into
+# gitbook-versions/vX.Y and open a PR. Merging it adds (or refreshes) the
+# version in GitBook's version menu and makes it the default version.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to freeze, e.g. v1.7.0"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Freeze docs
+        id: freeze
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          node scripts/docs-version.mjs snapshot "$TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: docs/version-${{ steps.freeze.outputs.tag }}
+          commit-message: "docs: freeze ${{ steps.freeze.outputs.tag }} docs"
+          title: "docs: freeze ${{ steps.freeze.outputs.tag }} docs"
+          body: |
+            Freezes the docs of release `${{ steps.freeze.outputs.tag }}` into `gitbook-versions/` and regenerates `gitbook-docs.yaml`.
+
+            Once merged, GitBook syncs it as its own entry in the docs version menu, set as the default version.
+          add-paths: |
+            gitbook-versions/**
+            gitbook-docs.yaml
