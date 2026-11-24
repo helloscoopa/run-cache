@@ -536,7 +536,13 @@ try {
 
 ### 4. Implement Graceful Shutdown
 
-For Node.js applications, ensure cache is saved before shutting down:
+For Node.js applications, ensure cache is saved before shutting down. The simplest option is to let RunCache handle termination signals. It awaits `RunCache.shutdown()`, which saves to the storage adapter, and then lets the process exit as usual:
+
+```typescript
+await RunCache.configure({ handleProcessSignals: true });
+```
+
+If your application already handles these signals, keep the option off and save from your own handlers:
 
 ```typescript
 // Handle process termination signals
