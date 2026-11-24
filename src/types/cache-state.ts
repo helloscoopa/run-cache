@@ -1,3 +1,5 @@
+import { ExpiryTimer } from '../core/timer';
+
 /**
  * @file Defines TypeScript types for the internal cache state representation.
  */
@@ -49,7 +51,7 @@ export type CacheState<T = string> = {
   autoRefetch?: boolean;
   fetching?: boolean;
   sourceFn?: SourceFn<T>;
-  interval?: ReturnType<typeof setTimeout>;
+  interval?: ExpiryTimer;
   // LRU/LFU metadata
   accessCount: number;
   lastAccessed: number;

@@ -11,6 +11,7 @@ import { DefaultMiddlewareManager } from './middleware-manager';
 import { MiddlewareContext, MiddlewareFunction, MiddlewareManager } from '../types/middleware';
 import { StorageAdapter } from '../types/storage-adapter';
 import { SerializationManager } from './serialization';
+import { createExpiryTimer, ExpiryTimer } from './timer';
 
 // Use the original isExpired function but add a custom wrapper for the simpler case
 function isExpired(_cache: CacheState<string>): boolean;
@@ -266,14 +267,14 @@ export class CacheStore {
     const existingCache = this.cache.get(key);
     if (existingCache?.interval) {
       this.logger.log('debug', `Clearing existing interval for key: ${key}`);
-      clearTimeout(existingCache.interval);
+      existingCache.interval.clear();
     }
 
-    let interval: ReturnType<typeof setTimeout> | null = null;
+    let interval: ExpiryTimer | null = null;
 
     if (ttl !== undefined) {
       this.logger.log('debug', `Setting expiry interval for key: ${key}, ttl: ${ttl}ms`);
-      interval = setTimeout(() => {
+      interval = createExpiryTimer(() => {
         this.logger.log('debug', `TTL expired for key: ${key}`);
         this.eventSystem.emitEvent(
           EVENT.EXPIRE,
@@ -723,14 +724,14 @@ export class CacheStore {
 
       // Clear the existing interval if present
       if (cached.interval) {
-        clearTimeout(cached.interval);
+        cached.interval.clear();
       }
 
       // Create a new interval if TTL is specified
-      let newInterval: ReturnType<typeof setTimeout> | undefined;
+      let newInterval: ExpiryTimer | undefined;
 
       if (cached.ttl) {
-        newInterval = setTimeout(() => {
+        newInterval = createExpiryTimer(() => {
           this.logger.log('debug', `TTL expired for refetched key: ${key}`);
           this.eventSystem.emitEvent(
             EVENT.EXPIRE,
@@ -815,7 +816,7 @@ export class CacheStore {
 
     if (cache.interval) {
       this.logger.log('debug', `Clearing timeout for key: ${key}`);
-      clearTimeout(cache.interval);
+      cache.interval.clear();
     }
 
     this.logger.log('info', `Deleted key: ${key}`);
@@ -833,7 +834,7 @@ export class CacheStore {
 
     values.forEach(({ interval }) => {
       if (interval) {
-        clearTimeout(interval);
+        interval.clear();
       }
     });
 
@@ -888,7 +889,7 @@ export class CacheStore {
       // Clean up expired entry to prevent memory leaks
       if (cached.interval) {
         this.logger.log('debug', `Clearing timeout for expired key: ${key}`);
-        clearTimeout(cached.interval);
+        cached.interval.clear();
       }
       this.logger.log('debug', `Removing expired key during has() check: ${key}`);
       this.cache.delete(key);
@@ -1169,7 +1170,7 @@ export class CacheStore {
     }
 
     // Otherwise set timeout for remaining time
-    state.interval = setTimeout(() => {
+    state.interval = createExpiryTimer(() => {
       this.handleExpiry(key, state);
     }, remainingTime);
   }
@@ -1499,7 +1500,7 @@ export class CacheStore {
     // Clear all timeouts
     for (const cacheItem of this.cache.values()) {
       if (cacheItem?.interval) {
-        clearTimeout(cacheItem.interval);
+        cacheItem.interval.clear();
         cacheItem.interval = undefined;
       }
     }
